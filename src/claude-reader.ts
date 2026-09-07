@@ -18,6 +18,7 @@ interface PendingSession {
   modelCalls: ModelCallRecord[];
   tools: ToolCallRecord[];
   lifecycle: LifecycleRecord[];
+  unsupported: boolean;
 }
 
 function objectValue(value: unknown): JsonObject | null {
@@ -63,6 +64,14 @@ function byteLength(value: unknown): number | null {
   }
 }
 
+function characterLength(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const text = typeof value === "string" ? value : (() => {
+    try { return JSON.stringify(value); } catch { return null; }
+  })();
+  return text === null ? null : Array.from(text).length;
+}
+
 function contentBlocks(value: unknown): JsonObject[] {
   if (Array.isArray(value)) return value.map(objectValue).filter((item): item is JsonObject => item !== null);
   const object = objectValue(value);
@@ -84,6 +93,7 @@ function createSession(sessionId: string): PendingSession {
     modelCalls: [],
     tools: [],
     lifecycle: [],
+    unsupported: false,
   };
 }
 
@@ -114,7 +124,12 @@ function usageCall(
   const reasoningTokens = numberValue(usage.reasoning_tokens, usage.reasoningTokens);
   const reportedTotal = numberValue(usage.total_tokens, usage.totalTokens);
   if ([inputTokens, cachedInputTokens, cacheWriteTokens, outputTokens, reasoningTokens, reportedTotal].every((value) => value === null)) return null;
-  const totalTokens = reportedTotal ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens + (reasoningTokens ?? 0) : null);
+  const totalTokens = reportedTotal ?? (
+    inputTokens !== null && cachedInputTokens !== null && cacheWriteTokens !== null
+      && outputTokens !== null && reasoningTokens !== null
+      ? inputTokens + cachedInputTokens + cacheWriteTokens + outputTokens + reasoningTokens
+      : null
+  );
   return {
     sessionId,
     callId,
@@ -167,7 +182,16 @@ function sameCwd(left: string | null, right: string | null): boolean {
 
 function selected(pending: PendingSession, scope: ReadScope): boolean {
   if (!scope.allProjects && !sameCwd(pending.session.projectCwd, scope.cwd)) return false;
-  return pending.eventTimes.length === 0 || pending.eventTimes.some((time) => time >= scope.since.getTime());
+  return pending.eventTimes.some((time) => time >= scope.since.getTime());
+}
+
+const knownClaudeTypes = new Set([
+  "user", "assistant", "system", "summary", "progress", "queue-operation", "file-history-snapshot",
+  "last-prompt", "result", "tool_result", "tool-result",
+]);
+
+function accountingSensitiveClaudeType(type: string): boolean {
+  return /usage|token|response|assistant|message|tool|call|retry|interrupt|compact|subagent|error/i.test(type);
 }
 
 export async function readClaude(scope: ReadScope): Promise<ReadResult> {
@@ -222,6 +246,12 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
       if (parentSessionId) pending.session.parentSessionId = parentSessionId;
 
       const type = stringValue(record.type, record.kind)?.toLowerCase() ?? "";
+      const role = stringValue(message?.role)?.toLowerCase();
+      if (type && !knownClaudeTypes.has(type) && role !== "assistant" && role !== "user") {
+        coverage.recordsSkipped += 1;
+        if (accountingSensitiveClaudeType(type)) pending.unsupported = true;
+        continue;
+      }
       if (type === "assistant" || message?.role === "assistant") {
         const usage = message?.usage ?? record.usage;
         const stopReason = stringValue(message?.stop_reason, message?.stopReason) ?? "";
@@ -247,6 +277,7 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
               toolName: stringValue(block.name) ?? "unknown-tool",
               inputBytes: byteLength(block.input),
               resultBytes: null,
+              resultChars: null,
               isError: null,
             });
           }
@@ -260,10 +291,13 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
           if (!toolId) continue;
           const tool = pending.tools.find((candidate) => candidate.callId === toolId);
           if (tool) {
-            tool.resultBytes = byteLength(block.content ?? block.result);
+            const result = block.content ?? block.result;
+            tool.resultBytes = byteLength(result);
+            tool.resultChars = characterLength(result);
             tool.isError = booleanValue(block.is_error, block.isError);
           } else {
-            pending.tools.push({ sessionId, callId: toolId, timestamp, toolName: "unknown-tool", inputBytes: null, resultBytes: byteLength(block.content ?? block.result), isError: booleanValue(block.is_error, block.isError) });
+            const result = block.content ?? block.result;
+            pending.tools.push({ sessionId, callId: toolId, timestamp, toolName: "unknown-tool", inputBytes: null, resultBytes: byteLength(result), resultChars: characterLength(result), isError: booleanValue(block.is_error, block.isError) });
           }
         }
       }
@@ -280,10 +314,14 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
   const lifecycle: LifecycleRecord[] = [];
   for (const pending of pendingById.values()) {
     if (!selected(pending, scope)) continue;
+    if (pending.unsupported) {
+      coverage.partialSessions += 1;
+      coverage.warnings.push("A Claude Code Session contains unsupported accounting records; only a partial audit is reported.");
+    }
     sessions.push(pending.session);
-    for (const call of pending.modelCalls) if (!call.timestamp || Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);
-    toolCalls.push(...pending.tools);
-    lifecycle.push(...pending.lifecycle);
+    for (const call of pending.modelCalls) if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);
+    toolCalls.push(...pending.tools.filter((tool) => tool.timestamp && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
+    lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
   }
   if (files.length === 0) coverage.warnings.push("No Claude Code transcript history was found for the selected scope.");
   return { sessions, modelCalls, toolCalls, lifecycle, coverage };

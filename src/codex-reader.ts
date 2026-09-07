@@ -34,6 +34,7 @@ interface PendingSession {
   lifecycle: LifecycleRecord[];
   currentModel: string | null;
   currentProvider: string | null;
+  unsupported: boolean;
 }
 
 function asObject(value: unknown): JsonObject | null {
@@ -133,8 +134,9 @@ function callFromUsage(
   usage: UsageValues,
 ): ModelCallRecord {
   const totalTokens = usage.totalTokens ?? (
-    usage.inputTokens !== null && usage.outputTokens !== null
-      ? usage.inputTokens + usage.outputTokens + (usage.reasoningTokens ?? 0)
+    usage.inputTokens !== null && usage.cachedInputTokens !== null && usage.cacheWriteTokens !== null
+      && usage.outputTokens !== null && usage.reasoningTokens !== null
+      ? usage.inputTokens + usage.cachedInputTokens + usage.cacheWriteTokens + usage.outputTokens + usage.reasoningTokens
       : null
   );
   const tokenProvenance = usage.totalTokens !== null ? "reported" : (
@@ -202,6 +204,17 @@ function isType(record: JsonObject, payload: JsonObject, ...types: string[]): bo
   return types.some((type) => record.type === type || payload.type === type);
 }
 
+const knownCodexTypes = new Set([
+  "session_meta", "session_metadata", "turn_context", "event_msg", "response_item", "token_count",
+  "raw_response_completed", "raw_response_completed_event", "function_call", "function_call_output",
+  "custom_tool_call", "custom_tool_call_output", "shell_command", "tool_call", "tool_result", "stream_error",
+  "turn_aborted", "interrupted", "error", "compaction", "subagent",
+]);
+
+function accountingSensitiveCodexType(type: string): boolean {
+  return /usage|token|response|assistant|message|tool|call|turn|retry|interrupt|compact|subagent|error/i.test(type);
+}
+
 function responseUsage(record: JsonObject, payload: JsonObject): { id: string | null; usage: UsageValues } | null {
   const event = firstObject(
     isType(record, payload, "raw_response_completed") ? payload : null,
@@ -253,12 +266,21 @@ function byteLength(value: unknown): number | null {
   }
 }
 
+function characterLength(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const text = typeof value === "string" ? value : (() => {
+    try { return JSON.stringify(value); } catch { return null; }
+  })();
+  return text === null ? null : Array.from(text).length;
+}
+
 function toolEvent(record: JsonObject, payload: JsonObject): {
   kind: "call" | "result";
   callId: string;
   toolName: string;
   inputBytes: number | null;
   resultBytes: number | null;
+  resultChars: number | null;
   isError: boolean | null;
 } | null {
   const type = stringValue(payload.type, record.type)?.toLowerCase() ?? "";
@@ -276,6 +298,7 @@ function toolEvent(record: JsonObject, payload: JsonObject): {
     toolName,
     inputBytes: isResult ? null : byteLength(input),
     resultBytes: isResult ? byteLength(output) : null,
+    resultChars: isResult ? characterLength(output) : null,
     isError: booleanValue(payload.is_error, payload.isError, payload.error),
   };
 }
@@ -311,7 +334,7 @@ function mergeSession(pending: PendingSession, payload: JsonObject, timestamp: s
 function selectedByScope(session: SessionRecord, eventTimes: number[], scope: ReadScope): boolean {
   if (!scope.allProjects && !sameCwd(session.projectCwd, scope.cwd)) return false;
   const since = scope.since.getTime();
-  return eventTimes.some((time) => time >= since) || eventTimes.length === 0;
+  return eventTimes.some((time) => time >= since);
 }
 
 export async function readCodex(scope: ReadScope): Promise<ReadResult> {
@@ -386,6 +409,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
             lifecycle: [],
             currentModel: null,
             currentProvider: null,
+            unsupported: false,
           });
         }
         mergeSession(pendingById.get(sessionId)!, payload, timestamp);
@@ -412,9 +436,18 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
         lifecycle: [],
         currentModel: null,
         currentProvider: null,
+        unsupported: false,
       };
       pendingById.set(sessionId, pending);
       updateSessionTimes(pending, timestamp);
+
+      const recordType = stringValue(record.type)?.toLowerCase();
+      const payloadType = stringValue(payload.type)?.toLowerCase();
+      if ((recordType || payloadType) && !knownCodexTypes.has(recordType ?? "") && !knownCodexTypes.has(payloadType ?? "")) {
+        coverage.recordsSkipped += 1;
+        if (accountingSensitiveCodexType(recordType ?? payloadType ?? "")) pending.unsupported = true;
+        continue;
+      }
 
       if (isType(record, payload, "turn_context")) {
         mergeSession(pending, payload, timestamp);
@@ -480,12 +513,14 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
             toolName: tool.toolName,
             inputBytes: tool.inputBytes,
             resultBytes: null,
+            resultChars: null,
             isError: tool.isError,
           });
         } else {
           const existing = pending.toolCalls.find((candidate) => candidate.callId === tool.callId);
           if (existing) {
             existing.resultBytes = tool.resultBytes;
+            existing.resultChars = tool.resultChars;
             existing.isError = tool.isError ?? existing.isError;
           } else {
             pending.toolCalls.push({
@@ -495,6 +530,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
               toolName: tool.toolName,
               inputBytes: null,
               resultBytes: tool.resultBytes,
+              resultChars: tool.resultChars,
               isError: tool.isError,
             });
           }
@@ -529,9 +565,13 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
   const lifecycle = [] as ReadResult["lifecycle"];
   for (const pending of pendingById.values()) {
     if (!selectedByScope(pending.session, pending.eventTimes, scope)) continue;
+    if (pending.unsupported) {
+      coverage.partialSessions += 1;
+      coverage.warnings.push("A Codex Session contains unsupported accounting records; only a partial audit is reported.");
+    }
     sessions.push(pending.session);
-    toolCalls.push(...pending.toolCalls);
-    lifecycle.push(...pending.lifecycle);
+    toolCalls.push(...pending.toolCalls.filter((tool) => tool.timestamp !== null && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
+    lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp !== null && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
     const calls = pending.rawCalls.length > 0
       ? pending.rawCalls
       : pending.incrementalCalls.length > 0
@@ -540,7 +580,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
           ? [pending.finalTotal]
           : [];
     for (const call of calls) {
-      if (call.timestamp && Date.parse(call.timestamp) < scope.since.getTime()) continue;
+      if (!call.timestamp || Number.isNaN(Date.parse(call.timestamp)) || Date.parse(call.timestamp) < scope.since.getTime()) continue;
       modelCalls.push(call);
     }
   }

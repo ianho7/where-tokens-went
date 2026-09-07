@@ -307,6 +307,11 @@ test('Codex Global Audit widens projects without crossing the Harness boundary',
     assert.equal(result.summary.modelCallCount.value, 2);
     assert.equal(result.summary.totalTokens.value, 300);
     assert.equal(result.summary.topSessionId.value, 'session-b');
+    assert.equal(result.rankings.projects.length, 2);
+    assert.equal(result.rankings.projects[0].value.value, 200);
+    assert.match(result.rankings.projects[0].key, /^project-[0-9a-f]{12}$/);
+    assert.equal(result.rankings.models[0].value.value, 300);
+    assert.equal(result.rankings.timeBuckets.length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -322,10 +327,10 @@ test('Claude Code Skill path deduplicates assistant usage and pairs tool results
 
   const records = [
     { type: 'user', session_id: 'claude-session', cwd: project, timestamp: isoHoursAgo(3), message: { role: 'user', content: 'PRIVATE_PROMPT' } },
-    { type: 'assistant', session_id: 'claude-session', cwd: project, timestamp: isoHoursAgo(2.9), message: { id: 'assistant-1', role: 'assistant', model: 'claude-sonnet', usage: { input_tokens: 100, cache_read_input_tokens: 20, output_tokens: 40 }, content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file: 'secret-source.ts' } }] } },
-    { type: 'assistant', session_id: 'claude-session', cwd: project, timestamp: isoHoursAgo(2.8), message: { id: 'assistant-1', role: 'assistant', model: 'claude-sonnet', usage: { input_tokens: 100, cache_read_input_tokens: 20, output_tokens: 40 }, content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file: 'secret-source.ts' } }] } },
+    { type: 'assistant', session_id: 'claude-session', cwd: project, timestamp: isoHoursAgo(2.9), message: { id: 'assistant-1', role: 'assistant', model: 'claude-sonnet', usage: { input_tokens: 100, cache_read_input_tokens: 20, output_tokens: 40, total_tokens: 160 }, content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file: 'secret-source.ts' } }] } },
+    { type: 'assistant', session_id: 'claude-session', cwd: project, timestamp: isoHoursAgo(2.8), message: { id: 'assistant-1', role: 'assistant', model: 'claude-sonnet', usage: { input_tokens: 100, cache_read_input_tokens: 20, output_tokens: 40, total_tokens: 160 }, content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file: 'secret-source.ts' } }] } },
     { type: 'user', session_id: 'claude-session', cwd: project, timestamp: isoHoursAgo(2.7), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'TOOL_SECRET '.repeat(100) }] } },
-    { type: 'assistant', session_id: 'claude-session', cwd: project, timestamp: isoHoursAgo(1.8), message: { id: 'assistant-2', role: 'assistant', model: 'claude-sonnet', usage: { input_tokens: 120, output_tokens: 50 } } },
+    { type: 'assistant', session_id: 'claude-session', cwd: project, timestamp: isoHoursAgo(1.8), message: { id: 'assistant-2', role: 'assistant', model: 'claude-sonnet', usage: { input_tokens: 120, output_tokens: 50, total_tokens: 170 } } },
   ];
   await writeFile(path.join(transcripts, 'claude-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
 
@@ -339,7 +344,7 @@ test('Claude Code Skill path deduplicates assistant usage and pairs tool results
     assert.equal(result.scope.harness, 'claude');
     assert.equal(result.summary.sessionCount.value, 1);
     assert.equal(result.summary.modelCallCount.value, 2);
-    assert.equal(result.summary.totalTokens.value, 310);
+    assert.equal(result.summary.totalTokens.value, 330);
     assert.equal(result.summary.toolCallCount.value, 1);
     assert.equal(result.summary.pairedToolResultCount.value, 1);
     assert.equal(result.topFinding.kind, 'tool_amplification');
@@ -394,6 +399,21 @@ test('Pi Skill path reports usage, reported cost, and branch-safe tool evidence'
         content: [{ type: 'text', text: 'safe summary' }],
       },
     },
+    { type: 'unknown_usage_event', id: 'pi-unknown', parentId: 'pi-entry-3', timestamp: isoHoursAgo(1.75), payload: { usage: { total: 9999 } } },
+    {
+      type: 'message',
+      id: 'pi-inactive-branch',
+      parentId: 'pi-entry-1',
+      timestamp: isoHoursAgo(1.72),
+      message: { role: 'assistant', usage: { input: 900, output: 100, cacheRead: 10, cacheWrite: 5, totalTokens: 1015, cost: { total: 0.5 } }, content: [{ type: 'toolCall', id: 'pi-inactive-tool', name: 'read', arguments: { file: 'inactive-secret.ts' } }] },
+    },
+    {
+      type: 'message',
+      id: 'pi-inactive-result',
+      parentId: 'pi-inactive-branch',
+      timestamp: isoHoursAgo(1.71),
+      message: { role: 'toolResult', toolCallId: 'pi-inactive-tool', content: 'INACTIVE_SECRET '.repeat(500), isError: false },
+    },
     { type: 'compaction', id: 'pi-entry-4', parentId: 'pi-entry-3', timestamp: isoHoursAgo(1.7), tokensBefore: 500 },
   ];
   await writeFile(path.join(sessions, 'pi-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
@@ -412,12 +432,15 @@ test('Pi Skill path reports usage, reported cost, and branch-safe tool evidence'
     assert.equal(result.summary.reportedCost.value, 0.03);
     assert.equal(result.summary.reportedCost.provenance, 'reported');
     assert.equal(result.summary.toolCallCount.value, 1);
+    assert.equal(result.coverage.recordsSkipped, 1);
+    assert.equal(result.coverage.partialSessions, 1);
     assert.equal(result.summary.pairedToolResultCount.value, 1);
-    assert.equal(result.summary.extraLifecycleCount.value, 1);
+    assert.equal(result.summary.extraLifecycleCount.value, 0);
     assert.equal(result.topFinding.kind, 'tool_amplification');
     const serialized = JSON.stringify(result);
     assert.equal(serialized.includes('PI_TOOL_SECRET'), false);
     assert.equal(serialized.includes('secret.ts'), false);
+    assert.equal(serialized.includes('inactive-secret.ts'), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -450,8 +473,14 @@ test('DeepSeek Harness Skill path reads zstd Session events without returning co
       time: isoHoursAgo(1.8),
       data: { stepId: 'step-2', messageId: 'message-2', usage: { inputTokens: 110, outputTokens: 40, totalTokens: 160 }, content: [] },
     },
-    { type: 'retry', seq: 5, time: isoHoursAgo(1.7), data: { attemptId: 'attempt-1' } },
-    { type: 'compaction/start', seq: 6, time: isoHoursAgo(1.6), data: {} },
+    {
+      type: 'text-chunks',
+      seq0: 5,
+      time0: Date.now() - 1.75 * 60 * 60 * 1000,
+      data: { turn: 1, step: 2, index: 0, dt: [0, 4, 6], texts: ['safe', ' packed', ' delta'] },
+    },
+    { type: 'retry', seq: 8, time: isoHoursAgo(1.7), data: { attemptId: 'attempt-1' } },
+    { type: 'compaction/start', seq: 9, time: isoHoursAgo(1.6), data: {} },
   ];
   const logical = records.map((record) => JSON.stringify(record)).join('\n') + '\n';
   const split = Math.floor(logical.length / 2);
@@ -473,7 +502,8 @@ test('DeepSeek Harness Skill path reads zstd Session events without returning co
     assert.equal(result.summary.totalTokens.value, 300);
     assert.equal(result.summary.toolCallCount.value, 1);
     assert.equal(result.summary.pairedToolResultCount.value, 1);
-    assert.equal(result.summary.extraLifecycleCount.value, 2);
+    assert.equal(result.summary.extraLifecycleCount.value, 1);
+    assert.equal(result.coverage.recordsSkipped, 0);
     assert.equal(result.topFinding.kind, 'tool_amplification');
     const serialized = JSON.stringify(result);
     assert.equal(serialized.includes('DSH_SECRET'), false);

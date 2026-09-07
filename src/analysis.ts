@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
 import type {
   AuditResult,
+  ContributionEntry,
+  ContributionRankings,
   EvidenceValue,
   Harness,
   ModelCallRecord,
@@ -24,21 +27,63 @@ function callTokens(call: ModelCallRecord): number | null {
 function sessionTotal(sessionId: string, calls: ModelCallRecord[]): number | null {
   const ownCalls = calls.filter((call) => call.sessionId === sessionId);
   if (ownCalls.length === 0 || ownCalls.some((call) => callTokens(call) === null)) return null;
-  return ownCalls.reduce((total, call) => total + (callTokens(call) ?? 0), 0);
+  return ownCalls.reduce((total, call) => total + callTokens(call)!, 0);
 }
 
 function sumTokens(calls: ModelCallRecord[]): { value: number | null; provenance: "reported" | "derived" | "unavailable" } {
   if (calls.length === 0 || calls.some((call) => callTokens(call) === null)) {
     return { value: null, provenance: "unavailable" };
   }
-  const value = calls.reduce((total, call) => total + (callTokens(call) ?? 0), 0);
+  const value = calls.reduce((total, call) => total + callTokens(call)!, 0);
   const allReported = calls.every((call) => call.tokenProvenance === "reported");
   return { value, provenance: allReported ? "reported" : "derived" };
 }
 
 function sumReportedCost(calls: ModelCallRecord[]): number | null {
   if (calls.length === 0 || calls.some((call) => call.reportedCost === null)) return null;
-  return calls.reduce((total, call) => total + (call.reportedCost ?? 0), 0);
+  return calls.reduce((total, call) => total + call.reportedCost!, 0);
+}
+
+function rankContributions(
+  calls: ModelCallRecord[],
+  keyOf: (call: ModelCallRecord) => string,
+  label: string,
+): ContributionEntry[] {
+  const groups = new Map<string, { tokens: number; complete: boolean; reported: boolean }>();
+  for (const call of calls) {
+    const key = keyOf(call);
+    const existing = groups.get(key) ?? { tokens: 0, complete: true, reported: true };
+    if (call.totalTokens === null) {
+      existing.complete = false;
+    } else {
+      existing.tokens += call.totalTokens;
+    }
+    existing.reported = existing.reported && call.tokenProvenance === "reported";
+    groups.set(key, existing);
+  }
+  return [...groups.entries()]
+    .filter(([, group]) => group.complete)
+    .sort((left, right) => right[1].tokens - left[1].tokens || left[0].localeCompare(right[0]))
+    .map(([key, group]) => ({
+      key,
+      value: {
+        value: group.tokens,
+        provenance: group.reported ? "reported" : "derived",
+        method: `${label} group sum of complete ModelCall token totals`,
+      },
+    }));
+}
+
+function timeBucket(timestamp: string | null): string {
+  if (!timestamp) return "<unknown-time>";
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? "<unknown-time>" : parsed.toISOString().slice(0, 10);
+}
+
+function projectKey(cwd: string | null, scope: ReadScope): string {
+  if (!cwd) return "<unknown-project>";
+  if (!scope.allProjects) return "<current-project>";
+  return `project-${createHash("sha256").update(cwd).digest("hex").slice(0, 12)}`;
 }
 
 function topSession(sessions: SessionRecord[], calls: ModelCallRecord[]): { session: SessionRecord; tokens: number } | null {
@@ -49,14 +94,19 @@ function topSession(sessions: SessionRecord[], calls: ModelCallRecord[]): { sess
   return candidates[0] ? { session: candidates[0].session, tokens: candidates[0].tokens } : null;
 }
 
-function laterCalls(tool: ToolCallRecord, calls: ModelCallRecord[]): number {
+function laterCalls(tool: ToolCallRecord, calls: ModelCallRecord[], lifecycle: ReadResult["lifecycle"]): number {
   if (!tool.timestamp) return 0;
   const toolTime = Date.parse(tool.timestamp);
   if (Number.isNaN(toolTime)) return 0;
+  const nextCompaction = lifecycle
+    .filter((event) => event.sessionId === tool.sessionId && event.kind === "compaction" && event.timestamp)
+    .map((event) => Date.parse(event.timestamp!))
+    .filter((time) => !Number.isNaN(time) && time > toolTime)
+    .sort((left, right) => left - right)[0];
   return calls.filter((call) => {
     if (call.sessionId !== tool.sessionId || !call.timestamp) return false;
     const callTime = Date.parse(call.timestamp);
-    return !Number.isNaN(callTime) && callTime > toolTime;
+    return !Number.isNaN(callTime) && callTime > toolTime && (nextCompaction === undefined || callTime < nextCompaction);
   }).length;
 }
 
@@ -69,10 +119,10 @@ function toolAmplification(read: ReadResult): {
   let hasResult = false;
   let largest: { tool: ToolCallRecord; tokens: number; laterCalls: number } | null = null;
   for (const tool of read.toolCalls) {
-    if (tool.resultBytes === null) continue;
+    if (tool.resultChars === null || tool.resultChars === undefined) continue;
     hasResult = true;
-    const estimatedResultTokens = tool.resultBytes / 4;
-    const following = laterCalls(tool, read.modelCalls);
+    const estimatedResultTokens = tool.resultChars / 4;
+    const following = laterCalls(tool, read.modelCalls, read.lifecycle);
     const tokens = estimatedResultTokens * following;
     total += tokens;
     if (!largest || tokens > largest.tokens) largest = { tool, tokens, laterCalls: following };
@@ -94,6 +144,14 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
   const largest = topSession(read.sessions, read.modelCalls);
   const largestCalls = largest ? read.modelCalls.filter((call) => call.sessionId === largest.session.sessionId) : [];
   const amplification = toolAmplification(read);
+  const extraLifecycle = read.lifecycle.filter((event) => event.kind !== "compaction");
+  const sessionProjects = new Map(read.sessions.map((session) => [session.sessionId, session.projectCwd]));
+  const rankings: ContributionRankings = {
+    sessions: rankContributions(read.modelCalls, (call) => call.sessionId, "Session"),
+    projects: rankContributions(read.modelCalls, (call) => projectKey(sessionProjects.get(call.sessionId) ?? null, scope), "project"),
+    models: rankContributions(read.modelCalls, (call) => call.model ?? "<unknown-model>", "model"),
+    timeBuckets: rankContributions(read.modelCalls, (call) => timeBucket(call.timestamp), "time bucket"),
+  };
   const share = largest && tokenTotal.value !== null && tokenTotal.value > 0
     ? largest.tokens / tokenTotal.value
     : null;
@@ -118,6 +176,9 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     topSessionTokens: largest
       ? { value: largest.tokens, provenance: "derived", method: "sum of that Session's complete ModelCall totals", source: { sessionId: largest.session.sessionId } }
       : unavailable("no Session has a complete token total"),
+    topProject: rankings.projects[0]?.value ?? unavailable("no project has a complete token total"),
+    topModel: rankings.models[0]?.value ?? unavailable("no model has a complete token total"),
+    topTimeBucket: rankings.timeBuckets[0]?.value ?? unavailable("no time bucket has a complete token total"),
     toolCallCount: evidenceForCount(read.toolCalls.length, "count of selected ToolCall records"),
     pairedToolResultCount: evidenceForCount(
       read.toolCalls.filter((tool) => tool.resultBytes !== null).length,
@@ -128,10 +189,11 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
       : {
         value: amplification.tokens,
         provenance: "estimated",
-        method: "UTF-8 result bytes divided by 4, multiplied by later ModelCall records in the same Session",
+        method: "UTF-8 text characters divided by 4, multiplied by later ModelCall records in the same active context",
         source: amplification.tool ? { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId, timestamp: amplification.tool.timestamp ?? undefined } : undefined,
       },
-    extraLifecycleCount: evidenceForCount(read.lifecycle.length, "count of retry, compaction, subagent, and interrupted lifecycle records"),
+    lifecycleCount: evidenceForCount(read.lifecycle.length, "count of retry, compaction, subagent, and interrupted lifecycle records"),
+    extraLifecycleCount: evidenceForCount(extraLifecycle.length, "count of retry, interruption, and subagent lifecycle records"),
   };
 
   let topFinding: AuditResult["topFinding"] = null;
@@ -183,14 +245,14 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
       impact: {
         value: amplification.tokens,
         provenance: "estimated",
-        method: "UTF-8 result bytes divided by 4, multiplied by later ModelCall records in the same Session",
+        method: "UTF-8 text characters divided by 4, multiplied by later ModelCall records in the same active context",
         source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId, timestamp: amplification.tool.timestamp ?? undefined },
       },
       evidence: [
         {
-          value: amplification.tool.resultBytes,
+          value: amplification.tool.resultChars ?? null,
           provenance: "derived",
-          method: "UTF-8 byte length of the paired tool result; content is not returned",
+          method: "Unicode text-character length of the paired tool result; content is not returned",
           source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId, timestamp: amplification.tool.timestamp ?? undefined },
         },
         {
@@ -202,7 +264,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
         {
           value: amplification.tokens,
           provenance: "estimated",
-          method: "result bytes / 4 × later ModelCall records",
+          method: "result text characters / 4 × later ModelCall records",
           source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId },
         },
       ],
@@ -211,21 +273,23 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     if (!topFinding || toolFinding.impact.value! > topFinding.impact.value!) topFinding = toolFinding;
   }
 
-  if (read.lifecycle.length > 0) {
+  if (extraLifecycle.length > 0) {
     const extraFinding: NonNullable<AuditResult["topFinding"]> = {
       kind: "extra_calls",
-      headline: `${read.lifecycle.length} retry, interruption, compaction, or subagent lifecycle event(s) were observed.`,
+      headline: `${extraLifecycle.length} retry, interruption, or subagent lifecycle event(s) were observed.`,
       explanation: "Lifecycle events indicate additional work around model calls. The history does not always expose exact attempt cost, so this signal is kept separate from token totals.",
       impact: {
-        value: read.lifecycle.length,
+        value: extraLifecycle.length,
         provenance: "derived",
-        method: "count of observed lifecycle records",
-        source: read.lifecycle[0] ? { sessionId: read.lifecycle[0].sessionId, timestamp: read.lifecycle[0].timestamp ?? undefined } : undefined,
+        method: "count of observed retry, interruption, and subagent lifecycle records",
+        source: extraLifecycle[0] ? { sessionId: extraLifecycle[0].sessionId, timestamp: extraLifecycle[0].timestamp ?? undefined } : undefined,
       },
-      evidence: [evidenceForCount(read.lifecycle.length, "count of observed lifecycle records")],
+      evidence: [evidenceForCount(extraLifecycle.length, "count of observed retry, interruption, and subagent lifecycle records")],
       recommendation: "Inspect the error or retry cause before repeating the same large task.",
     };
-    if (!topFinding || extraFinding.impact.value! > topFinding.impact.value!) topFinding = extraFinding;
+    // Token- and character-impact findings are comparable within their own
+    // units; keep the stable priority order rather than comparing unlike units.
+    if (!topFinding) topFinding = extraFinding;
   }
 
   return {
@@ -237,6 +301,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     },
     coverage: read.coverage,
     summary,
+    rankings,
     topFinding,
   };
 }

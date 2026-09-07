@@ -36,6 +36,10 @@ export interface ToolCallRecord {
   toolName: string;
   inputBytes: number | null;
   resultBytes: number | null;
+  /** Unicode text-character count used by the amplification estimate. */
+  resultChars?: number | null;
+  /** Pi entry that owns this call, when the source exposes branch entries. */
+  entryId?: string | null;
   isError: boolean | null;
 }
 
@@ -79,6 +83,18 @@ export interface EvidenceValue {
   };
 }
 
+export interface ContributionEntry {
+  key: string;
+  value: EvidenceValue;
+}
+
+export interface ContributionRankings {
+  sessions: ContributionEntry[];
+  projects: ContributionEntry[];
+  models: ContributionEntry[];
+  timeBuckets: ContributionEntry[];
+}
+
 export interface AuditResult {
   scope: {
     harness: Harness;
@@ -88,6 +104,7 @@ export interface AuditResult {
   };
   coverage: Coverage;
   summary: Record<string, EvidenceValue>;
+  rankings: ContributionRankings;
   topFinding: {
     kind: "long_session" | "tool_amplification" | "extra_calls";
     headline: string;

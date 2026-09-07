@@ -25,13 +25,13 @@ The default scope is the invoking harness, current project, and last 7 days. A u
 - Harnesses: Claude Code, Codex, Pi, and DeepSeek Harness.
 - Experience: a native Skill/Integration calls one local TypeScript CLI command and the host agent explains its JSON evidence.
 - Inputs: existing local session history only.
-- Outputs: a concise finding in the agent conversation; JSON is authoritative, HTML is optional.
+- Outputs: a concise finding in the agent conversation; JSON is authoritative and text is a compact CLI view.
 - Privacy: raw prompts, source code, and tool output stay local and are omitted from default output.
 
 The implementation scope and acceptance criteria live in [docs/MVP.md](docs/MVP.md). Read [docs/DESIGN.md](docs/DESIGN.md) before implementing the CLI or a Reader, and [docs/HARNESS_DATA_SOURCES.md](docs/HARNESS_DATA_SOURCES.md) before changing harness-specific parsing.
 
 ## Status
 
-The first local end-to-end implementation is in place. The TypeScript tool currently reads Codex, Claude Code, Pi, and the observed DeepSeek Harness JSONL/Zstandard history forms, and each Harness has a thin Agent Skill entry point. Run `npm install`, then `npm test` to compile and exercise the redacted fixture suite.
+The first local end-to-end implementation is in place. The TypeScript tool currently reads Codex, Claude Code, Pi, and the observed DeepSeek Harness JSONL/Zstandard history forms, ranks complete usage by Session/project/model/time bucket, and each Harness has a thin Agent Skill entry point. Run `npm install`, then `npm test` to compile and exercise the redacted fixture suite.
 
 The implementation remains deliberately local and deterministic: no cloud upload, background collector, persistent normalized database, or cross-Harness audit is included.

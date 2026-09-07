@@ -11,13 +11,17 @@ The invoking Harness is fixed to Codex. Do not inspect Claude Code, Pi, DeepSeek
 
 ## Invocation
 
-Translate the user's natural-language scope into one explicit local command:
+Translate the user's natural-language scope into one explicit local command. Use Current Project by default; when the user asks for a Global Audit, widen only the project selector with `--all-projects`:
 
 ```text
 agent-audit inspect --harness codex --cwd <absolute-current-project-path> --since <duration> --format json
 ```
 
-Use `7d` when no period is requested. The Global Audit form and other Harnesses are separate MVP slices and must not be substituted here.
+```text
+agent-audit inspect --harness codex --all-projects --since <duration> --format json
+```
+
+Use `7d` when no period is requested. Global Audit still remains inside Codex; never substitute another Harness.
 
 The local tool is authoritative. Do not recalculate totals, infer missing values as zero, or expose raw history content.
 

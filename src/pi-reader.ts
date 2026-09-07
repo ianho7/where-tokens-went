@@ -16,6 +16,7 @@ interface ParsedEntry {
   id: string;
   parentId: string | null;
   callIds: string[];
+  toolIds: string[];
 }
 
 interface PendingSession {
@@ -28,6 +29,7 @@ interface PendingSession {
   currentModel: string | null;
   currentProvider: string | null;
   unsupported: boolean;
+  partial: boolean;
 }
 
 function objectValue(value: unknown): JsonObject | null {
@@ -73,6 +75,14 @@ function byteLength(value: unknown): number | null {
   }
 }
 
+function characterLength(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const text = typeof value === "string" ? value : (() => {
+    try { return JSON.stringify(value); } catch { return null; }
+  })();
+  return text === null ? null : Array.from(text).length;
+}
+
 function blocks(value: unknown): JsonObject[] {
   if (Array.isArray(value)) return value.map(objectValue).filter((item): item is JsonObject => item !== null);
   const object = objectValue(value);
@@ -90,6 +100,7 @@ function createSession(sessionId: string): PendingSession {
     currentModel: null,
     currentProvider: null,
     unsupported: false,
+    partial: false,
   };
 }
 
@@ -121,7 +132,12 @@ function usageCall(
   const costObject = objectValue(usage.cost);
   const reportedCost = numberValue(costObject?.total, costObject?.totalCost, usage.cost);
   if ([inputTokens, cachedInputTokens, cacheWriteTokens, outputTokens, reasoningTokens, reportedTotal, reportedCost].every((value) => value === null)) return null;
-  const totalTokens = reportedTotal ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens + (reasoningTokens ?? 0) : null);
+  const totalTokens = reportedTotal ?? (
+    inputTokens !== null && cachedInputTokens !== null && cacheWriteTokens !== null
+      && outputTokens !== null && reasoningTokens !== null
+      ? inputTokens + cachedInputTokens + cacheWriteTokens + outputTokens + reasoningTokens
+      : null
+  );
   return {
     sessionId,
     callId,
@@ -178,7 +194,16 @@ function activeEntryIds(entries: ParsedEntry[]): Set<string> {
 
 function selected(pending: PendingSession, scope: ReadScope): boolean {
   if (!scope.allProjects && !sameCwd(pending.session.projectCwd, scope.cwd)) return false;
-  return pending.eventTimes.length === 0 || pending.eventTimes.some((time) => time >= scope.since.getTime());
+  return pending.eventTimes.some((time) => time >= scope.since.getTime());
+}
+
+const knownPiTypes = new Set([
+  "session", "session_header", "message", "model_change", "model-change", "thinking_level_change",
+  "thinking-level-change", "compaction", "branch_summary", "branch-summary", "custom", "label", "session_info",
+]);
+
+function accountingSensitivePiType(type: string): boolean {
+  return /usage|token|response|assistant|message|tool|call|retry|interrupt|compact|subagent|error/i.test(type);
 }
 
 export async function readPi(scope: ReadScope): Promise<ReadResult> {
@@ -233,13 +258,18 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
       const currentSessionId = sessionId as string;
       updateTime(pending, timestamp);
       const entryId = stringValue(record.id, record.entryId, record.entry_id);
-      const entry: ParsedEntry | null = entryId ? { id: entryId, parentId: stringValue(record.parentId, record.parent_id), callIds: [] } : null;
+      const entry: ParsedEntry | null = entryId ? { id: entryId, parentId: stringValue(record.parentId, record.parent_id), callIds: [], toolIds: [] } : null;
       if (entry) pending.entries.push(entry);
       if (type === "model_change" || type === "model-change") {
         pending.currentModel = stringValue(record.model, record.modelId, record.model_id) ?? pending.currentModel;
         pending.currentProvider = stringValue(record.provider) ?? pending.currentProvider;
       }
       const role = stringValue(message?.role, record.role)?.toLowerCase() ?? "";
+      if (type && !knownPiTypes.has(type) && !role) {
+        coverage.recordsSkipped += 1;
+        if (accountingSensitivePiType(type)) pending.partial = true;
+        continue;
+      }
       if (role === "assistant" || type === "assistant") {
         const usage = message?.usage ?? record.usage;
         const callId = stringValue(message?.id, record.callId, record.call_id, entryId) ?? `assistant-${lineIndex}`;
@@ -252,7 +282,10 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
           const blockType = stringValue(block.type)?.toLowerCase();
           if (!blockType?.includes("toolcall") && blockType !== "tool_use") continue;
           const toolId = stringValue(block.id, block.toolCallId, block.tool_call_id);
-          if (toolId && !pending.tools.some((tool) => tool.callId === toolId)) pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(block.name, block.toolName) ?? "unknown-tool", inputBytes: byteLength(block.arguments ?? block.input), resultBytes: null, isError: null });
+          if (toolId && !pending.tools.some((tool) => tool.callId === toolId)) {
+            pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(block.name, block.toolName) ?? "unknown-tool", inputBytes: byteLength(block.arguments ?? block.input), resultBytes: null, resultChars: null, entryId, isError: null });
+            if (entry) entry.toolIds.push(toolId);
+          }
         }
       }
       if (role === "toolresult" || role === "tool_result" || type === "tool_result") {
@@ -260,10 +293,15 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
         if (toolId) {
           const tool = pending.tools.find((candidate) => candidate.callId === toolId);
           if (tool) {
-            tool.resultBytes = byteLength(message?.content ?? record.content ?? record.result);
+            if (entry && !entry.toolIds.includes(toolId)) entry.toolIds.push(toolId);
+            const result = message?.content ?? record.content ?? record.result;
+            tool.resultBytes = byteLength(result);
+            tool.resultChars = characterLength(result);
             tool.isError = booleanValue(message?.isError, message?.is_error, record.isError, record.is_error);
           } else {
-            pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(message?.toolName, record.toolName) ?? "unknown-tool", inputBytes: null, resultBytes: byteLength(message?.content ?? record.content ?? record.result), isError: booleanValue(message?.isError, message?.is_error, record.isError, record.is_error) });
+            const result = message?.content ?? record.content ?? record.result;
+            pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(message?.toolName, record.toolName) ?? "unknown-tool", inputBytes: null, resultBytes: byteLength(result), resultChars: characterLength(result), entryId, isError: booleanValue(message?.isError, message?.is_error, record.isError, record.is_error) });
+            if (entry) entry.toolIds.push(toolId);
           }
         }
       }
@@ -285,12 +323,22 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
       coverage.warnings.push("A Pi Session uses an unsupported future format version and was skipped.");
       continue;
     }
+    if (pending.partial) {
+      coverage.partialSessions += 1;
+      coverage.warnings.push("A Pi Session contains unsupported accounting records; only a partial audit is reported.");
+    }
     sessions.push(pending.session);
     const active = activeEntryIds(pending.entries);
     const activeCalls = active.size === 0 ? pending.modelCalls : pending.modelCalls.filter((call) => pending.entries.some((entry) => active.has(entry.id) && entry.callIds.includes(call.callId ?? "")));
-    for (const call of activeCalls) if (!call.timestamp || Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);
-    toolCalls.push(...pending.tools);
-    lifecycle.push(...pending.lifecycle);
+    for (const call of activeCalls) if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);
+    const activeTools = active.size === 0
+      ? pending.tools
+      : pending.tools.filter((tool) => !tool.entryId || active.has(tool.entryId));
+    const activeLifecycle = active.size === 0
+      ? pending.lifecycle
+      : pending.lifecycle.filter((event) => !event.relatedId || active.has(event.relatedId));
+    toolCalls.push(...activeTools.filter((tool) => tool.timestamp && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
+    lifecycle.push(...activeLifecycle.filter((event) => event.timestamp && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
   }
   if (files.length === 0) coverage.warnings.push("No Pi Session history was found for the selected scope.");
   return { sessions, modelCalls, toolCalls, lifecycle, coverage };
