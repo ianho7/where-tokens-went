@@ -112,9 +112,11 @@ function laterCalls(tool: ToolCallRecord, calls: ModelCallRecord[], lifecycle: R
 
 function toolAmplification(read: ReadResult): {
   tokens: number | null;
+  largestTokens: number | null;
   tool: ToolCallRecord | null;
   laterCalls: number;
 } {
+  const contextCalls = read.modelCalls.filter((call) => call.activeBranch !== false);
   let total = 0;
   let hasResult = false;
   let largest: { tool: ToolCallRecord; tokens: number; laterCalls: number } | null = null;
@@ -122,13 +124,14 @@ function toolAmplification(read: ReadResult): {
     if (tool.resultChars === null || tool.resultChars === undefined) continue;
     hasResult = true;
     const estimatedResultTokens = tool.resultChars / 4;
-    const following = laterCalls(tool, read.modelCalls, read.lifecycle);
+    const following = laterCalls(tool, contextCalls, read.lifecycle);
     const tokens = estimatedResultTokens * following;
     total += tokens;
     if (!largest || tokens > largest.tokens) largest = { tool, tokens, laterCalls: following };
   }
   return {
     tokens: hasResult ? total : null,
+    largestTokens: largest?.tokens ?? null,
     tool: largest?.tool ?? null,
     laterCalls: largest?.laterCalls ?? 0,
   };
@@ -140,9 +143,11 @@ function evidenceForCount(value: number, method: string): EvidenceValue {
 
 export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harness): AuditResult {
   const tokenTotal = sumTokens(read.modelCalls);
+  const findingCalls = read.modelCalls.filter((call) => call.activeBranch !== false);
+  const findingTokenTotal = sumTokens(findingCalls);
   const reportedCost = sumReportedCost(read.modelCalls);
-  const largest = topSession(read.sessions, read.modelCalls);
-  const largestCalls = largest ? read.modelCalls.filter((call) => call.sessionId === largest.session.sessionId) : [];
+  const largest = topSession(read.sessions, findingCalls);
+  const largestCalls = largest ? findingCalls.filter((call) => call.sessionId === largest.session.sessionId) : [];
   const amplification = toolAmplification(read);
   const extraLifecycle = read.lifecycle.filter((event) => event.kind !== "compaction");
   const sessionProjects = new Map(read.sessions.map((session) => [session.sessionId, session.projectCwd]));
@@ -152,12 +157,22 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     models: rankContributions(read.modelCalls, (call) => call.model ?? "<unknown-model>", "model"),
     timeBuckets: rankContributions(read.modelCalls, (call) => timeBucket(call.timestamp), "time bucket"),
   };
-  const share = largest && tokenTotal.value !== null && tokenTotal.value > 0
-    ? largest.tokens / tokenTotal.value
+  const share = largest && findingTokenTotal.value !== null && findingTokenTotal.value > 0
+    ? largest.tokens / findingTokenTotal.value
     : null;
   const summary: Record<string, EvidenceValue> = {
     sessionCount: countEvidence(read.sessions.length, "count of selected Session records"),
     modelCallCount: countEvidence(read.modelCalls.length, "count of selected ModelCall records"),
+    activeBranchModelCallCount: countEvidence(
+      read.modelCalls.filter((call) => call.activeBranch !== false).length,
+      "count of selected ModelCall records in the active context; non-Pi calls are treated as active",
+    ),
+    activeBranchTokens: (() => {
+      const active = sumTokens(read.modelCalls.filter((call) => call.activeBranch !== false));
+      return active.value === null
+        ? unavailable("a complete active-context token total was not reported for every selected model call")
+        : { value: active.value, provenance: active.provenance, method: "sum of selected active-context ModelCall token totals" };
+    })(),
     totalTokens: tokenTotal.value === null
       ? unavailable("a complete token total was not reported for every selected model call")
       : {
@@ -237,13 +252,13 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     };
   }
 
-  if (amplification.tokens !== null && amplification.tokens > 0 && amplification.tool) {
+  if (amplification.largestTokens !== null && amplification.largestTokens > 0 && amplification.tool) {
     const toolFinding: NonNullable<AuditResult["topFinding"]> = {
       kind: "tool_amplification",
-      headline: `Tool ${amplification.tool.toolName} produced an estimated ${Math.round(amplification.tokens)} amplified tokens across later calls.`,
+      headline: `Tool ${amplification.tool.toolName} produced an estimated ${Math.round(amplification.largestTokens)} amplified tokens across later calls.`,
       explanation: "A paired tool result was large enough to be carried into later model calls in the same active context. The impact is an estimate based on result size, not billed tokens.",
       impact: {
-        value: amplification.tokens,
+        value: amplification.largestTokens,
         provenance: "estimated",
         method: "UTF-8 text characters divided by 4, multiplied by later ModelCall records in the same active context",
         source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId, timestamp: amplification.tool.timestamp ?? undefined },
@@ -262,7 +277,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
           source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId },
         },
         {
-          value: amplification.tokens,
+          value: amplification.largestTokens,
           provenance: "estimated",
           method: "result text characters / 4 × later ModelCall records",
           source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId },

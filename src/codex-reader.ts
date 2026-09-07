@@ -35,6 +35,7 @@ interface PendingSession {
   currentModel: string | null;
   currentProvider: string | null;
   unsupported: boolean;
+  missingTimestamp: boolean;
 }
 
 function asObject(value: unknown): JsonObject | null {
@@ -410,6 +411,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
             currentModel: null,
             currentProvider: null,
             unsupported: false,
+            missingTimestamp: false,
           });
         }
         mergeSession(pendingById.get(sessionId)!, payload, timestamp);
@@ -437,6 +439,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
         currentModel: null,
         currentProvider: null,
         unsupported: false,
+        missingTimestamp: false,
       };
       pendingById.set(sessionId, pending);
       updateSessionTimes(pending, timestamp);
@@ -445,7 +448,10 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
       const payloadType = stringValue(payload.type)?.toLowerCase();
       if ((recordType || payloadType) && !knownCodexTypes.has(recordType ?? "") && !knownCodexTypes.has(payloadType ?? "")) {
         coverage.recordsSkipped += 1;
-        if (accountingSensitiveCodexType(recordType ?? payloadType ?? "")) pending.unsupported = true;
+        if (accountingSensitiveCodexType(recordType ?? payloadType ?? "")) {
+          pending.unsupported = true;
+          if (!timestamp) pending.missingTimestamp = true;
+        }
         continue;
       }
 
@@ -467,6 +473,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
           provider,
           response.usage,
         );
+        if (!call.timestamp) pending.missingTimestamp = true;
         const existingIndex = response.id
           ? pending.rawCalls.findIndex((candidate) => candidate.callId === response.id)
           : -1;
@@ -488,6 +495,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
           provider,
           tokenCount.usage,
         );
+        if (!call.timestamp) pending.missingTimestamp = true;
         if (tokenCount.isFinal) {
           pending.finalTotal = call;
         } else {
@@ -505,6 +513,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
 
       const tool = toolEvent(record, payload);
       if (tool) {
+        if (!timestamp) pending.missingTimestamp = true;
         if (tool.kind === "call") {
           pending.toolCalls.push({
             sessionId,
@@ -543,17 +552,21 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
           const last = pending.rawCalls[pending.rawCalls.length - 1] ?? pending.incrementalCalls[pending.incrementalCalls.length - 1];
           if (last) last.status = "error";
           pending.lifecycle.push({ sessionId, timestamp, kind: "retry", relatedId: last?.callId ?? null });
+          if (!timestamp) pending.missingTimestamp = true;
         }
         if (eventType === "turn_aborted" || eventType === "interrupted") {
           const last = pending.rawCalls[pending.rawCalls.length - 1] ?? pending.incrementalCalls[pending.incrementalCalls.length - 1];
           if (last) last.status = "interrupted";
           pending.lifecycle.push({ sessionId, timestamp, kind: "interrupted", relatedId: last?.callId ?? null });
+          if (!timestamp) pending.missingTimestamp = true;
         }
         if (eventType?.includes("subagent")) {
           pending.lifecycle.push({ sessionId, timestamp, kind: "subagent", relatedId: null });
+          if (!timestamp) pending.missingTimestamp = true;
         }
         if (eventType?.includes("compaction")) {
           pending.lifecycle.push({ sessionId, timestamp, kind: "compaction", relatedId: null });
+          if (!timestamp) pending.missingTimestamp = true;
         }
       }
     }
@@ -564,10 +577,20 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
   const toolCalls = [] as ReadResult["toolCalls"];
   const lifecycle = [] as ReadResult["lifecycle"];
   for (const pending of pendingById.values()) {
-    if (!selectedByScope(pending.session, pending.eventTimes, scope)) continue;
+    if (!selectedByScope(pending.session, pending.eventTimes, scope)) {
+      if (pending.missingTimestamp && (scope.allProjects || sameCwd(pending.session.projectCwd, scope.cwd))) {
+        coverage.partialSessions += 1;
+        coverage.warnings.push("A Codex Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
+      }
+      continue;
+    }
     if (pending.unsupported) {
       coverage.partialSessions += 1;
       coverage.warnings.push("A Codex Session contains unsupported accounting records; only a partial audit is reported.");
+    }
+    if (pending.missingTimestamp) {
+      coverage.partialSessions += 1;
+      coverage.warnings.push("A Codex Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
     }
     sessions.push(pending.session);
     toolCalls.push(...pending.toolCalls.filter((tool) => tool.timestamp !== null && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));

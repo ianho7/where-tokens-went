@@ -30,8 +30,28 @@ The default scope is the invoking harness, current project, and last 7 days. A u
 
 The implementation scope and acceptance criteria live in [docs/MVP.md](docs/MVP.md). Read [docs/DESIGN.md](docs/DESIGN.md) before implementing the CLI or a Reader, and [docs/HARNESS_DATA_SOURCES.md](docs/HARNESS_DATA_SOURCES.md) before changing harness-specific parsing.
 
+## Local installation
+
+From a clean checkout, install dependencies and expose the CLI plus project-scoped native Skills with:
+
+```text
+npm install
+npm run install-local
+```
+
+`install-local` builds the CLI, links the `agent-audit` command through npm, and installs one fixed-Harness Skill in each native project location:
+
+| Harness | Skill location |
+| --- | --- |
+| Codex | `.agents/skills/agent-audit-codex/SKILL.md` |
+| Claude Code | `.claude/skills/agent-audit-claude/SKILL.md` |
+| Pi | `.pi/skills/agent-audit-pi/SKILL.md` |
+| DeepSeek Harness | `.agents/skills/agent-audit-deepseek/SKILL.md` |
+
+To install the same entries into another project, pass its absolute path to `npm run install-skills -- <project-root>`. Each Skill fixes its invoking Harness and delegates all counting to the local `agent-audit inspect` command.
+
 ## Status
 
-The first local end-to-end implementation is in place. The TypeScript tool currently reads Codex, Claude Code, Pi, and the observed DeepSeek Harness JSONL/Zstandard history forms, ranks complete usage by Session/project/model/time bucket, and each Harness has a thin Agent Skill entry point. Run `npm install`, then `npm test` to compile and exercise the redacted fixture suite.
+The local end-to-end MVP is verified. The TypeScript tool reads Codex, Claude Code, Pi, and the observed DeepSeek Harness JSONL/Zstandard history forms, ranks complete usage by Session/project/model/time bucket, and each Harness has a thin native Agent Skill entry point. Run `npm install`, then `npm run install-local` to expose the command and install the project-scoped Skills; `npm test` runs the redacted regression suite.
 
 The implementation remains deliberately local and deterministic: no cloud upload, background collector, persistent normalized database, or cross-Harness audit is included.

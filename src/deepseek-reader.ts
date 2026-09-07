@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { decompress as decompressZstd } from "fzstd";
+import { Decompress } from "fzstd";
 import * as path from "node:path";
 import type {
   LifecycleRecord,
@@ -19,12 +19,14 @@ interface PendingSession {
   attemptCalls: Array<{ stepId: string | null; call: ModelCallRecord }>;
   messageSteps: Set<string>;
   tools: ToolCallRecord[];
+  toolIdsByPosition: Map<string, string>;
   lifecycle: LifecycleRecord[];
   seenSeq: Set<string>;
   lastSeq: number | null;
   currentModel: string | null;
   currentProvider: string | null;
   unsupported: boolean;
+  missingTimestamp: boolean;
 }
 
 function objectValue(value: unknown): JsonObject | null {
@@ -88,12 +90,14 @@ function createSession(sessionId: string): PendingSession {
     attemptCalls: [],
     messageSteps: new Set(),
     tools: [],
+    toolIdsByPosition: new Map(),
     lifecycle: [],
     seenSeq: new Set(),
     lastSeq: null,
     currentModel: null,
     currentProvider: null,
     unsupported: false,
+    missingTimestamp: false,
   };
 }
 
@@ -188,7 +192,7 @@ function packedSpan(record: JsonObject, data: JsonObject, type: string): { start
     ? ["texts"]
     : type === "reasoning-chunks"
       ? ["reasonings", "reasoning", "thoughts"]
-      : ["toolCalls", "tool_calls", "calls"];
+      : ["args", "arguments", "argumentDeltas", "toolCalls", "tool_calls", "calls"];
   const values = valuesKeys.map((key) => data[key]).find((value) => Array.isArray(value));
   const count = Array.isArray(values) ? values.length : Array.isArray(data.dt) ? data.dt.length : 0;
   return count > 0 ? { start, end: start + count - 1 } : null;
@@ -204,7 +208,7 @@ function expandPackedRecord(record: JsonObject): JsonObject[] {
     ? ["texts"]
     : type === "reasoning-chunks"
       ? ["reasonings", "reasoning", "thoughts"]
-      : ["toolCalls", "tool_calls", "calls"];
+      : ["args", "arguments", "argumentDeltas", "toolCalls", "tool_calls", "calls"];
   const values = valuesKeys.map((key) => data[key]).find((value) => Array.isArray(value)) as unknown[] | undefined;
   const count = span.end - span.start + 1;
   const deltas = Array.isArray(data.dt) ? data.dt : [];
@@ -214,13 +218,51 @@ function expandPackedRecord(record: JsonObject): JsonObject[] {
     if (index > 0) time += numberValue(deltas[index]) ?? 0;
     const value = values?.[index];
     const chunk = objectValue(value) ?? { value: value ?? null };
+    const isToolCall = type === "tool-call-chunks";
     return {
       type: "assistant/chunk",
       seq: span.start + index,
       ...(startTime === null ? {} : { time: new Date(time).toISOString() }),
-      data: { ...data, ...chunk, chunk },
+      data: {
+        ...data,
+        ...chunk,
+        chunk: isToolCall
+          ? {
+            type: "tool-call-delta",
+            index: data.index,
+            ...(typeof data.name === "string" ? { name: data.name } : {}),
+            argumentsDelta: typeof value === "string" ? value : JSON.stringify(value ?? ""),
+          }
+          : chunk,
+      },
     };
   });
+}
+
+function decodeZstdPrefix(bytes: Uint8Array): { text: string; partial: boolean } {
+  const chunks: Buffer[] = [];
+  const decoder = new Decompress((chunk) => {
+    chunks.push(Buffer.from(chunk));
+  });
+  let partial = false;
+  try {
+    decoder.push(bytes, true);
+  } catch {
+    partial = true;
+  }
+  return { text: Buffer.concat(chunks).toString("utf8"), partial };
+}
+
+function toolPosition(data: JsonObject, record: JsonObject, chunk: JsonObject): string {
+  const turn = stringValue(chunk.turn, data.turn, record.turn) ?? "?";
+  const step = stringValue(chunk.step, data.step, record.step) ?? "?";
+  const index = stringValue(chunk.index, data.index, record.index) ?? "0";
+  return `${turn}:${step}:${index}`;
+}
+
+function addBytes(current: number | null, value: unknown): number | null {
+  const size = byteLength(value);
+  return size === null ? current : (current ?? 0) + size;
 }
 
 function accountingSensitive(type: string): boolean {
@@ -238,14 +280,26 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
   for (const file of files) {
     coverage.filesRead += 1;
     let logical: string;
+    let partialDecode = false;
     try {
       const bytes = await readFile(file);
-      logical = file.endsWith(".zstd") ? Buffer.from(decompressZstd(bytes)).toString("utf8") : bytes.toString("utf8");
+      if (file.endsWith(".zstd")) {
+        const decoded = decodeZstdPrefix(bytes);
+        logical = decoded.text;
+        partialDecode = decoded.partial;
+      } else {
+        logical = bytes.toString("utf8");
+      }
     } catch {
       coverage.recordsSkipped += 1;
       coverage.partialSessions += 1;
       coverage.warnings.push("A DeepSeek Harness Session could not be decoded and was skipped.");
       continue;
+    }
+    if (partialDecode) {
+      coverage.recordsSkipped += 1;
+      coverage.partialSessions += 1;
+      coverage.warnings.push("A DeepSeek Harness Session ended with a torn Zstandard frame; only the durable prefix was analysed.");
     }
     const physicalLines = logical.split(/\r?\n/);
     const trailingNewline = /\r?\n$/.test(logical);
@@ -311,7 +365,10 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
       updateTime(pending, timestamp);
       if (!knownEvents.has(type)) {
         coverage.recordsSkipped += 1;
-        if (accountingSensitive(type)) pending.unsupported = true;
+        if (accountingSensitive(type)) {
+          pending.unsupported = true;
+          if (!timestamp) pending.missingTimestamp = true;
+        }
         continue;
       }
       if (type === "request/header" || type === "request/context") {
@@ -322,39 +379,91 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
         const stepId = stringValue(data.stepId, data.step_id);
         const callId = stringValue(data.messageId, data.message_id, data.callId, data.call_id, stepId, seq) ?? `assistant-${pending.modelCalls.length}`;
         const call = usageCall(currentSessionId, callId, timestamp, stringValue(data.model) ?? pending.currentModel, stringValue(data.provider) ?? pending.currentProvider, data.usage);
-        if (call && !pending.modelCalls.some((candidate) => candidate.callId === call.callId)) pending.modelCalls.push(call);
+        if (call) {
+          if (!call.timestamp) pending.missingTimestamp = true;
+          if (!pending.modelCalls.some((candidate) => candidate.callId === call.callId)) pending.modelCalls.push(call);
+        }
         if (stepId) pending.messageSteps.add(stepId);
         const content = Array.isArray(data.content) ? data.content : [];
         for (const item of content) {
           const block = objectValue(item);
           if (!block || !stringValue(block.type)?.includes("tool")) continue;
           const toolId = stringValue(block.callId, block.call_id, block.id);
-          if (toolId && !pending.tools.some((tool) => tool.callId === toolId)) pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(block.name, block.toolName) ?? "unknown-tool", inputBytes: byteLength(block.arguments ?? block.input), resultBytes: null, isError: null });
+          if (toolId && !pending.tools.some((tool) => tool.callId === toolId)) {
+            if (!timestamp) pending.missingTimestamp = true;
+            pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(block.name, block.toolName) ?? "unknown-tool", inputBytes: byteLength(block.arguments ?? block.input), resultBytes: null, isError: null });
+          }
+        }
+      }
+      if (type === "assistant/chunk") {
+        const chunk = objectValue(data.chunk) ?? data;
+        const chunkType = stringValue(chunk.type)?.toLowerCase() ?? "";
+        if (chunkType === "tool-call-delta" || chunkType.includes("tool-call")) {
+          if (!timestamp) pending.missingTimestamp = true;
+          const position = toolPosition(data, record, chunk);
+          const toolId = stringValue(chunk.id) ?? pending.toolIdsByPosition.get(position) ?? stringValue(data.id) ?? `deepseek-tool-${pending.tools.length}`;
+          pending.toolIdsByPosition.set(position, toolId);
+          let tool = pending.tools.find((candidate) => candidate.callId === toolId);
+          if (!tool) {
+            tool = {
+              sessionId: currentSessionId,
+              callId: toolId,
+              timestamp,
+              toolName: stringValue(chunk.name, data.name) ?? "unknown-tool",
+              inputBytes: null,
+              resultBytes: null,
+              resultChars: null,
+              isError: null,
+            };
+            pending.tools.push(tool);
+          } else if (stringValue(chunk.name, data.name)) {
+            tool.toolName = stringValue(chunk.name, data.name)! || tool.toolName;
+          }
+          tool.inputBytes = addBytes(tool.inputBytes, chunk.argumentsDelta ?? chunk.arguments_delta ?? chunk.arguments);
         }
       }
       if (type === "assistant/attempt") {
         const stepId = stringValue(data.stepId, data.step_id);
         const callId = stringValue(data.attemptId, data.attempt_id, data.callId, data.call_id, stepId, seq) ?? `attempt-${pending.attemptCalls.length}`;
         const call = usageCall(currentSessionId, callId, timestamp, stringValue(data.model) ?? pending.currentModel, stringValue(data.provider) ?? pending.currentProvider, data.usage ?? data.streamUsage ?? data.stream_usage);
-        if (call) pending.attemptCalls.push({ stepId, call });
+        if (call) {
+          if (!call.timestamp) pending.missingTimestamp = true;
+          pending.attemptCalls.push({ stepId, call });
+        }
       }
       if (type === "tool/call") {
         const toolId = stringValue(data.callId, data.call_id, data.id);
-        if (toolId && !pending.tools.some((tool) => tool.callId === toolId)) pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(data.name, data.toolName) ?? "unknown-tool", inputBytes: byteLength(data.arguments ?? data.input), resultBytes: null, isError: null });
+        if (toolId && !pending.tools.some((tool) => tool.callId === toolId)) {
+          if (!timestamp) pending.missingTimestamp = true;
+          pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(data.name, data.toolName) ?? "unknown-tool", inputBytes: byteLength(data.arguments ?? data.input), resultBytes: null, isError: null });
+        }
       }
       if (type === "tool/result") {
         const toolId = stringValue(data.callId, data.call_id, data.toolCallId, data.tool_call_id);
         if (toolId) {
+          if (!timestamp) pending.missingTimestamp = true;
           const tool = pending.tools.find((candidate) => candidate.callId === toolId);
           const result = data.result ?? data.content ?? data.output;
           if (tool) { tool.resultBytes = byteLength(result); tool.resultChars = characterLength(result); tool.isError = booleanValue(data.isError, data.is_error); }
           else pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(data.name, data.toolName) ?? "unknown-tool", inputBytes: null, resultBytes: byteLength(result), resultChars: characterLength(result), isError: booleanValue(data.isError, data.is_error) });
         }
       }
-      if (type === "retry") pending.lifecycle.push({ sessionId: currentSessionId, timestamp, kind: "retry", relatedId: stringValue(data.attemptId, data.attempt_id) });
-      if (type === "interrupted") pending.lifecycle.push({ sessionId: currentSessionId, timestamp, kind: "interrupted", relatedId: null });
-      if (type.startsWith("compaction/")) pending.lifecycle.push({ sessionId: currentSessionId, timestamp, kind: "compaction", relatedId: null });
-      if (type.startsWith("subagent/")) pending.lifecycle.push({ sessionId: currentSessionId, timestamp, kind: "subagent", relatedId: stringValue(data.sessionId, data.session_id) });
+      if (type === "retry") {
+        pending.lifecycle.push({ sessionId: currentSessionId, timestamp, kind: "retry", relatedId: stringValue(data.attemptId, data.attempt_id) });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
+      if (type === "interrupted") {
+        pending.lifecycle.push({ sessionId: currentSessionId, timestamp, kind: "interrupted", relatedId: null });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
+      if (type.startsWith("compaction/")) {
+        pending.lifecycle.push({ sessionId: currentSessionId, timestamp, kind: "compaction", relatedId: null });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
+      if (type.startsWith("subagent/")) {
+        pending.lifecycle.push({ sessionId: currentSessionId, timestamp, kind: "subagent", relatedId: stringValue(data.sessionId, data.session_id) });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
     }
   }
 
@@ -364,10 +473,20 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
   const lifecycle: LifecycleRecord[] = [];
   for (const pending of pendingById.values()) {
     if (!sameCwd(pending.session.projectCwd, scope.cwd) && !scope.allProjects) continue;
-    if (pending.eventTimes.length > 0 && !pending.eventTimes.some((time) => time >= scope.since.getTime())) continue;
+    if (!pending.eventTimes.some((time) => time >= scope.since.getTime())) {
+      if (pending.missingTimestamp) {
+        coverage.partialSessions += 1;
+        coverage.warnings.push("A DeepSeek Harness Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
+      }
+      continue;
+    }
     if (pending.unsupported) {
       coverage.partialSessions += 1;
       coverage.warnings.push("A DeepSeek Harness Session contains unsupported or non-contiguous records; only a partial audit is reported.");
+    }
+    if (pending.missingTimestamp) {
+      coverage.partialSessions += 1;
+      coverage.warnings.push("A DeepSeek Harness Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
     }
     sessions.push(pending.session);
     const calls = [...pending.modelCalls, ...pending.attemptCalls.filter((entry) => !entry.stepId || !pending.messageSteps.has(entry.stepId)).map((entry) => entry.call)];

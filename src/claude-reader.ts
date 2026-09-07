@@ -19,6 +19,7 @@ interface PendingSession {
   tools: ToolCallRecord[];
   lifecycle: LifecycleRecord[];
   unsupported: boolean;
+  missingTimestamp: boolean;
 }
 
 function objectValue(value: unknown): JsonObject | null {
@@ -94,6 +95,7 @@ function createSession(sessionId: string): PendingSession {
     tools: [],
     lifecycle: [],
     unsupported: false,
+    missingTimestamp: false,
   };
 }
 
@@ -249,7 +251,10 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
       const role = stringValue(message?.role)?.toLowerCase();
       if (type && !knownClaudeTypes.has(type) && role !== "assistant" && role !== "user") {
         coverage.recordsSkipped += 1;
-        if (accountingSensitiveClaudeType(type)) pending.unsupported = true;
+        if (accountingSensitiveClaudeType(type)) {
+          pending.unsupported = true;
+          if (!timestamp) pending.missingTimestamp = true;
+        }
         continue;
       }
       if (type === "assistant" || message?.role === "assistant") {
@@ -260,6 +265,7 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
         const callId = stringValue(message?.id, record.requestId, record.request_id, record.id) ?? `assistant-${lineIndex}`;
         const call = usageCall(sessionId, callId, timestamp, stringValue(message?.model, record.model), stringValue(record.provider, record.model_provider), usage, status);
         if (call) {
+          if (!call.timestamp) pending.missingTimestamp = true;
           const index = pending.modelCalls.findIndex((candidate) => candidate.callId === call.callId);
           if (index >= 0) {
             if (completeScore(call) >= completeScore(pending.modelCalls[index])) pending.modelCalls[index] = call;
@@ -270,7 +276,9 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
         for (const block of contentBlocks(message?.content ?? record.content)) {
           if (stringValue(block.type) === "tool_use") {
             const toolId = stringValue(block.id, block.tool_use_id, block.toolUseId);
-            if (toolId && !pending.tools.some((candidate) => candidate.callId === toolId)) pending.tools.push({
+            if (toolId && !pending.tools.some((candidate) => candidate.callId === toolId)) {
+              if (!timestamp) pending.missingTimestamp = true;
+              pending.tools.push({
               sessionId,
               callId: toolId,
               timestamp,
@@ -279,7 +287,8 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
               resultBytes: null,
               resultChars: null,
               isError: null,
-            });
+              });
+            }
           }
         }
       }
@@ -289,6 +298,7 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
           if (stringValue(block.type) !== "tool_result") continue;
           const toolId = stringValue(block.tool_use_id, block.toolUseId, block.id);
           if (!toolId) continue;
+          if (!timestamp) pending.missingTimestamp = true;
           const tool = pending.tools.find((candidate) => candidate.callId === toolId);
           if (tool) {
             const result = block.content ?? block.result;
@@ -301,10 +311,22 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
           }
         }
       }
-      if (record.isSidechain === true || record.is_sidechain === true) pending.lifecycle.push({ sessionId, timestamp, kind: "subagent", relatedId: null });
-      if (type.includes("compact") || type === "summary" || stringValue(record.subtype)?.includes("compact")) pending.lifecycle.push({ sessionId, timestamp, kind: "compaction", relatedId: null });
-      if (type.includes("error") || record.error) pending.lifecycle.push({ sessionId, timestamp, kind: "retry", relatedId: null });
-      if (type.includes("interrupt")) pending.lifecycle.push({ sessionId, timestamp, kind: "interrupted", relatedId: null });
+      if (record.isSidechain === true || record.is_sidechain === true) {
+        pending.lifecycle.push({ sessionId, timestamp, kind: "subagent", relatedId: null });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
+      if (type.includes("compact") || type === "summary" || stringValue(record.subtype)?.includes("compact")) {
+        pending.lifecycle.push({ sessionId, timestamp, kind: "compaction", relatedId: null });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
+      if (type.includes("error") || record.error) {
+        pending.lifecycle.push({ sessionId, timestamp, kind: "retry", relatedId: null });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
+      if (type.includes("interrupt")) {
+        pending.lifecycle.push({ sessionId, timestamp, kind: "interrupted", relatedId: null });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
     }
   }
 
@@ -313,10 +335,20 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
   const toolCalls: ToolCallRecord[] = [];
   const lifecycle: LifecycleRecord[] = [];
   for (const pending of pendingById.values()) {
-    if (!selected(pending, scope)) continue;
+    if (!selected(pending, scope)) {
+      if (pending.missingTimestamp && (scope.allProjects || sameCwd(pending.session.projectCwd, scope.cwd))) {
+        coverage.partialSessions += 1;
+        coverage.warnings.push("A Claude Code Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
+      }
+      continue;
+    }
     if (pending.unsupported) {
       coverage.partialSessions += 1;
       coverage.warnings.push("A Claude Code Session contains unsupported accounting records; only a partial audit is reported.");
+    }
+    if (pending.missingTimestamp) {
+      coverage.partialSessions += 1;
+      coverage.warnings.push("A Claude Code Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
     }
     sessions.push(pending.session);
     for (const call of pending.modelCalls) if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);

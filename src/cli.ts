@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import * as path from "node:path";
 import { analyseAudit } from "./analysis";
 import { readClaude } from "./claude-reader";

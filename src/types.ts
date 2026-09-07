@@ -27,6 +27,8 @@ export interface ModelCallRecord {
   reportedCost: number | null;
   status: "ok" | "error" | "interrupted" | "unknown";
   tokenProvenance: Provenance;
+  /** Pi-only branch marker; false means the call was incurred outside the active context. */
+  activeBranch?: boolean;
 }
 
 export interface ToolCallRecord {

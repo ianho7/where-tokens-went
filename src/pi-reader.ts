@@ -30,6 +30,7 @@ interface PendingSession {
   currentProvider: string | null;
   unsupported: boolean;
   partial: boolean;
+  missingTimestamp: boolean;
 }
 
 function objectValue(value: unknown): JsonObject | null {
@@ -101,6 +102,7 @@ function createSession(sessionId: string): PendingSession {
     currentProvider: null,
     unsupported: false,
     partial: false,
+    missingTimestamp: false,
   };
 }
 
@@ -267,13 +269,17 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
       const role = stringValue(message?.role, record.role)?.toLowerCase() ?? "";
       if (type && !knownPiTypes.has(type) && !role) {
         coverage.recordsSkipped += 1;
-        if (accountingSensitivePiType(type)) pending.partial = true;
+        if (accountingSensitivePiType(type)) {
+          pending.partial = true;
+          if (!timestamp) pending.missingTimestamp = true;
+        }
         continue;
       }
       if (role === "assistant" || type === "assistant") {
         const usage = message?.usage ?? record.usage;
         const callId = stringValue(message?.id, record.callId, record.call_id, entryId) ?? `assistant-${lineIndex}`;
         const call = usageCall(currentSessionId, callId, timestamp, stringValue(message?.model, record.model) ?? pending.currentModel, stringValue(message?.provider, record.provider) ?? pending.currentProvider, usage);
+        if (call && !call.timestamp) pending.missingTimestamp = true;
         if (call && !pending.modelCalls.some((candidate) => candidate.callId === call.callId)) {
           pending.modelCalls.push(call);
           if (entry && call.callId) entry.callIds.push(call.callId);
@@ -283,6 +289,7 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
           if (!blockType?.includes("toolcall") && blockType !== "tool_use") continue;
           const toolId = stringValue(block.id, block.toolCallId, block.tool_call_id);
           if (toolId && !pending.tools.some((tool) => tool.callId === toolId)) {
+            if (!timestamp) pending.missingTimestamp = true;
             pending.tools.push({ sessionId: currentSessionId, callId: toolId, timestamp, toolName: stringValue(block.name, block.toolName) ?? "unknown-tool", inputBytes: byteLength(block.arguments ?? block.input), resultBytes: null, resultChars: null, entryId, isError: null });
             if (entry) entry.toolIds.push(toolId);
           }
@@ -291,6 +298,7 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
       if (role === "toolresult" || role === "tool_result" || type === "tool_result") {
         const toolId = stringValue(message?.toolCallId, message?.tool_call_id, record.toolCallId, record.tool_call_id);
         if (toolId) {
+          if (!timestamp) pending.missingTimestamp = true;
           const tool = pending.tools.find((candidate) => candidate.callId === toolId);
           if (tool) {
             if (entry && !entry.toolIds.includes(toolId)) entry.toolIds.push(toolId);
@@ -305,10 +313,22 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
           }
         }
       }
-      if (type === "compaction" || type === "branch_summary") pending.lifecycle.push({ sessionId, timestamp, kind: "compaction", relatedId: entryId });
-      if (type.includes("error") || stringValue(message?.stopReason, message?.stop_reason)?.includes("error")) pending.lifecycle.push({ sessionId, timestamp, kind: "retry", relatedId: entryId });
-      if (type.includes("interrupt") || stringValue(message?.stopReason, message?.stop_reason)?.includes("abort")) pending.lifecycle.push({ sessionId, timestamp, kind: "interrupted", relatedId: entryId });
-      if (type.includes("subagent") || stringValue(record.origin)?.includes("subagent")) pending.lifecycle.push({ sessionId, timestamp, kind: "subagent", relatedId: entryId });
+      if (type === "compaction" || type === "branch_summary") {
+        pending.lifecycle.push({ sessionId, timestamp, kind: "compaction", relatedId: entryId });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
+      if (type.includes("error") || stringValue(message?.stopReason, message?.stop_reason)?.includes("error")) {
+        pending.lifecycle.push({ sessionId, timestamp, kind: "retry", relatedId: entryId });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
+      if (type.includes("interrupt") || stringValue(message?.stopReason, message?.stop_reason)?.includes("abort")) {
+        pending.lifecycle.push({ sessionId, timestamp, kind: "interrupted", relatedId: entryId });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
+      if (type.includes("subagent") || stringValue(record.origin)?.includes("subagent")) {
+        pending.lifecycle.push({ sessionId, timestamp, kind: "subagent", relatedId: entryId });
+        if (!timestamp) pending.missingTimestamp = true;
+      }
     }
   }
 
@@ -317,7 +337,13 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
   const toolCalls: ToolCallRecord[] = [];
   const lifecycle: LifecycleRecord[] = [];
   for (const pending of pendingById.values()) {
-    if (!selected(pending, scope)) continue;
+    if (!selected(pending, scope)) {
+      if (pending.missingTimestamp && (scope.allProjects || sameCwd(pending.session.projectCwd, scope.cwd))) {
+        coverage.partialSessions += 1;
+        coverage.warnings.push("A Pi Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
+      }
+      continue;
+    }
     if (pending.unsupported) {
       coverage.recordsSkipped += 1;
       coverage.warnings.push("A Pi Session uses an unsupported future format version and was skipped.");
@@ -327,10 +353,21 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
       coverage.partialSessions += 1;
       coverage.warnings.push("A Pi Session contains unsupported accounting records; only a partial audit is reported.");
     }
+    if (pending.missingTimestamp) {
+      coverage.partialSessions += 1;
+      coverage.warnings.push("A Pi Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
+    }
     sessions.push(pending.session);
     const active = activeEntryIds(pending.entries);
-    const activeCalls = active.size === 0 ? pending.modelCalls : pending.modelCalls.filter((call) => pending.entries.some((entry) => active.has(entry.id) && entry.callIds.includes(call.callId ?? "")));
-    for (const call of activeCalls) if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);
+    const activeCallIds = new Set(
+      pending.entries
+        .filter((entry) => active.has(entry.id))
+        .flatMap((entry) => entry.callIds),
+    );
+    for (const call of pending.modelCalls) {
+      if (!call.timestamp || Number.isNaN(Date.parse(call.timestamp)) || Date.parse(call.timestamp) < scope.since.getTime()) continue;
+      modelCalls.push({ ...call, activeBranch: active.size === 0 || activeCallIds.has(call.callId ?? "") });
+    }
     const activeTools = active.size === 0
       ? pending.tools
       : pending.tools.filter((tool) => !tool.entryId || active.has(tool.entryId));

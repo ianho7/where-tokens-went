@@ -1,2 +1,8 @@
 node_modules/
 dist/
+
+# Generated project-native Skill copies; canonical sources live under skills/.
+.agents/skills/agent-audit-deepseek/
+.agents/skills/agent-audit-codex/
+.claude/skills/agent-audit-claude/
+.pi/skills/agent-audit-pi/
