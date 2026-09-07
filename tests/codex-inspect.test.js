@@ -454,7 +454,11 @@ test('DeepSeek Harness Skill path reads zstd Session events without returning co
     { type: 'compaction/start', seq: 6, time: isoHoursAgo(1.6), data: {} },
   ];
   const logical = records.map((record) => JSON.stringify(record)).join('\n') + '\n';
-  await writeFile(sessionFile, zstdCompressSync(Buffer.from(logical, 'utf8')));
+  const split = Math.floor(logical.length / 2);
+  await writeFile(sessionFile, Buffer.concat([
+    zstdCompressSync(Buffer.from(logical.slice(0, split), 'utf8')),
+    zstdCompressSync(Buffer.from(logical.slice(split), 'utf8')),
+  ]));
 
   try {
     const { stdout } = await runAudit(

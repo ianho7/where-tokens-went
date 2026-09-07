@@ -224,7 +224,9 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
       const type = stringValue(record.type, record.kind)?.toLowerCase() ?? "";
       if (type === "assistant" || message?.role === "assistant") {
         const usage = message?.usage ?? record.usage;
-        const status = stringValue(message?.stop_reason, message?.stopReason, record.error) ? "error" : "ok";
+        const stopReason = stringValue(message?.stop_reason, message?.stopReason) ?? "";
+        const errorMarker = stringValue(message?.errorMessage, message?.error_message, record.error);
+        const status: ModelCallRecord["status"] = errorMarker || /error|abort|cancel/i.test(stopReason) ? "error" : "ok";
         const callId = stringValue(message?.id, record.requestId, record.request_id, record.id) ?? `assistant-${lineIndex}`;
         const call = usageCall(sessionId, callId, timestamp, stringValue(message?.model, record.model), stringValue(record.provider, record.model_provider), usage, status);
         if (call) {

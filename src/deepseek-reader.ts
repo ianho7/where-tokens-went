@@ -1,5 +1,5 @@
 import { readFile, readdir } from "node:fs/promises";
-import { zstdDecompressSync } from "node:zlib";
+import { decompress as decompressZstd } from "fzstd";
 import * as os from "node:os";
 import * as path from "node:path";
 import type {
@@ -192,7 +192,7 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
     let logical: string;
     try {
       const bytes = await readFile(file);
-      logical = file.endsWith(".zstd") ? zstdDecompressSync(bytes).toString("utf8") : bytes.toString("utf8");
+      logical = file.endsWith(".zstd") ? Buffer.from(decompressZstd(bytes)).toString("utf8") : bytes.toString("utf8");
     } catch {
       coverage.recordsSkipped += 1;
       coverage.warnings.push("A DeepSeek Harness Session could not be decoded and was skipped.");
