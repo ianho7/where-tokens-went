@@ -585,13 +585,14 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
       continue;
     }
     if (pending.unsupported) {
-      coverage.partialSessions += 1;
       coverage.warnings.push("A Codex Session contains unsupported accounting records; only a partial audit is reported.");
     }
+    let partial = pending.unsupported;
     if (pending.missingTimestamp) {
-      coverage.partialSessions += 1;
+      partial = true;
       coverage.warnings.push("A Codex Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
     }
+    if (partial) coverage.partialSessions += 1;
     sessions.push(pending.session);
     toolCalls.push(...pending.toolCalls.filter((tool) => tool.timestamp !== null && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
     lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp !== null && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));

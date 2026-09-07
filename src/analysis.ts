@@ -143,11 +143,9 @@ function evidenceForCount(value: number, method: string): EvidenceValue {
 
 export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harness): AuditResult {
   const tokenTotal = sumTokens(read.modelCalls);
-  const findingCalls = read.modelCalls.filter((call) => call.activeBranch !== false);
-  const findingTokenTotal = sumTokens(findingCalls);
   const reportedCost = sumReportedCost(read.modelCalls);
-  const largest = topSession(read.sessions, findingCalls);
-  const largestCalls = largest ? findingCalls.filter((call) => call.sessionId === largest.session.sessionId) : [];
+  const largest = topSession(read.sessions, read.modelCalls);
+  const largestCalls = largest ? read.modelCalls.filter((call) => call.sessionId === largest.session.sessionId) : [];
   const amplification = toolAmplification(read);
   const extraLifecycle = read.lifecycle.filter((event) => event.kind !== "compaction");
   const sessionProjects = new Map(read.sessions.map((session) => [session.sessionId, session.projectCwd]));
@@ -157,8 +155,8 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     models: rankContributions(read.modelCalls, (call) => call.model ?? "<unknown-model>", "model"),
     timeBuckets: rankContributions(read.modelCalls, (call) => timeBucket(call.timestamp), "time bucket"),
   };
-  const share = largest && findingTokenTotal.value !== null && findingTokenTotal.value > 0
-    ? largest.tokens / findingTokenTotal.value
+  const share = largest && tokenTotal.value !== null && tokenTotal.value > 0
+    ? largest.tokens / tokenTotal.value
     : null;
   const summary: Record<string, EvidenceValue> = {
     sessionCount: countEvidence(read.sessions.length, "count of selected Session records"),

@@ -343,13 +343,14 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
       continue;
     }
     if (pending.unsupported) {
-      coverage.partialSessions += 1;
       coverage.warnings.push("A Claude Code Session contains unsupported accounting records; only a partial audit is reported.");
     }
+    let partial = pending.unsupported;
     if (pending.missingTimestamp) {
-      coverage.partialSessions += 1;
+      partial = true;
       coverage.warnings.push("A Claude Code Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
     }
+    if (partial) coverage.partialSessions += 1;
     sessions.push(pending.session);
     for (const call of pending.modelCalls) if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);
     toolCalls.push(...pending.tools.filter((tool) => tool.timestamp && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));

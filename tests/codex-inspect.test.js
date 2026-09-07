@@ -485,19 +485,25 @@ test('Pi Skill path reports usage, reported cost, and branch-safe tool evidence'
     assert.equal(result.summary.sessionCount.value, 1);
     assert.equal(result.summary.modelCallCount.value, 3);
     assert.equal(result.summary.totalTokens.value, 1315);
+    assert.equal(result.summary.topSessionId.value, 'pi-session');
+    assert.equal(result.summary.topSessionTokens.value, 1315);
+    assert.equal(result.rankings.sessions[0].key, 'pi-session');
+    assert.equal(result.rankings.sessions[0].value.value, 1315);
     assert.equal(result.summary.activeBranchModelCallCount.value, 2);
     assert.equal(result.summary.activeBranchTokens.value, 300);
     assert.equal(result.summary.reportedCost.value, 0.53);
     assert.equal(result.summary.reportedCost.provenance, 'reported');
     assert.equal(result.summary.toolCallCount.value, 1);
     assert.equal(result.coverage.recordsSkipped, 1);
-    assert.equal(result.coverage.partialSessions, 2);
+    assert.equal(result.coverage.partialSessions, 1);
     assert.match(result.coverage.warnings.join(' '), /timestamp|time/i);
+    assert.match(result.coverage.warnings.join(' '), /unsupported accounting/i);
     assert.equal(result.summary.pairedToolResultCount.value, 1);
+    assert.equal(result.summary.estimatedToolAmplifiedTokens.value, 375);
     assert.equal(result.summary.extraLifecycleCount.value, 0);
-    assert.equal(result.topFinding.kind, 'tool_amplification');
-    assert.equal(result.topFinding.impact.value, 375);
-    assert.equal(result.topFinding.evidence[1].value, 1);
+    assert.equal(result.topFinding.kind, 'long_session');
+    assert.equal(result.topFinding.impact.value, 1315);
+    assert.equal(result.topFinding.evidence[1].value, 3);
     const serialized = JSON.stringify(result);
     assert.equal(serialized.includes('PI_TOOL_SECRET'), false);
     assert.equal(serialized.includes('secret.ts'), false);
@@ -553,9 +559,15 @@ test('DeepSeek Harness Skill path reads zstd Session events without returning co
       time0: Date.now() - 1.75 * 60 * 60 * 1000,
       data: { turn: 1, step: 2, index: 0, dt: [0, 4, 6], texts: ['safe', ' packed', ' delta'] },
     },
-    { type: 'retry', seq: 12, time: isoHoursAgo(1.7), data: { attemptId: 'attempt-1' } },
-    { type: 'assistant/message', seq: 13, data: { messageId: 'message-without-time', usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 }, content: [] } },
-    { type: 'compaction/start', seq: 14, time: isoHoursAgo(1.6), data: {} },
+    {
+      type: 'tool-call-chunks',
+      seq0: 12,
+      time0: Date.now() - 1.72 * 60 * 60 * 1000,
+      data: { id: 'ambiguous-packed-row', args: ['not-enough-position-data'] },
+    },
+    { type: 'retry', seq: 13, time: isoHoursAgo(1.7), data: { attemptId: 'attempt-1' } },
+    { type: 'assistant/message', seq: 14, data: { messageId: 'message-without-time', usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 }, content: [] } },
+    { type: 'compaction/start', seq: 15, time: isoHoursAgo(1.6), data: {} },
   ];
   const logical = records.map((record) => JSON.stringify(record)).join('\n') + '\n';
   const split = Math.floor(logical.length / 2);
@@ -579,9 +591,10 @@ test('DeepSeek Harness Skill path reads zstd Session events without returning co
     assert.equal(result.summary.toolCallCount.value, 2);
     assert.equal(result.summary.pairedToolResultCount.value, 2);
     assert.equal(result.summary.extraLifecycleCount.value, 1);
-    assert.equal(result.coverage.partialSessions, 2);
+    assert.equal(result.coverage.partialSessions, 1);
     assert.match(result.coverage.warnings.join(' '), /durable|decode|partial/i);
     assert.match(result.coverage.warnings.join(' '), /timestamp|time/i);
+    assert.match(result.coverage.warnings.join(' '), /unsupported/i);
     assert.equal(result.topFinding.kind, 'tool_amplification');
     const serialized = JSON.stringify(result);
     assert.equal(serialized.includes('DSH_SECRET'), false);

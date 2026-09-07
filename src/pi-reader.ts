@@ -349,14 +349,16 @@ export async function readPi(scope: ReadScope): Promise<ReadResult> {
       coverage.warnings.push("A Pi Session uses an unsupported future format version and was skipped.");
       continue;
     }
+    let partial = false;
     if (pending.partial) {
-      coverage.partialSessions += 1;
+      partial = true;
       coverage.warnings.push("A Pi Session contains unsupported accounting records; only a partial audit is reported.");
     }
     if (pending.missingTimestamp) {
-      coverage.partialSessions += 1;
+      partial = true;
       coverage.warnings.push("A Pi Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
     }
+    if (partial) coverage.partialSessions += 1;
     sessions.push(pending.session);
     const active = activeEntryIds(pending.entries);
     const activeCallIds = new Set(

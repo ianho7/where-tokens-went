@@ -26,6 +26,7 @@ interface PendingSession {
   currentModel: string | null;
   currentProvider: string | null;
   unsupported: boolean;
+  partial: boolean;
   missingTimestamp: boolean;
 }
 
@@ -97,6 +98,7 @@ function createSession(sessionId: string): PendingSession {
     currentModel: null,
     currentProvider: null,
     unsupported: false,
+    partial: false,
     missingTimestamp: false,
   };
 }
@@ -253,10 +255,11 @@ function decodeZstdPrefix(bytes: Uint8Array): { text: string; partial: boolean }
   return { text: Buffer.concat(chunks).toString("utf8"), partial };
 }
 
-function toolPosition(data: JsonObject, record: JsonObject, chunk: JsonObject): string {
-  const turn = stringValue(chunk.turn, data.turn, record.turn) ?? "?";
-  const step = stringValue(chunk.step, data.step, record.step) ?? "?";
-  const index = stringValue(chunk.index, data.index, record.index) ?? "0";
+function toolPosition(data: JsonObject, record: JsonObject, chunk: JsonObject): string | null {
+  const turn = stringValue(chunk.turn, data.turn, record.turn);
+  const step = stringValue(chunk.step, data.step, record.step);
+  const index = stringValue(chunk.index, data.index, record.index);
+  if (turn === null || step === null || index === null) return null;
   return `${turn}:${step}:${index}`;
 }
 
@@ -281,6 +284,7 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
     coverage.filesRead += 1;
     let logical: string;
     let partialDecode = false;
+    let partialTrailing = false;
     try {
       const bytes = await readFile(file);
       if (file.endsWith(".zstd")) {
@@ -298,7 +302,6 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
     }
     if (partialDecode) {
       coverage.recordsSkipped += 1;
-      coverage.partialSessions += 1;
       coverage.warnings.push("A DeepSeek Harness Session ended with a torn Zstandard frame; only the durable prefix was analysed.");
     }
     const physicalLines = logical.split(/\r?\n/);
@@ -322,11 +325,14 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
         }
       } catch {
         coverage.recordsSkipped += 1;
-        if (lineIndex === physicalLines.length - 1 && !trailingNewline) coverage.partialSessions += 1;
+        if (lineIndex === physicalLines.length - 1 && !trailingNewline) partialTrailing = true;
       }
     }
+    if (partialTrailing) coverage.warnings.push("A DeepSeek Harness Session ended with an incomplete JSON record; only the complete prefix was analysed.");
+    const partialFile = partialDecode || partialTrailing;
     records = records.flatMap(expandPackedRecord);
     let currentSessionId: string | null = null;
+    let partialFileAssigned = false;
     for (const record of records) {
       const type = stringValue(record.type, record.kind) ?? "";
       const data = objectValue(record.data) ?? record;
@@ -337,6 +343,10 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
         currentSessionId = stringValue(record.sessionId, record.session_id, record.id, data.sessionId, data.session_id, data.id) ?? `unknown-session-${fallbackIndex++}`;
         const pending = pendingById.get(currentSessionId) ?? createSession(currentSessionId);
         pendingById.set(currentSessionId, pending);
+        if (partialFile) {
+          pending.partial = true;
+          partialFileAssigned = true;
+        }
         pending.session.projectCwd = stringValue(record.cwd, data.cwd, record.projectCwd, data.projectCwd);
         pending.session.parentSessionId = stringValue(record.parentSession, data.parentSession, record.parent_session, data.parent_session);
         pending.session.sourceVersion = stringValue(record.version, data.version);
@@ -346,6 +356,10 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
       if (!currentSessionId) currentSessionId = `unknown-session-${fallbackIndex++}`;
       const pending = pendingById.get(currentSessionId) ?? createSession(currentSessionId);
       pendingById.set(currentSessionId, pending);
+      if (partialFile) {
+        pending.partial = true;
+        partialFileAssigned = true;
+      }
       const span = packedSpan(record, data, type);
       const sequenceStart = span?.start ?? numberValue(record.seq, record.sequence, record.seq0);
       const sequenceEnd = span?.end ?? sequenceStart;
@@ -401,8 +415,12 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
         if (chunkType === "tool-call-delta" || chunkType.includes("tool-call")) {
           if (!timestamp) pending.missingTimestamp = true;
           const position = toolPosition(data, record, chunk);
-          const toolId = stringValue(chunk.id) ?? pending.toolIdsByPosition.get(position) ?? stringValue(data.id) ?? `deepseek-tool-${pending.tools.length}`;
-          pending.toolIdsByPosition.set(position, toolId);
+          const toolId = stringValue(chunk.id) ?? (position ? pending.toolIdsByPosition.get(position) : null);
+          if (!toolId) {
+            pending.unsupported = true;
+            continue;
+          }
+          if (position) pending.toolIdsByPosition.set(position, toolId);
           let tool = pending.tools.find((candidate) => candidate.callId === toolId);
           if (!tool) {
             tool = {
@@ -465,6 +483,7 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
         if (!timestamp) pending.missingTimestamp = true;
       }
     }
+    if (partialFile && !partialFileAssigned) coverage.partialSessions += 1;
   }
 
   const sessions: SessionRecord[] = [];
@@ -480,14 +499,16 @@ export async function readDeepSeek(scope: ReadScope): Promise<ReadResult> {
       }
       continue;
     }
+    let partial = pending.partial;
     if (pending.unsupported) {
-      coverage.partialSessions += 1;
+      partial = true;
       coverage.warnings.push("A DeepSeek Harness Session contains unsupported or non-contiguous records; only a partial audit is reported.");
     }
     if (pending.missingTimestamp) {
-      coverage.partialSessions += 1;
+      partial = true;
       coverage.warnings.push("A DeepSeek Harness Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
     }
+    if (partial) coverage.partialSessions += 1;
     sessions.push(pending.session);
     const calls = [...pending.modelCalls, ...pending.attemptCalls.filter((entry) => !entry.stepId || !pending.messageSteps.has(entry.stepId)).map((entry) => entry.call)];
     for (const call of calls) if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);
