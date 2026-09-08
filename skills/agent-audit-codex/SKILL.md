@@ -25,6 +25,21 @@ Use `7d` when no period is requested. Global Audit still remains inside Codex; n
 
 The local tool is authoritative. Do not recalculate totals, infer missing values as zero, or expose raw history content.
 
+## Intent routing
+
+Natural language is the primary interface. Interpret the request into fixed Harness, Audit Scope, period, locale, view, and output arguments, then run the same bundled inspect command. Logical shortcuts are optional aliases, not a second implementation:
+
+- Full diagnosis or /agent-audit: current project and 7d by default, view full, and a local self-contained HTML report.
+- usage: view usage for an at-a-glance panel.
+- window: view window for locally observed recent five-hour activity. Provider quota, remaining allowance, reset time, and safe-to-start claims are unavailable without first-party data.
+- report [days]: view report with --since <days>d and a local HTML path.
+- tools [days]: view tools with --since <days>d.
+- week: view week for two adjacent seven-day periods.
+- share [days]: view share with --since <days>d and a local Markdown path.
+- An arbitrary question is interpreted by the Host Agent into one of the fixed views; never pass transcript text or the question as a shell command.
+
+Pass the user's language as --locale zh-CN or --locale en-US. For full and report views, choose a local output path, pass --html <report-path>, and open that file after successful generation. Use --share <share-path> for share view. The selected Harness, Current Project versus Global Audit, and privacy boundary must remain unchanged for every view.
+
 ## Explanation
 
 Explain the returned result in one concise response, preserving:

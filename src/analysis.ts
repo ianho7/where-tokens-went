@@ -8,7 +8,10 @@ import type {
   ModelCallRecord,
   ReadResult,
   ReadScope,
+  ReportData,
   SessionRecord,
+  ToolAnalysisEntry,
+  TokenBreakdown,
   ToolCallRecord,
 } from "./types";
 
@@ -63,10 +66,11 @@ function rankContributions(
   totalTokens: number | null,
   displayNameOf?: (key: string) => string | undefined,
 ): ContributionEntry[] {
-  const groups = new Map<string, { tokens: number; complete: boolean; reported: boolean }>();
+  const groups = new Map<string, { tokens: number; complete: boolean; reported: boolean; count: number }>();
   for (const call of calls) {
     const key = keyOf(call);
-    const existing = groups.get(key) ?? { tokens: 0, complete: true, reported: true };
+    const existing = groups.get(key) ?? { tokens: 0, complete: true, reported: true, count: 0 };
+    existing.count += 1;
     if (call.totalTokens === null) {
       existing.complete = false;
     } else {
@@ -87,6 +91,7 @@ function rankContributions(
         method: `${label} group sum of complete ModelCall token totals`,
       },
       sharePercent: sharePercentEvidence(group.tokens, totalTokens, label),
+      count: countEvidence(group.count, "count of ModelCall records in " + label + " group"),
     }));
 }
 
@@ -98,6 +103,238 @@ function timeBucket(timestamp: string | null): string {
   if (!timestamp) return "<unknown-time>";
   const parsed = new Date(timestamp);
   return Number.isNaN(parsed.getTime()) ? "<unknown-time>" : parsed.toISOString().slice(0, 10);
+}
+
+type TokenField = "inputTokens" | "cachedInputTokens" | "cacheWriteTokens" | "outputTokens" | "reasoningTokens";
+
+function sumTokenField(calls: ModelCallRecord[], field: TokenField, label: string): EvidenceValue {
+  if (calls.length === 0 || calls.some((call) => call[field] === null)) {
+    return unavailable(label + " was not reported for every selected ModelCall");
+  }
+  const value = calls.reduce((total, call) => total + call[field]!, 0);
+  const provenance = calls.every((call) => call.tokenProvenance === "reported") ? "reported" : "derived";
+  return {
+    value,
+    provenance,
+    method: "sum of the reported " + label + " fields for complete ModelCall records",
+  };
+}
+
+function totalTokenEvidence(calls: ModelCallRecord[], label: string): EvidenceValue {
+  const total = sumTokens(calls);
+  if (total.value === null) return unavailable(label + " was not reported for every selected ModelCall");
+  return {
+    value: total.value,
+    provenance: total.provenance,
+    method: "sum of non-cumulative ModelCall token totals for " + label,
+  };
+}
+
+function tokenBreakdown(calls: ModelCallRecord[], label: string): TokenBreakdown {
+  return {
+    inputTokens: sumTokenField(calls, "inputTokens", label + " input tokens"),
+    cachedInputTokens: sumTokenField(calls, "cachedInputTokens", label + " cached input tokens"),
+    cacheWriteTokens: sumTokenField(calls, "cacheWriteTokens", label + " cache write tokens"),
+    outputTokens: sumTokenField(calls, "outputTokens", label + " output tokens"),
+    reasoningTokens: sumTokenField(calls, "reasoningTokens", label + " reasoning tokens"),
+    totalTokens: totalTokenEvidence(calls, label),
+  };
+}
+
+function hourBucket(timestamp: string | null): string | null {
+  if (!timestamp) return null;
+  const parsed = new Date(timestamp);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 13) + ":00Z";
+}
+
+function buildDailyUsage(calls: ModelCallRecord[], totalTokens: number | null): ReportData["dailyUsage"] {
+  const groups = new Map<string, ModelCallRecord[]>();
+  for (const call of calls) {
+    const key = timeBucket(call.timestamp);
+    groups.set(key, [...(groups.get(key) ?? []), call]);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, group]) => {
+      const breakdown = tokenBreakdown(group, "day " + key);
+      return {
+        key,
+        ...breakdown,
+        modelCallCount: countEvidence(group.length, "count of ModelCall records in day " + key),
+        sharePercent: typeof breakdown.totalTokens.value !== "number"
+          ? unavailable("the complete token total was unavailable for day " + key + " share calculation")
+          : sharePercentEvidence(breakdown.totalTokens.value, totalTokens, "day " + key),
+      };
+    });
+}
+
+function buildHourlyActivity(calls: ModelCallRecord[], totalTokens: number | null): ReportData["hourlyActivity"] {
+  const groups = new Map<string, ModelCallRecord[]>();
+  for (const call of calls) {
+    const key = hourBucket(call.timestamp);
+    if (key) groups.set(key, [...(groups.get(key) ?? []), call]);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, group]) => {
+      const total = totalTokenEvidence(group, "hour " + key);
+      return {
+        key,
+        modelCallCount: countEvidence(group.length, "count of ModelCall records in hour " + key),
+        totalTokens: total,
+        sharePercent: typeof total.value !== "number"
+          ? unavailable("the complete token total was unavailable for hour " + key + " share calculation")
+          : sharePercentEvidence(total.value, totalTokens, "hour " + key),
+      };
+    });
+}
+
+function safeToolName(name: string): string {
+  const value = name.trim();
+  return value && value.length <= 80 && /^[A-Za-z0-9_.:-]+$/.test(value) ? value : "other-tool";
+}
+
+function buildToolAnalysis(read: ReadResult): { entries: ToolAnalysisEntry[]; total: EvidenceValue } {
+  const groups = new Map<string, {
+    calls: number;
+    pairedResults: number;
+    errors: number;
+    errorStatusComplete: boolean;
+    injectedTokens: number;
+    amplifiedTokens: number;
+    hasResult: boolean;
+  }>();
+  for (const tool of read.toolCalls) {
+    const key = safeToolName(tool.toolName);
+    const group = groups.get(key) ?? {
+      calls: 0,
+      pairedResults: 0,
+      errors: 0,
+      errorStatusComplete: true,
+      injectedTokens: 0,
+      amplifiedTokens: 0,
+      hasResult: false,
+    };
+    group.calls += 1;
+    if (tool.isError === null) group.errorStatusComplete = false;
+    if (tool.isError === true) group.errors += 1;
+    if (tool.resultChars !== null && tool.resultChars !== undefined) {
+      group.pairedResults += 1;
+      group.hasResult = true;
+      group.injectedTokens += tool.resultChars / 4;
+      group.amplifiedTokens += (tool.resultChars / 4) * laterCalls(
+        tool,
+        read.modelCalls.filter((call) => call.activeBranch !== false),
+        read.lifecycle,
+      );
+    }
+    groups.set(key, group);
+  }
+  const hasResult = [...groups.values()].some((group) => group.hasResult);
+  const totalAmplified = [...groups.values()].reduce((total, group) => total + group.amplifiedTokens, 0);
+  const total = hasResult
+    ? {
+      value: totalAmplified,
+      provenance: "estimated" as const,
+      method: "sum of per-tool UTF-8 text-character estimates divided by 4 and multiplied within active-context boundaries",
+    }
+    : unavailable("no paired tool result size was available");
+  const entries = [...groups.entries()]
+    .sort((left, right) => right[1].amplifiedTokens - left[1].amplifiedTokens || left[0].localeCompare(right[0]))
+    .map(([key, group]) => ({
+      key,
+      calls: countEvidence(group.calls, "count of ToolCall records for " + key),
+      pairedResults: countEvidence(group.pairedResults, "count of paired ToolCall results for " + key),
+      errors: group.errorStatusComplete
+        ? countEvidence(group.errors, "count of reported ToolCall errors for " + key)
+        : unavailable("error status was missing for at least one " + key + " ToolCall"),
+      injectedTokens: group.hasResult
+        ? {
+          value: group.injectedTokens,
+          provenance: "estimated" as const,
+          method: "paired tool-result Unicode text characters divided by 4; content is not returned",
+        }
+        : unavailable("no paired result size was available for " + key),
+      amplifiedTokens: group.hasResult
+        ? {
+          value: group.amplifiedTokens,
+          provenance: "estimated" as const,
+          method: "paired result text characters / 4 multiplied by later ModelCall records before the next observable active-context boundary",
+        }
+        : unavailable("no paired result size was available for " + key),
+      sharePercent: group.hasResult
+        ? sharePercentEvidence(group.amplifiedTokens, totalAmplified > 0 ? totalAmplified : null, "tool " + key)
+        : unavailable("no paired result size was available for " + key + " share calculation"),
+    }));
+  return { entries, total };
+}
+
+function timestampMs(timestamp: string | null): number | null {
+  if (!timestamp) return null;
+  const value = Date.parse(timestamp);
+  return Number.isNaN(value) ? null : value;
+}
+
+function observedTokenEvidence(calls: ModelCallRecord[], label: string): EvidenceValue {
+  if (calls.length === 0) {
+    return { value: 0, provenance: "derived", method: "no timestamped ModelCall records were observed in the " + label };
+  }
+  return totalTokenEvidence(calls, label);
+}
+
+function historicalPeakTokens(calls: ModelCallRecord[], windowMilliseconds: number): EvidenceValue {
+  const timed = calls
+    .map((call) => ({ call, time: timestampMs(call.timestamp) }))
+    .filter((entry): entry is { call: ModelCallRecord; time: number } => entry.time !== null)
+    .sort((left, right) => left.time - right.time);
+  if (timed.length === 0) return unavailable("no usable ModelCall timestamps were available for a historical rolling-window peak");
+  let peak: number | null = null;
+  // ponytail: O(n²) local window scan keeps the boundary logic explicit; add an indexed scan only if history size makes this measurable.
+  for (let start = 0; start < timed.length; start += 1) {
+    const end = timed[start].time + windowMilliseconds;
+    const window = timed.filter((entry) => entry.time >= timed[start].time && entry.time <= end).map((entry) => entry.call);
+    if (window.some((call) => call.totalTokens === null)) continue;
+    const total = window.reduce((sum, call) => sum + call.totalTokens!, 0);
+    if (peak === null || total > peak) peak = total;
+  }
+  return peak === null
+    ? unavailable("a complete token total was unavailable for every timestamped rolling-window candidate")
+    : {
+      value: peak,
+      provenance: "derived",
+      method: "maximum sum of complete ModelCall token totals in any five-hour timestamp window",
+    };
+}
+
+function buildRollingWindow(calls: ModelCallRecord[]): ReportData["rollingWindow"] {
+  const end = Date.now();
+  const start = end - 5 * 60 * 60 * 1000;
+  const timed = calls.filter((call) => timestampMs(call.timestamp) !== null);
+  if (timed.length === 0) return null;
+  const observed = timed.filter((call) => timestampMs(call.timestamp)! >= start && timestampMs(call.timestamp)! <= end);
+  return {
+    windowHours: 5,
+    startAt: new Date(start).toISOString(),
+    endAt: new Date(end).toISOString(),
+    observedModelCallCount: countEvidence(observed.length, "count of timestamped ModelCall records observed in the latest five-hour window"),
+    observedTokens: observedTokenEvidence(observed, "latest five-hour observed activity"),
+    historicalPeakObservedTokens: historicalPeakTokens(timed, 5 * 60 * 60 * 1000),
+    providerQuota: unavailable("no first-party Provider quota data is available from the selected Harness"),
+    remainingProviderQuota: unavailable("remaining Provider quota is unavailable without first-party allowance data"),
+    resetAt: unavailable("Provider reset time is unavailable without first-party allowance data"),
+  };
+}
+
+function buildReportData(read: ReadResult, totalTokens: number | null): ReportData {
+  const tools = buildToolAnalysis(read);
+  return {
+    dailyUsage: buildDailyUsage(read.modelCalls, totalTokens),
+    hourlyActivity: buildHourlyActivity(read.modelCalls, totalTokens),
+    hourlySupported: read.modelCalls.some((call) => timestampMs(call.timestamp) !== null),
+    rollingWindow: buildRollingWindow(read.modelCalls),
+    tools: tools.entries,
+    totalToolAmplifiedTokens: tools.total,
+  };
 }
 
 function projectKey(cwd: string | null, scope: ReadScope): string {
@@ -286,7 +523,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
   if (amplification.largestTokens !== null && amplification.largestTokens > 0 && amplification.tool) {
     const toolFinding: NonNullable<AuditResult["topFinding"]> = {
       kind: "tool_amplification",
-      headline: `Tool ${amplification.tool.toolName} produced an estimated ${Math.round(amplification.largestTokens)} amplified tokens across later calls.`,
+      headline: `Tool ${safeToolName(amplification.tool.toolName)} produced an estimated ${Math.round(amplification.largestTokens)} amplified tokens across later calls.`,
       explanation: "A paired tool result was large enough to be carried into later model calls in the same active context. The impact is an estimate based on result size, not billed tokens.",
       impact: {
         value: amplification.largestTokens,
@@ -348,6 +585,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     coverage: read.coverage,
     summary,
     rankings,
+    report: buildReportData(read, tokenTotal.value),
     topFinding,
   };
 }

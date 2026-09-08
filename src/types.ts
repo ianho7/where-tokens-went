@@ -2,6 +2,10 @@ export type Harness = "claude" | "codex" | "pi" | "deepseek";
 
 export type Provenance = "reported" | "derived" | "estimated" | "unavailable";
 
+export type AuditView = "full" | "usage" | "window" | "report" | "tools" | "week" | "share" | "question";
+
+export type ReportLocale = "zh-CN" | "en-US";
+
 export interface SessionRecord {
   harness: Harness;
   sessionId: string;
@@ -94,6 +98,8 @@ export interface ContributionEntry {
   value: EvidenceValue;
   /** Percentage points of the complete selected token total, or unavailable. */
   sharePercent: EvidenceValue;
+  /** Count of source records represented by this entry. */
+  count: EvidenceValue;
 }
 
 export interface ContributionRankings {
@@ -103,7 +109,69 @@ export interface ContributionRankings {
   timeBuckets: ContributionEntry[];
 }
 
-export interface AuditResult {
+export interface TokenBreakdown {
+  inputTokens: EvidenceValue;
+  cachedInputTokens: EvidenceValue;
+  cacheWriteTokens: EvidenceValue;
+  outputTokens: EvidenceValue;
+  reasoningTokens: EvidenceValue;
+  totalTokens: EvidenceValue;
+}
+
+export interface DailyUsageEntry extends TokenBreakdown {
+  key: string;
+  modelCallCount: EvidenceValue;
+  sharePercent: EvidenceValue;
+}
+
+export interface HourlyActivityEntry {
+  key: string;
+  modelCallCount: EvidenceValue;
+  totalTokens: EvidenceValue;
+  sharePercent: EvidenceValue;
+}
+
+export interface RollingWindowReport {
+  windowHours: number;
+  startAt: string;
+  endAt: string;
+  observedModelCallCount: EvidenceValue;
+  observedTokens: EvidenceValue;
+  historicalPeakObservedTokens: EvidenceValue;
+  providerQuota: EvidenceValue;
+  remainingProviderQuota: EvidenceValue;
+  resetAt: EvidenceValue;
+}
+
+export interface ToolAnalysisEntry {
+  key: string;
+  calls: EvidenceValue;
+  pairedResults: EvidenceValue;
+  errors: EvidenceValue;
+  injectedTokens: EvidenceValue;
+  amplifiedTokens: EvidenceValue;
+  sharePercent: EvidenceValue;
+}
+
+export interface ReportData {
+  dailyUsage: DailyUsageEntry[];
+  hourlyActivity: HourlyActivityEntry[];
+  hourlySupported: boolean;
+  rollingWindow: RollingWindowReport | null;
+  tools: ToolAnalysisEntry[];
+  totalToolAmplifiedTokens: EvidenceValue;
+}
+
+export interface AuditFinding {
+  kind: "long_session" | "tool_amplification" | "extra_calls";
+  headline: string;
+  explanation: string;
+  impact: EvidenceValue;
+  evidence: EvidenceValue[];
+  recommendation: string;
+}
+
+export interface AuditSnapshot {
   scope: {
     harness: Harness;
     cwd: string | null;
@@ -113,12 +181,34 @@ export interface AuditResult {
   coverage: Coverage;
   summary: Record<string, EvidenceValue>;
   rankings: ContributionRankings;
-  topFinding: {
-    kind: "long_session" | "tool_amplification" | "extra_calls";
-    headline: string;
-    explanation: string;
-    impact: EvidenceValue;
-    evidence: EvidenceValue[];
-    recommendation: string;
-  } | null;
+  report: ReportData;
+  topFinding: AuditFinding | null;
+}
+
+export interface WeekComparison {
+  currentFrom: string;
+  currentTo: string;
+  previousFrom: string;
+  previousTo: string;
+  current: AuditSnapshot;
+  previous: AuditSnapshot;
+  changes: {
+    totalTokens: EvidenceValue;
+    modelCallCount: EvidenceValue;
+    toolAmplifiedTokens: EvidenceValue;
+  };
+  modelChanges: WeekStructureChange[];
+  toolChanges: WeekStructureChange[];
+}
+
+export interface WeekStructureChange {
+  key: string;
+  current: EvidenceValue;
+  previous: EvidenceValue;
+  change: EvidenceValue;
+}
+
+export interface AuditResult extends AuditSnapshot {
+  view?: AuditView;
+  weekComparison?: WeekComparison;
 }

@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { mkdtemp, mkdir, writeFile, rm } = require('node:fs/promises');
+const { mkdtemp, mkdir, writeFile, readFile, rm } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
@@ -13,6 +13,10 @@ const bundledCodexPath = path.resolve(__dirname, '..', 'skills', 'agent-audit-co
 
 function isoHoursAgo(hours) {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
+function isoDaysAgo(days) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 async function runAudit(args, env) {
@@ -47,6 +51,9 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
       assert.match(skill, /--cwd <absolute-current-project-path>/);
       assert.match(skill, /--since <duration>/);
       assert.match(skill, /--format json/);
+      assert.match(skill, /Natural language is the primary interface/);
+      assert.match(skill, /same bundled inspect command/);
+      assert.match(skill, /An arbitrary question is interpreted by the Host Agent/);
       await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'agent-audit.js'));
       await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'runtime', 'cli.js'));
     }
@@ -381,6 +388,254 @@ test('Codex report attributes repeated tool output and extra lifecycle calls', a
     assert.equal(result.topFinding.evidence[2].value, 1200);
     assert.match(result.topFinding.recommendation, /output|result|summar/i);
     assert.equal(JSON.stringify(result).includes('secret.ts'), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Tare report views stay localized, provenance-safe, and shareable', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-tare-report-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '07');
+  const htmlPath = path.join(root, 'tare-report.html');
+  const sharePath = path.join(root, 'tare-share.md');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessions, { recursive: true });
+
+  const currentRecords = [
+    {
+      timestamp: isoHoursAgo(3),
+      type: 'session_meta',
+      payload: { id: 'tare-current', cwd: project },
+    },
+    {
+      timestamp: isoHoursAgo(2.9),
+      type: 'turn_context',
+      payload: { turn_id: 'tare-turn', cwd: project, model: 'gpt-5.6-terra', model_provider: 'openai' },
+    },
+    {
+      timestamp: isoHoursAgo(2.8),
+      type: 'response_item',
+      payload: { type: 'function_call', call_id: 'tare-tool', name: 'rg', arguments: 'PRIVATE_ARGS' },
+    },
+    {
+      timestamp: isoHoursAgo(2.7),
+      type: 'response_item',
+      payload: { type: 'function_call_output', call_id: 'tare-tool', output: 'PRIVATE_RESULT '.repeat(1000) },
+    },
+    {
+      timestamp: isoHoursAgo(2.6),
+      type: 'event_msg',
+      payload: {
+        type: 'raw_response_completed',
+        response_id: 'tare-response',
+        usage: {
+          input_tokens: 100000000,
+          cached_input_tokens: 0,
+          cache_write_input_tokens: 0,
+          output_tokens: 25000000,
+          reasoning_output_tokens: 0,
+          total_tokens: 125000000,
+        },
+      },
+    },
+    {
+      timestamp: isoHoursAgo(2.5),
+      type: 'future_usage_record',
+      payload: { type: 'future_usage_record', accounting: 'PRIVATE_FUTURE_ACCOUNTING' },
+    },
+  ];
+  const untitledRecords = [
+    {
+      timestamp: isoHoursAgo(1.4),
+      type: 'session_meta',
+      payload: { id: 'tare-untitled', cwd: project },
+    },
+    {
+      timestamp: isoHoursAgo(1.3),
+      type: 'turn_context',
+      payload: { turn_id: 'tare-untitled-turn', cwd: project, model: 'gpt-5.6-terra', model_provider: 'openai' },
+    },
+    {
+      timestamp: isoHoursAgo(1.2),
+      type: 'event_msg',
+      payload: {
+        type: 'raw_response_completed',
+        response_id: 'tare-untitled-response',
+        usage: {
+          input_tokens: 800000,
+          cached_input_tokens: 0,
+          cache_write_input_tokens: 0,
+          output_tokens: 200000,
+          reasoning_output_tokens: 0,
+          total_tokens: 1000000,
+        },
+      },
+    },
+    {
+      timestamp: isoHoursAgo(1.1),
+      type: 'future_usage_record',
+      payload: { type: 'future_usage_record', accounting: 'PRIVATE_FUTURE_ACCOUNTING' },
+    },
+  ];
+  const previousRecords = [
+    {
+      timestamp: isoDaysAgo(8),
+      type: 'session_meta',
+      payload: { id: 'tare-previous', cwd: project },
+    },
+    {
+      timestamp: isoDaysAgo(7.9),
+      type: 'turn_context',
+      payload: { turn_id: 'tare-old-turn', cwd: project, model: 'gpt-5.6-sol', model_provider: 'openai' },
+    },
+    {
+      timestamp: isoDaysAgo(7.8),
+      type: 'event_msg',
+      payload: {
+        type: 'raw_response_completed',
+        response_id: 'tare-old-response',
+        usage: { input_tokens: 15000000, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 5000000, reasoning_output_tokens: 0, total_tokens: 20000000 },
+      },
+    },
+  ];
+  await writeFile(
+    path.join(sessions, 'rollout-tare-current.jsonl'),
+    currentRecords.map((record) => JSON.stringify(record)).join('\n') + '\n',
+    'utf8',
+  );
+  await writeFile(
+    path.join(sessions, 'rollout-tare-previous.jsonl'),
+    previousRecords.map((record) => JSON.stringify(record)).join('\n') + '\n',
+    'utf8',
+  );
+  await writeFile(
+    path.join(sessions, 'rollout-tare-untitled.jsonl'),
+    untitledRecords.map((record) => JSON.stringify(record)).join('\n') + '\n',
+    'utf8',
+  );
+  await writeFile(
+    path.join(codexHome, 'session_index.jsonl'),
+    [
+      { id: 'tare-current', thread_name: 'Tare current report' },
+      { id: 'tare-previous', thread_name: 'Tare previous report' },
+    ].map((record) => JSON.stringify(record)).join('\n') + '\n',
+    'utf8',
+  );
+
+  try {
+    const { stdout: jsonText } = await runAudit(
+      [
+        'inspect', '--harness', 'codex', '--cwd', project, '--since', '7d',
+        '--locale', 'zh-CN', '--view', 'report', '--html', htmlPath, '--format', 'json',
+      ],
+      { CODEX_HOME: codexHome },
+    );
+    const result = JSON.parse(jsonText);
+    const html = await readFile(htmlPath, 'utf8');
+
+    assert.equal(result.view, 'report');
+    assert.equal(result.summary.totalTokens.value, 126000000);
+    assert.equal(result.report.dailyUsage.reduce((total, row) => total + row.totalTokens.value, 0), 126000000);
+    assert.equal(result.report.dailyUsage.some((row) => row.inputTokens.value >= 100000000), true);
+    assert.equal(result.report.hourlySupported, true);
+    assert.equal(result.report.tools[0].key, 'rg');
+    assert.equal(result.report.rollingWindow.providerQuota.value, null);
+    assert.equal(result.report.rollingWindow.providerQuota.provenance, 'unavailable');
+    assert.equal(result.report.rollingWindow.observedTokens.value, 126000000);
+    assert.match(html, /Agent Audit 诊断报告/);
+    assert.match(html, /class="metric-main"[^>]*>1\.26亿</);
+    assert.match(html, /class="metric-exact">精确值：126,000,000</);
+    assert.match(html, /<svg[^>]+role="img"/);
+    assert.match(html, /class="chart daily-composition"/);
+    assert.match(html, /class="chart hourly-heatmap"/);
+    assert.match(html, /viewBox="0 0 880/);
+    assert.equal(html.includes('x="745"'), false);
+    assert.match(html, /gpt-5\.6-terra/);
+    assert.match(html, /Tare current report/);
+    assert.match(html, /未命名 Session · tare-untitled/);
+    assert.match(html, /class="percentage"[^>]*>100%</);
+    assert.equal(/2026-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z/.test(html), false);
+    assert.equal((html.match(/已报告/g) ?? []).length <= 1, true);
+    assert.equal((html.match(/推导/g) ?? []).length <= 1, true);
+    assert.equal((html.match(/2 个 Codex Session 包含尚未支持的计量记录/g) ?? []).length, 1);
+    assert.equal(html.includes('A Codex Session contains unsupported accounting records'), false);
+    assert.match(html, /Provider 额度/);
+    assert.equal(html.includes('PRIVATE_ARGS'), false);
+    assert.equal(html.includes('PRIVATE_RESULT'), false);
+    assert.equal(html.includes('PRIVATE_FUTURE_ACCOUNTING'), false);
+    assert.equal(html.includes(project), false);
+    assert.equal(html.includes('<script'), false);
+    assert.equal(html.includes('http://'), false);
+
+    const installedRoot = path.join(root, 'installed');
+    const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
+    await execFileAsync(process.execPath, [installer, installedRoot]);
+    const installedHtmlPath = path.join(root, 'installed-tare-report.html');
+    const installedCodexPath = path.join(installedRoot, '.agents', 'skills', 'agent-audit-codex', 'scripts', 'agent-audit.js');
+    const { stdout: installedJsonText } = await execFileAsync(process.execPath, [
+      installedCodexPath,
+      'inspect', '--harness', 'codex', '--cwd', project, '--since', '7d',
+      '--locale', 'zh-CN', '--view', 'report', '--html', installedHtmlPath, '--format', 'json',
+    ], {
+      env: { ...process.env, CODEX_HOME: codexHome },
+      maxBuffer: 1024 * 1024,
+    });
+    const installedResult = JSON.parse(installedJsonText);
+    const expectedScope = { ...result.scope };
+    const actualScope = { ...installedResult.scope };
+    delete expectedScope.since;
+    delete actualScope.since;
+    assert.deepEqual(actualScope, expectedScope);
+    assert.equal(installedResult.summary.totalTokens.value, result.summary.totalTokens.value);
+    assert.equal(installedResult.summary.totalTokens.provenance, result.summary.totalTokens.provenance);
+    assert.equal(installedResult.rankings.models[0].key, result.rankings.models[0].key);
+    assert.equal(installedResult.rankings.models[0].sharePercent.value, result.rankings.models[0].sharePercent.value);
+    assert.equal(installedResult.topFinding.kind, result.topFinding.kind);
+    assert.equal(installedResult.report.dailyUsage[0].totalTokens.value, result.report.dailyUsage[0].totalTokens.value);
+    const installedHtml = await readFile(installedHtmlPath, 'utf8');
+    assert.equal(installedHtml.includes('PRIVATE_ARGS'), false);
+    assert.equal(installedHtml.includes('PRIVATE_RESULT'), false);
+
+    const { stdout: windowText } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--locale', 'zh-CN', '--view', 'window', '--format', 'text'],
+      { CODEX_HOME: codexHome },
+    );
+    assert.match(windowText, /Provider 额度/);
+    assert.match(windowText, /不可用/);
+    assert.match(windowText, /不是 Provider 额度/);
+
+    const { stdout: toolsText } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--view', 'tools', '--format', 'text'],
+      { CODEX_HOME: codexHome },
+    );
+    assert.match(toolsText, /rg/);
+    assert.equal(toolsText.includes('PRIVATE_RESULT'), false);
+
+    await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--locale', 'zh-CN', '--view', 'share', '--share', sharePath, '--format', 'text'],
+      { CODEX_HOME: codexHome },
+    );
+    const share = await readFile(sharePath, 'utf8');
+    assert.match(share, /脱敏分享稿/);
+    assert.match(share, /gpt-5\.6-terra/);
+    assert.equal(share.includes('tare-current'), false);
+    assert.equal(share.includes(project), false);
+    assert.equal(share.includes('PRIVATE_ARGS'), false);
+    assert.equal(share.includes('PRIVATE_RESULT'), false);
+
+    const { stdout: weekJson } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--view', 'week', '--format', 'json'],
+      { CODEX_HOME: codexHome },
+    );
+    const week = JSON.parse(weekJson);
+    assert.equal(week.view, 'week');
+    assert.equal(week.weekComparison.current.summary.totalTokens.value, 126000000);
+    assert.equal(week.weekComparison.previous.summary.totalTokens.value, 20000000);
+    assert.equal(week.weekComparison.changes.totalTokens.value, 106000000);
+    assert.equal(week.weekComparison.modelChanges.some((entry) => entry.key === 'gpt-5.6-terra'), true);
+    assert.equal(week.weekComparison.modelChanges.some((entry) => entry.key === 'gpt-5.6-sol'), true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

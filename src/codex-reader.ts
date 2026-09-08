@@ -606,22 +606,24 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
   const modelCalls: ModelCallRecord[] = [];
   const toolCalls = [] as ReadResult["toolCalls"];
   const lifecycle = [] as ReadResult["lifecycle"];
+  let unsupportedSessions = 0;
+  let missingTimestampSessions = 0;
   for (const pending of pendingById.values()) {
     pending.session.title = sessionTitles.get(pending.session.sessionId) ?? null;
     if (!selectedByScope(pending.session, pending.eventTimes, scope)) {
       if (pending.missingTimestamp && (scope.allProjects || sameCwd(pending.session.projectCwd, scope.cwd))) {
         coverage.partialSessions += 1;
-        coverage.warnings.push("A Codex Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
+        missingTimestampSessions += 1;
       }
       continue;
     }
     if (pending.unsupported) {
-      coverage.warnings.push("A Codex Session contains unsupported accounting records; only a partial audit is reported.");
+      unsupportedSessions += 1;
     }
     let partial = pending.unsupported;
     if (pending.missingTimestamp) {
       partial = true;
-      coverage.warnings.push("A Codex Session contains accounting records without a usable timestamp; only time-scoped records were analysed.");
+      missingTimestampSessions += 1;
     }
     if (partial) coverage.partialSessions += 1;
     sessions.push(pending.session);
@@ -640,6 +642,18 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
     }
   }
 
+  if (unsupportedSessions > 0) {
+    coverage.warnings.push(
+      unsupportedSessions + " Codex Session" + (unsupportedSessions === 1 ? " contains" : "s contain") +
+      " unsupported accounting records; only a partial audit is reported.",
+    );
+  }
+  if (missingTimestampSessions > 0) {
+    coverage.warnings.push(
+      missingTimestampSessions + " Codex Session" + (missingTimestampSessions === 1 ? " contains" : "s contain") +
+      " accounting records without a usable timestamp; only time-scoped records were analysed.",
+    );
+  }
   if (files.length === 0) coverage.warnings.push("No Codex rollout history was found for the selected scope.");
   return {
     sessions: sessions.sort((a, b) => a.sessionId.localeCompare(b.sessionId)),

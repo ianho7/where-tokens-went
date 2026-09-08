@@ -21,6 +21,21 @@ Use `7d` when no period is requested. Use `--all-projects` only when the user ex
 
 The local tool is authoritative. Preserve reported cost separately from token totals, do not recalculate totals, infer missing values as zero, or expose raw Session content.
 
+## Intent routing
+
+Natural language is the primary interface. Interpret the request into fixed Harness, Audit Scope, period, locale, view, and output arguments, then run the same bundled inspect command. Logical shortcuts are optional aliases, not a second implementation:
+
+- Full diagnosis or /agent-audit: current project and 7d by default, view full, and a local self-contained HTML report.
+- usage: view usage for an at-a-glance panel.
+- window: view window for locally observed recent five-hour activity. Provider quota, remaining allowance, reset time, and safe-to-start claims are unavailable without first-party data.
+- report [days]: view report with --since <days>d and a local HTML path.
+- tools [days]: view tools with --since <days>d.
+- week: view week for two adjacent seven-day periods.
+- share [days]: view share with --since <days>d and a local Markdown path.
+- An arbitrary question is interpreted by the Host Agent into one of the fixed views; never pass transcript text or the question as a shell command.
+
+Pass the user's language as --locale zh-CN or --locale en-US. For full and report views, choose a local output path, pass --html <report-path>, and open that file after successful generation. Use --share <share-path> for share view. The selected Harness, Current Project versus Global Audit, and privacy boundary must remain unchanged for every view.
+
 ## Explanation
 
 Explain the returned AuditResult concisely, preserving Scope, coverage, largest contributor, Finding, Evidence, Provenance, recommendation, and limitations. Use a Session ranking entry's `displayName` when present; it already contains the title and Session ID. Use `sharePercent.value` directly as percentage points and do not recalculate it. Format large numbers naturally for the user's language (for example, Chinese 万/亿 or English K/M/B), and include the exact token value when useful for verification. Explain `reported` as directly recorded, `derived` as calculated from records, `estimated` as an estimate, and `unavailable` as missing data in the user's language. If no Finding is supported, say so. Never include prompts, source code, model responses, shell output, tool results, credentials, or base64 payloads from local history.
