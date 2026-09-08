@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type {
   AuditResult,
   AuditSnapshot,
@@ -349,7 +352,7 @@ function evidenceHtml(value: EvidenceValue, locale: ReportLocale, compact = true
   const estimate = value.provenance === "estimated"
     ? "<small class=\"estimate\">" + escapeHtml(labels.estimated) + "</small>"
     : "";
-  return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\"><span class=\"metric-main\" title=\"" +
+  return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + (typeof value.value === "number" ? String(value.value) : "") + "\"><span class=\"metric-main\" title=\"" +
     escapeHtml(labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue) + "\">" +
     escapeHtml(prefix + compactValue) + "</span>" + exact + estimate + "</span>";
 }
@@ -361,7 +364,7 @@ function percentageHtml(value: EvidenceValue, locale: ReportLocale): string {
   const estimate = value.provenance === "estimated"
     ? "<small class=\"estimate\">" + escapeHtml(labels.estimated) + "</small>"
     : "";
-  return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\"><span class=\"percentage\">" +
+  return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + String(value.value) + "\"><span class=\"percentage\">" +
     escapeHtml(prefix + formatExact(value.value, locale) + "%") + "</span>" + estimate + "</span>";
 }
 
@@ -478,7 +481,8 @@ function renderKpis(result: AuditResult, locale: ReportLocale): string {
     [labels.totalTokens, result.summary.totalTokens],
     [labels.sessions, result.summary.sessionCount],
     [labels.modelCalls, result.summary.modelCallCount],
-    [labels.reportedCost, result.summary.reportedCost],
+    ...(result.summary.reportedCost.value === null ? [] : [[labels.reportedCost, result.summary.reportedCost] as [string, EvidenceValue]]),
+    ...(typeof result.report.apiEquivalentCost.coveragePercent.value === "number" && result.report.apiEquivalentCost.coveragePercent.value >= 80 && result.report.apiEquivalentCost.total.value !== null ? [[locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)", result.report.apiEquivalentCost.total] as [string, EvidenceValue]] : []),
   ];
   return "<div class=\"kpis\">" + items.map(([label, value]) =>
     "<div class=\"kpi\"><span>" + escapeHtml(label) + "</span><strong>" + evidenceHtml(value, locale) + "</strong></div>",
@@ -519,7 +523,7 @@ function renderDaily(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.report.dailyUsage;
   if (rows.length === 0) return emptyState(labels);
-  return "<table><thead><tr><th>" + escapeHtml(labels.date) + "</th><th>" + escapeHtml(labels.totalTokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" +
+  return "<table class=\"sortable\"><thead><tr><th>" + escapeHtml(labels.date) + "</th><th>" + escapeHtml(labels.totalTokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" +
     escapeHtml(labels.input) + "</th><th>" + escapeHtml(labels.cachedInput) + "</th><th>" + escapeHtml(labels.output) + "</th><th>" + escapeHtml(labels.reasoning) + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(formatDateKey(row.key, locale)) + "</th><td>" + tokenCell(row.totalTokens, locale) + "</td><td>" +
       percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(row.inputTokens, locale) + "</td><td>" + tokenCell(row.cachedInputTokens, locale) +
@@ -531,7 +535,7 @@ function renderModels(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.rankings.models;
   if (rows.length === 0) return emptyState(labels);
-  return "<table><thead><tr><th>" + escapeHtml(labels.model) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.calls) + "</th></tr></thead><tbody>" +
+  return "<table class=\"sortable\"><thead><tr><th>" + escapeHtml(labels.model) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.calls) + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(publicLabel(row.key, labels.unavailable)) + "</th><td>" + tokenCell(row.value, locale) +
       "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(row.count, locale) + "</td></tr>").join("") +
     "</tbody></table>";
@@ -541,7 +545,7 @@ function renderSessions(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.rankings.sessions.slice(0, 10);
   if (rows.length === 0) return emptyState(labels);
-  return "<table><thead><tr><th>" + escapeHtml(labels.session) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.calls) + "</th></tr></thead><tbody>" +
+  return "<table class=\"sortable\"><thead><tr><th>" + escapeHtml(labels.session) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.calls) + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(sessionLabel(row, locale)) + "</th><td>" + tokenCell(row.value, locale) +
       "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(row.count, locale) + "</td></tr>").join("") +
     "</tbody></table>";
@@ -551,7 +555,7 @@ function renderTools(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.report.tools;
   if (rows.length === 0) return emptyState(labels, labels.noToolData);
-  return "<table><thead><tr><th>Tool</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.pairedResults) + "</th><th>" + escapeHtml(labels.errors) + "</th><th>" +
+  return "<table class=\"sortable\"><thead><tr><th>Tool</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.pairedResults) + "</th><th>" + escapeHtml(labels.errors) + "</th><th>" +
     escapeHtml(labels.injected) + "</th><th>" + escapeHtml(labels.amplified) + "</th><th>" + escapeHtml(labels.share) + "</th></tr></thead><tbody>" +
     rows.map((row: ToolAnalysisEntry) => "<tr><th scope=\"row\">" + escapeHtml(publicLabel(row.key, labels.unavailable)) + "</th><td>" + tokenCell(row.calls, locale) +
       "</td><td>" + tokenCell(row.pairedResults, locale) + "</td><td>" + tokenCell(row.errors, locale) + "</td><td>" + tokenCell(row.injectedTokens, locale) +
@@ -707,7 +711,7 @@ function renderHourly(result: AuditResult, locale: ReportLocale): string {
   const rows = result.report.hourlyActivity;
   if (!result.report.hourlySupported || rows.length === 0) return emptyState(labels, labels.noTimestampData);
   return renderHourlyHeatmap(result, locale) +
-    "<details><summary>" + escapeHtml(locale === "zh-CN" ? "查看小时明细" : "View hourly details") + "</summary><table><thead><tr><th>" +
+    "<details><summary>" + escapeHtml(locale === "zh-CN" ? "查看小时明细" : "View hourly details") + "</summary><table class=\"sortable\"><thead><tr><th>" +
     escapeHtml(locale === "zh-CN" ? "本地时间" : "Local time") + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.share) + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(localHour(row.key, locale)?.timeLabel ?? row.key) + "</th><td>" + tokenCell(row.totalTokens, locale) + "</td><td>" +
       tokenCell(row.modelCallCount, locale) + "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td></tr>").join("") + "</tbody></table></details>";
@@ -730,7 +734,7 @@ function renderRolling(result: AuditResult, locale: ReportLocale): string {
 function renderWeekChanges(rows: WeekStructureChange[], heading: string, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (rows.length === 0) return "<h3>" + escapeHtml(heading) + "</h3>" + emptyState(labels);
-  return "<h3>" + escapeHtml(heading) + "</h3><table><thead><tr><th>Key</th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" +
+  return "<h3>" + escapeHtml(heading) + "</h3><table class=\"sortable\"><thead><tr><th>Key</th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" +
     escapeHtml(labels.previousWeek) + "</th><th>" + escapeHtml(labels.change) + "</th></tr></thead><tbody>" +
     rows.slice(0, 20).map((row) => "<tr><th scope=\"row\">" + escapeHtml(publicLabel(row.key, labels.unavailable)) + "</th><td>" + tokenCell(row.current, locale) +
       "</td><td>" + tokenCell(row.previous, locale) + "</td><td>" + tokenCell(row.change, locale) + "</td></tr>").join("") + "</tbody></table>";
@@ -742,7 +746,7 @@ function renderWeek(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   return "<div class=\"week-ranges\"><div><strong>" + escapeHtml(labels.currentWeek) + "</strong><span>" + escapeHtml(formatDateTime(comparison.currentFrom, locale) + " → " + formatDateTime(comparison.currentTo, locale)) +
     "</span></div><div><strong>" + escapeHtml(labels.previousWeek) + "</strong><span>" + escapeHtml(formatDateTime(comparison.previousFrom, locale) + " → " + formatDateTime(comparison.previousTo, locale)) + "</span></div></div>" +
-    "<table><thead><tr><th></th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" + escapeHtml(labels.previousWeek) + "</th><th>" + escapeHtml(labels.change) + "</th></tr></thead><tbody>" +
+    "<table class=\"sortable\"><thead><tr><th></th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" + escapeHtml(labels.previousWeek) + "</th><th>" + escapeHtml(labels.change) + "</th></tr></thead><tbody>" +
     "<tr><th scope=\"row\">" + escapeHtml(labels.totalTokens) + "</th><td>" + tokenCell(comparison.current.summary.totalTokens, locale) + "</td><td>" +
     tokenCell(comparison.previous.summary.totalTokens, locale) + "</td><td>" + tokenCell(comparison.changes.totalTokens, locale) + "</td></tr>" +
     "<tr><th scope=\"row\">" + escapeHtml(labels.modelCalls) + "</th><td>" + tokenCell(comparison.current.summary.modelCallCount, locale) + "</td><td>" +
@@ -754,11 +758,30 @@ function renderWeek(result: AuditResult, locale: ReportLocale): string {
     renderWeekChanges(comparison.toolChanges, labels.tools, locale);
 }
 
+function chartRuntime(): string {
+  try { return readFileSync(join(__dirname, "assets", "echarts.min.js"), "utf8"); } catch { try { return readFileSync(join(__dirname, "..", "assets", "echarts.min.js"), "utf8"); } catch { return ""; } }
+}
+
+function renderInteractiveCharts(result: AuditResult, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  const rows = result.report.dailyUsage.map((row) => ({
+    time: formatDateKey(row.key, locale), total: numericValue(row.totalTokens), input: numericValue(row.inputTokens), cached: numericValue(row.cachedInputTokens), cacheWrite: numericValue(row.cacheWriteTokens), output: numericValue(row.outputTokens), unclassified: numericValue(row.unclassifiedTokens), cost: numericValue(row.apiEquivalentCost),
+  }));
+  const models = result.rankings.models.map((row) => ({ name: publicLabel(row.key, labels.unavailable), value: numericValue(row.value) }));
+  const tools = result.report.tools.map((row) => ({ name: publicLabel(row.key, labels.unavailable), value: numericValue(row.amplifiedTokens) }));
+  const cost = result.report.apiEquivalentCost;
+  const costVisible = typeof cost.coveragePercent.value === "number" && cost.coveragePercent.value >= 80 && typeof cost.total.value === "number";
+  const data = JSON.stringify({ rows, models, tools, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: locale === "zh-CN" ? "未分类余量" : "unclassified remainder", cost: locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)" }, costVisible }).replaceAll("<", "\\u003c");
+  const runtime = chartRuntime();
+  if (!runtime || rows.length === 0) return "";
+  const script = `<script>${runtime}</script><script>(function(){const d=${data};const compact=new Intl.NumberFormat(d.locale,{notation:'compact',maximumFractionDigits:2});const exact=new Intl.NumberFormat(d.locale,{maximumFractionDigits:20});const make=(id,option)=>{const el=document.getElementById(id);if(!el||!window.echarts)return;const c=echarts.init(el,null,{renderer:'svg'});c.setOption(option);addEventListener('resize',()=>c.resize())};const series=[['input',d.labels.input,'#b76448'],['cached',d.labels.cached,'#d99a78'],['cacheWrite',d.labels.cacheWrite,'#8b7667'],['output',d.labels.output,'#557c70'],['unclassified',d.labels.unclassified,'#8d6a9f']].map(([key,name,color])=>({name,type:'line',stack:'tokens',smooth:false,symbol:'none',areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color},{offset:1,color:'rgba(255,255,255,.12)'}])},emphasis:{focus:'series'},data:d.rows.map(r=>r[key])}));if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'circle',connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:'#273c75'}});make('token-trend',{aria:{show:true,description:'${locale === "zh-CN" ? "互斥 Token 组成趋势；下方表格提供等价数据。" : "Exclusive Token composition trend; the table below provides equivalent data."}'},tooltip:{trigger:'axis',valueFormatter:v=>v==null?'${locale === "zh-CN" ? "不可用" : "unavailable"}':compact.format(v)+'\\n'+exact.format(v)},legend:{type:'scroll'},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{hideOverlap:true}},yAxis:[{type:'value',name:'Token',axisLabel:{formatter:v=>compact.format(v)}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{formatter:v=>'$'+compact.format(v)}}]:[])],series});make('model-chart',{aria:{show:true,description:'${locale === "zh-CN" ? "按模型的 Token 分布；下方表格提供等价数据。" : "Token distribution by model; the table below provides equivalent data."}'},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)+'\\n'+exact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{interval:0,rotate:24,hideOverlap:true}},yAxis:{type:'value',axisLabel:{formatter:v=>compact.format(v)}},series:[{type:'bar',data:d.models.map(r=>r.value),itemStyle:{color:'#b76448'}}]});make('tool-chart',{aria:{show:true,description:'${locale === "zh-CN" ? "按工具的上下文放大估算；下方表格提供等价数据。" : "Estimated context amplification by tool; the table below provides equivalent data."}'},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)+'\\n'+exact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{formatter:v=>compact.format(v)}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{width:88,overflow:'truncate'}},series:[{type:'bar',data:d.tools.map(r=>r.value),itemStyle:{color:'#557c70'}}]});document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent;const b=document.createElement('button');b.type='button';b.textContent=label+' ↕';b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})();</script>`;
+  return `<div id="token-trend" class="echart" role="img" aria-label="${escapeHtml(labels.dailyUsage)}"></div><p class="chart-summary">${escapeHtml(locale === "zh-CN" ? "Token 分量仅在可证明互斥时堆叠；不可证明的桶保持不可用。" : "Token components are stacked only when source-proven exclusive; unsupported buckets remain unavailable.")}</p>${script}`;
+}
 function renderStyles(): string {
   return "<style>" +
     ":root{color-scheme:light;--ink:#27231f;--muted:#766d64;--line:#e6ddd4;--paper:#fffdf9;--bg:#f2eee8;--accent:#b76448;--accent-soft:#f5e0d7;--ok:#3c725c}" +
     "*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}" +
-    "main{max-width:1060px;margin:0 auto;padding:38px 24px 64px}header{margin-bottom:28px}h1{font-size:32px;line-height:1.1;margin:0 0 12px;letter-spacing:-.03em}h2{font-size:19px;margin:0 0 14px}h3{font-size:16px;margin:24px 0 12px}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);font-weight:700}section{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 6px 22px rgba(53,38,25,.04)}.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{display:grid;gap:12px}.scope-grid{grid-template-columns:repeat(3,1fr);margin:0}.scope-grid div{background:#faf7f2;border-radius:10px;padding:12px}.scope-grid dt{color:var(--muted);font-size:12px}.scope-grid dd{margin:4px 0 0;font-weight:650;overflow-wrap:anywhere}.coverage-grid{grid-template-columns:repeat(4,1fr);margin-bottom:14px}.coverage-grid div,.window-grid div{padding:12px;border:1px solid var(--line);border-radius:10px}.coverage-grid strong,.coverage-grid span,.window-grid strong,.window-grid span{display:block}.coverage-grid strong{font-size:20px}.coverage-grid span,.window-grid span{color:var(--muted);font-size:12px}.warning-list{margin:10px 0 0;padding-left:20px}.coverage-note{color:var(--muted)}.ok{color:var(--ok)}.kpis{grid-template-columns:repeat(4,1fr)}.kpi{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:16px}.kpi>span{display:block;color:var(--muted);font-size:12px}.kpi strong{display:block;font-size:22px;line-height:1.2;margin-top:6px;font-variant-numeric:tabular-nums}.metric-stack{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;font-variant-numeric:tabular-nums}.metric-main{display:block}.metric-exact,.estimate{display:block;color:var(--muted);font-size:11px;font-weight:400;line-height:1.3}.percentage{display:block;white-space:nowrap}.unavailable{color:var(--muted);font-style:italic}.finding{border-color:#e8c4b5;background:linear-gradient(135deg,#fffdf9,#fff5ef)}.finding.neutral{border-color:var(--line)}.finding h2{font-size:23px;max-width:800px}.finding p{max-width:820px}.evidence{display:flex;flex-wrap:wrap;gap:9px;list-style:none;padding:0;margin:18px 0}.evidence li{background:var(--accent-soft);border-radius:9px;padding:8px 10px}.recommendation{border-top:1px solid #e8c4b5;padding-top:12px}.recommendation strong{color:var(--accent)}.recommendation p{margin:4px 0 0;font-weight:650}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}thead th{color:var(--muted);font-size:12px;font-weight:650}tbody th{font-weight:650}tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}.empty{color:var(--muted);margin:8px 0}.chart{display:block;width:100%;height:auto;margin:0 0 20px;background:#faf7f2;border-radius:12px;padding:10px;overflow:visible}.chart-label,.chart-value,.heat-hour{font:12px system-ui,sans-serif;fill:var(--muted)}.chart-value{font-variant-numeric:tabular-nums;fill:var(--ink)}.chart-bar{fill:var(--accent)}.chart-track{fill:#ece6df}.segment-input{fill:#b76448}.segment-cached{fill:#d99a78}.segment-cache-write{fill:#8b7667}.segment-output{fill:#557c70}.segment-reasoning{fill:#8d6a9f}.heat-0{fill:#ebe5de}.heat-1{fill:#edd7ca}.heat-2{fill:#dda98d}.heat-3{fill:#c67f5e}.heat-4{fill:#9f4f36}details{border-top:1px solid var(--line);padding-top:12px}summary{cursor:pointer;color:var(--accent);font-weight:650;margin-bottom:10px}.window-note{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;background:#f7f1e7;border-radius:10px;padding:12px;margin-bottom:12px}.window-note span,.week-ranges span{color:var(--muted);font-size:12px}.window-grid{grid-template-columns:repeat(5,1fr)}.window-grid strong{margin-top:5px}.week-ranges{grid-template-columns:repeat(2,1fr);margin-bottom:16px}.week-ranges div{background:#faf7f2;border-radius:10px;padding:12px}.week-ranges strong,.week-ranges span{display:block}footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:26px;padding-top:16px}footer p{margin:5px 0}@media(max-width:760px){main{padding:24px 14px}.scope-grid,.kpis,.coverage-grid,.window-grid,.week-ranges{grid-template-columns:1fr 1fr}table{display:block;overflow-x:auto;white-space:nowrap}.finding h2{font-size:20px}}@media(max-width:480px){.scope-grid,.kpis,.coverage-grid,.window-grid,.week-ranges{grid-template-columns:1fr}}" +
+    "main{max-width:1060px;margin:0 auto;padding:38px 24px 64px}header{margin-bottom:28px}h1{font-size:32px;line-height:1.1;margin:0 0 12px;letter-spacing:-.03em}h2{font-size:19px;margin:0 0 14px}h3{font-size:16px;margin:24px 0 12px}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);font-weight:700}section{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 6px 22px rgba(53,38,25,.04)}.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{display:grid;gap:12px}.scope-grid{grid-template-columns:repeat(3,1fr);margin:0}.scope-grid div{background:#faf7f2;border-radius:10px;padding:12px}.scope-grid dt{color:var(--muted);font-size:12px}.scope-grid dd{margin:4px 0 0;font-weight:650;overflow-wrap:anywhere}.coverage-grid{grid-template-columns:repeat(4,1fr);margin-bottom:14px}.coverage-grid div,.window-grid div{padding:12px;border:1px solid var(--line);border-radius:10px}.coverage-grid strong,.coverage-grid span,.window-grid strong,.window-grid span{display:block}.coverage-grid strong{font-size:20px}.coverage-grid span,.window-grid span{color:var(--muted);font-size:12px}.warning-list{margin:10px 0 0;padding-left:20px}.coverage-note{color:var(--muted)}.ok{color:var(--ok)}.kpis{grid-template-columns:repeat(4,1fr)}.kpi{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:16px}.kpi>span{display:block;color:var(--muted);font-size:12px}.kpi strong{display:block;font-size:22px;line-height:1.2;margin-top:6px;font-variant-numeric:tabular-nums}.metric-stack{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;font-variant-numeric:tabular-nums}.metric-main{display:block}.metric-exact,.estimate{display:block;color:var(--muted);font-size:11px;font-weight:400;line-height:1.3}.percentage{display:block;white-space:nowrap}.unavailable{color:var(--muted);font-style:italic}.finding{border-color:#e8c4b5;background:linear-gradient(135deg,#fffdf9,#fff5ef)}.finding.neutral{border-color:var(--line)}.finding h2{font-size:23px;max-width:800px}.finding p{max-width:820px}.evidence{display:flex;flex-wrap:wrap;gap:9px;list-style:none;padding:0;margin:18px 0}.evidence li{background:var(--accent-soft);border-radius:9px;padding:8px 10px}.recommendation{border-top:1px solid #e8c4b5;padding-top:12px}.recommendation strong{color:var(--accent)}.recommendation p{margin:4px 0 0;font-weight:650}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}thead th{color:var(--muted);font-size:12px;font-weight:650}tbody th{font-weight:650}tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}.empty{color:var(--muted);margin:8px 0}.echart{width:100%;height:330px;margin:0 0 12px;background:#faf7f2;border-radius:12px}.chart-summary{color:var(--muted);font-size:12px}.chart{display:block;width:100%;height:auto;margin:0 0 20px;background:#faf7f2;border-radius:12px;padding:10px;overflow:visible}.chart-label,.chart-value,.heat-hour{font:12px system-ui,sans-serif;fill:var(--muted)}.chart-value{font-variant-numeric:tabular-nums;fill:var(--ink)}.chart-bar{fill:var(--accent)}.chart-track{fill:#ece6df}.segment-input{fill:#b76448}.segment-cached{fill:#d99a78}.segment-cache-write{fill:#8b7667}.segment-output{fill:#557c70}.segment-reasoning{fill:#8d6a9f}.heat-0{fill:#ebe5de}.heat-1{fill:#edd7ca}.heat-2{fill:#dda98d}.heat-3{fill:#c67f5e}.heat-4{fill:#9f4f36}details{border-top:1px solid var(--line);padding-top:12px}summary{cursor:pointer;color:var(--accent);font-weight:650;margin-bottom:10px}.window-note{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;background:#f7f1e7;border-radius:10px;padding:12px;margin-bottom:12px}.window-note span,.week-ranges span{color:var(--muted);font-size:12px}.window-grid{grid-template-columns:repeat(5,1fr)}.window-grid strong{margin-top:5px}.week-ranges{grid-template-columns:repeat(2,1fr);margin-bottom:16px}.week-ranges div{background:#faf7f2;border-radius:10px;padding:12px}.week-ranges strong,.week-ranges span{display:block}footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:26px;padding-top:16px}footer p{margin:5px 0}@media(max-width:760px){main{padding:24px 14px}.scope-grid,.kpis,.coverage-grid,.window-grid,.week-ranges{grid-template-columns:1fr 1fr}table{display:block;overflow-x:auto;white-space:nowrap}.finding h2{font-size:20px}}@media(max-width:480px){.scope-grid,.kpis,.coverage-grid,.window-grid,.week-ranges{grid-template-columns:1fr}}" +
     "</style>";
 }
 
@@ -775,11 +798,11 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US"):
     renderFinding(result, locale),
     result.weekComparison ? "<section><h2>" + escapeHtml(labels.weekView) + "</h2>" + renderWeek(result, locale) + "</section>" : "",
     "<section><h2>" + escapeHtml(labels.time) + "</h2><h3>" + escapeHtml(labels.dailyUsage) + "</h3>" +
-      renderDailyComposition(result, locale) + renderDaily(result, locale) +
+      renderInteractiveCharts(result, locale) + renderDaily(result, locale) +
       "<h3>" + escapeHtml(labels.hourlyActivity) + "</h3>" + renderHourly(result, locale) +
       "<h3>" + escapeHtml(labels.observedActivity) + "</h3>" + renderRolling(result, locale) + "</section>",
-    "<section><h2>" + escapeHtml(labels.models) + "</h2>" + renderBarSvg(labels.models, modelBars, locale, "models") + renderModels(result, locale) + "</section>",
-    "<section><h2>" + escapeHtml(labels.tools) + "</h2>" + renderTools(result, locale) + "</section>",
+    "<section><h2>" + escapeHtml(labels.models) + "</h2><div id=\"model-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.models) + "\"></div>" + renderModels(result, locale) + "</section>",
+    "<section><h2>" + escapeHtml(labels.tools) + "</h2><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.tools) + "\"></div>" + renderTools(result, locale) + "</section>",
     "<section><h2>" + escapeHtml(labels.sessionsByUsage) + "</h2>" + renderSessions(result, locale) + "</section>",
     "<section><h2>" + escapeHtml(labels.limitations) + "</h2><p>" + escapeHtml(labels.methodNote) + "</p>" +
       renderWarningList(result, locale) + "</section>",

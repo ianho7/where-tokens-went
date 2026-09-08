@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const repoRoot = path.resolve(__dirname, '..');
 const compiledRoot = path.join(repoRoot, 'dist', 'src');
+const echartsAssets = path.join(repoRoot, 'dist', 'assets');
 const dependencyRoot = path.join(repoRoot, 'node_modules', 'fzstd');
 const dependencyEntry = path.join(dependencyRoot, 'lib', 'index.js');
 const dependencyLicense = path.join(dependencyRoot, 'LICENSE');
@@ -37,6 +38,7 @@ for (const name of skillNames) {
   fs.rmSync(runtimeRoot, { recursive: true, force: true });
   fs.mkdirSync(scriptsRoot, { recursive: true });
   fs.cpSync(compiledRoot, runtimeRoot, { recursive: true });
+  fs.cpSync(echartsAssets, path.join(runtimeRoot, 'assets'), { recursive: true });
   fs.copyFileSync(dependencyEntry, path.join(runtimeRoot, 'fzstd.js'));
   if (fs.existsSync(dependencyLicense)) fs.copyFileSync(dependencyLicense, path.join(runtimeRoot, 'fzstd.LICENSE'));
   const deepSeekRuntime = path.join(runtimeRoot, 'deepseek-reader.js');

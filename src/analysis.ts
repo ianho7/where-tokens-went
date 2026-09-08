@@ -14,6 +14,7 @@ import type {
   TokenBreakdown,
   ToolCallRecord,
 } from "./types";
+import { API_RATES, API_RATE_SOURCE } from "./rates";
 
 function unavailable(method: string): EvidenceValue {
   return { value: null, provenance: "unavailable", method };
@@ -105,39 +106,60 @@ function timeBucket(timestamp: string | null): string {
   return Number.isNaN(parsed.getTime()) ? "<unknown-time>" : parsed.toISOString().slice(0, 10);
 }
 
-type TokenField = "inputTokens" | "cachedInputTokens" | "cacheWriteTokens" | "outputTokens" | "reasoningTokens";
-
-function sumTokenField(calls: ModelCallRecord[], field: TokenField, label: string): EvidenceValue {
-  if (calls.length === 0 || calls.some((call) => call[field] === null)) {
-    return unavailable(label + " was not reported for every selected ModelCall");
-  }
-  const value = calls.reduce((total, call) => total + call[field]!, 0);
-  const provenance = calls.every((call) => call.tokenProvenance === "reported") ? "reported" : "derived";
-  return {
-    value,
-    provenance,
-    method: "sum of the reported " + label + " fields for complete ModelCall records",
-  };
-}
+type Composition = { input: number; cached: number; cacheWrite: number; output: number; unclassified: number };
 
 function totalTokenEvidence(calls: ModelCallRecord[], label: string): EvidenceValue {
   const total = sumTokens(calls);
   if (total.value === null) return unavailable(label + " was not reported for every selected ModelCall");
+  return { value: total.value, provenance: total.provenance, method: "sum of non-cumulative ModelCall token totals for " + label };
+}
+
+function composition(call: ModelCallRecord, harness: Harness): Composition | null {
+  const { totalTokens: total, inputTokens: input, cachedInputTokens: cached, cacheWriteTokens: cacheWrite, outputTokens: output } = call;
+  if ([total, input, cached, cacheWrite, output].some((value) => value === null)) return null;
+  if (harness === "deepseek") {
+    const unclassified = total! - input! - cached! - cacheWrite! - output!;
+    return unclassified >= 0 ? { input: input!, cached: cached!, cacheWrite: cacheWrite!, output: output!, unclassified } : null;
+  }
+  if (call.reasoningTokens === null || input! + cached! + cacheWrite! + output! + call.reasoningTokens !== total) return null;
+  return { input: input!, cached: cached!, cacheWrite: cacheWrite!, output: output!, unclassified: call.reasoningTokens };
+}
+
+function tokenBreakdown(calls: ModelCallRecord[], label: string, harness: Harness): TokenBreakdown {
+  const parts = calls.map((call) => composition(call, harness));
+  const totalTokens = totalTokenEvidence(calls, label);
+  if (calls.length === 0 || parts.some((part) => part === null)) {
+    const missing = unavailable(label + " lacks a source-proven mutually exclusive Token composition");
+    return { inputTokens: missing, cachedInputTokens: missing, cacheWriteTokens: missing, outputTokens: missing, unclassifiedTokens: missing, reasoningTokens: unavailable(label + " reasoning tokens were retained only as raw evidence"), totalTokens };
+  }
+  const sum = (field: keyof Composition, method: string): EvidenceValue => ({ value: parts.reduce((total, part) => total + part![field], 0), provenance: "derived", method });
   return {
-    value: total.value,
-    provenance: total.provenance,
-    method: "sum of non-cumulative ModelCall token totals for " + label,
+    inputTokens: sum("input", label + " ordinary input is source-proven non-cache input"),
+    cachedInputTokens: sum("cached", label + " cache-hit input is mutually exclusive"),
+    cacheWriteTokens: sum("cacheWrite", label + " cache-build input is mutually exclusive"),
+    outputTokens: sum("output", label + " output is mutually exclusive"),
+    unclassifiedTokens: sum("unclassified", label + " residual closes the reported Token total without reclassifying source fields"),
+    reasoningTokens: unavailable(label + " reasoning is not stacked because output inclusion is Harness-specific"),
+    totalTokens,
   };
 }
 
-function tokenBreakdown(calls: ModelCallRecord[], label: string): TokenBreakdown {
+function apiCost(calls: ModelCallRecord[], harness: Harness): { cost: EvidenceValue; pricedTokens: number; relevantTokens: number; unpricedModels: string[]; limitations: string[] } {
+  let total = 0; let pricedTokens = 0; let relevantTokens = 0;
+  const unpricedModels = new Set<string>(); const limitations = new Set<string>();
+  for (const call of calls) {
+    if (typeof call.totalTokens !== "number") { limitations.add("missing Token total"); continue; }
+    relevantTokens += call.totalTokens;
+    const rate = API_RATES.find((candidate) => candidate.model === call.model);
+    const part = composition(call, harness);
+    if (!rate) { unpricedModels.add(call.model ?? "<unknown-model>"); continue; }
+    if (!part || part.cacheWrite !== 0 || part.unclassified !== 0 || rate.cachedInputPerMillion === null) { limitations.add("missing compatible price dimension"); continue; }
+    total += (part.input * rate.inputPerMillion + part.cached * rate.cachedInputPerMillion + part.output * rate.outputPerMillion) / 1_000_000;
+    pricedTokens += call.totalTokens;
+  }
   return {
-    inputTokens: sumTokenField(calls, "inputTokens", label + " input tokens"),
-    cachedInputTokens: sumTokenField(calls, "cachedInputTokens", label + " cached input tokens"),
-    cacheWriteTokens: sumTokenField(calls, "cacheWriteTokens", label + " cache write tokens"),
-    outputTokens: sumTokenField(calls, "outputTokens", label + " output tokens"),
-    reasoningTokens: sumTokenField(calls, "reasoningTokens", label + " reasoning tokens"),
-    totalTokens: totalTokenEvidence(calls, label),
+    cost: pricedTokens === 0 ? unavailable("no selected ModelCall exactly matched a local public API rate with compatible Token dimensions") : { value: total, provenance: "estimated", method: "exact model match against local API rate table " + API_RATE_SOURCE.version },
+    pricedTokens, relevantTokens, unpricedModels: [...unpricedModels].sort(), limitations: [...limitations].sort(),
   };
 }
 
@@ -147,7 +169,7 @@ function hourBucket(timestamp: string | null): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 13) + ":00Z";
 }
 
-function buildDailyUsage(calls: ModelCallRecord[], totalTokens: number | null): ReportData["dailyUsage"] {
+function buildDailyUsage(calls: ModelCallRecord[], totalTokens: number | null, harness: Harness): ReportData["dailyUsage"] {
   const groups = new Map<string, ModelCallRecord[]>();
   for (const call of calls) {
     const key = timeBucket(call.timestamp);
@@ -156,11 +178,13 @@ function buildDailyUsage(calls: ModelCallRecord[], totalTokens: number | null): 
   return [...groups.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, group]) => {
-      const breakdown = tokenBreakdown(group, "day " + key);
+      const breakdown = tokenBreakdown(group, "day " + key, harness);
+      const cost = apiCost(group, harness).cost;
       return {
         key,
         ...breakdown,
         modelCallCount: countEvidence(group.length, "count of ModelCall records in day " + key),
+        apiEquivalentCost: cost,
         sharePercent: typeof breakdown.totalTokens.value !== "number"
           ? unavailable("the complete token total was unavailable for day " + key + " share calculation")
           : sharePercentEvidence(breakdown.totalTokens.value, totalTokens, "day " + key),
@@ -325,15 +349,20 @@ function buildRollingWindow(calls: ModelCallRecord[]): ReportData["rollingWindow
   };
 }
 
-function buildReportData(read: ReadResult, totalTokens: number | null): ReportData {
+function buildReportData(read: ReadResult, totalTokens: number | null, harness: Harness): ReportData {
   const tools = buildToolAnalysis(read);
   return {
-    dailyUsage: buildDailyUsage(read.modelCalls, totalTokens),
+    dailyUsage: buildDailyUsage(read.modelCalls, totalTokens, harness),
     hourlyActivity: buildHourlyActivity(read.modelCalls, totalTokens),
     hourlySupported: read.modelCalls.some((call) => timestampMs(call.timestamp) !== null),
     rollingWindow: buildRollingWindow(read.modelCalls),
     tools: tools.entries,
     totalToolAmplifiedTokens: tools.total,
+    apiEquivalentCost: (() => {
+      const cost = apiCost(read.modelCalls, harness);
+      const coverage = cost.relevantTokens > 0 ? Math.round(cost.pricedTokens / cost.relevantTokens * 10000) / 100 : null;
+      return { total: cost.cost, pricedTokens: countEvidence(cost.pricedTokens, "Token total with exact compatible local API rate"), relevantTokens: countEvidence(cost.relevantTokens, "selected Token total considered for API-equivalent pricing"), coveragePercent: coverage === null ? unavailable("no Token total was available for price coverage") : { value: coverage, provenance: "derived", method: "priced Token total divided by relevant Token total" }, unpricedModels: cost.unpricedModels, limitations: cost.limitations, source: { version: API_RATE_SOURCE.version, retrievedAt: API_RATE_SOURCE.retrievedAt, currency: API_RATE_SOURCE.currency, unit: API_RATE_SOURCE.unit } };
+    })(),
   };
 }
 
@@ -490,6 +519,8 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     shareFraction >= 0.5
   ) {
     topFinding = {
+      id: "long-session",
+      severity: "primary",
       kind: "long_session",
       headline: `Session ${sessionDisplayName(largest.session)} accounts for ${(shareFraction * 100).toFixed(1)}% of known usage across ${largestCalls.length} model calls.`,
       explanation: "A concentrated multi-call Session is the strongest supported contributor in this scope. Continuing the same context can make later requests carry more history.",
@@ -522,6 +553,8 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
 
   if (amplification.largestTokens !== null && amplification.largestTokens > 0 && amplification.tool) {
     const toolFinding: NonNullable<AuditResult["topFinding"]> = {
+      id: "tool-amplification",
+      severity: "primary",
       kind: "tool_amplification",
       headline: `Tool ${safeToolName(amplification.tool.toolName)} produced an estimated ${Math.round(amplification.largestTokens)} amplified tokens across later calls.`,
       explanation: "A paired tool result was large enough to be carried into later model calls in the same active context. The impact is an estimate based on result size, not billed tokens.",
@@ -558,6 +591,8 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
 
   if (extraLifecycle.length > 0) {
     const extraFinding: NonNullable<AuditResult["topFinding"]> = {
+      id: "extra-calls",
+      severity: "primary",
       kind: "extra_calls",
       headline: `${extraLifecycle.length} retry, interruption, or subagent lifecycle event(s) were observed.`,
       explanation: "Lifecycle events indicate additional work around model calls. The history does not always expose exact attempt cost, so this signal is kept separate from token totals.",
@@ -585,8 +620,10 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     coverage: read.coverage,
     summary,
     rankings,
-    report: buildReportData(read, tokenTotal.value),
+    report: buildReportData(read, tokenTotal.value, harness),
     topFinding,
+    findings: topFinding ? [topFinding] : [],
+    healthChecks: [],
   };
 }
 

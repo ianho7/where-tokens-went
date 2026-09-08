@@ -110,10 +110,16 @@ export interface ContributionRankings {
 }
 
 export interface TokenBreakdown {
+  /** Mutually exclusive ordinary (non-cache) input tokens when the source proves the composition. */
   inputTokens: EvidenceValue;
+  /** Mutually exclusive cache-hit input tokens when the source proves the composition. */
   cachedInputTokens: EvidenceValue;
+  /** Mutually exclusive cache-build input tokens when the source proves the composition. */
   cacheWriteTokens: EvidenceValue;
   outputTokens: EvidenceValue;
+  /** Remainder of the reported total that cannot be assigned without changing source semantics. */
+  unclassifiedTokens: EvidenceValue;
+  /** Raw reasoning is retained for evidence but is not independently stacked with output. */
   reasoningTokens: EvidenceValue;
   totalTokens: EvidenceValue;
 }
@@ -122,6 +128,7 @@ export interface DailyUsageEntry extends TokenBreakdown {
   key: string;
   modelCallCount: EvidenceValue;
   sharePercent: EvidenceValue;
+  apiEquivalentCost: EvidenceValue;
 }
 
 export interface HourlyActivityEntry {
@@ -153,6 +160,21 @@ export interface ToolAnalysisEntry {
   sharePercent: EvidenceValue;
 }
 
+export interface ApiEquivalentCost {
+  total: EvidenceValue;
+  pricedTokens: EvidenceValue;
+  relevantTokens: EvidenceValue;
+  coveragePercent: EvidenceValue;
+  unpricedModels: string[];
+  limitations: string[];
+  source: {
+    version: string;
+    retrievedAt: string;
+    currency: "USD";
+    unit: "USD per 1M tokens";
+  };
+}
+
 export interface ReportData {
   dailyUsage: DailyUsageEntry[];
   hourlyActivity: HourlyActivityEntry[];
@@ -160,10 +182,15 @@ export interface ReportData {
   rollingWindow: RollingWindowReport | null;
   tools: ToolAnalysisEntry[];
   totalToolAmplifiedTokens: EvidenceValue;
+  apiEquivalentCost: ApiEquivalentCost;
 }
 
+export type FindingKind = "long_session" | "tool_amplification" | "extra_calls" | "model_concentration" | "data_quality";
+
 export interface AuditFinding {
-  kind: "long_session" | "tool_amplification" | "extra_calls";
+  id: string;
+  kind: FindingKind;
+  severity: "primary" | "supporting" | "health";
   headline: string;
   explanation: string;
   impact: EvidenceValue;
@@ -183,6 +210,8 @@ export interface AuditSnapshot {
   rankings: ContributionRankings;
   report: ReportData;
   topFinding: AuditFinding | null;
+  findings: AuditFinding[];
+  healthChecks: AuditFinding[];
 }
 
 export interface WeekComparison {

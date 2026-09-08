@@ -547,8 +547,9 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.match(html, /Agent Audit 诊断报告/);
     assert.match(html, /class="metric-main"[^>]*>1\.26亿</);
     assert.match(html, /class="metric-exact">精确值：126,000,000</);
-    assert.match(html, /<svg[^>]+role="img"/);
-    assert.match(html, /class="chart daily-composition"/);
+    assert.match(html, /id="token-trend" class="echart"/);
+    assert.match(html, /renderer:'svg'/);
+    assert.match(html, /table class="sortable"/);
     assert.match(html, /class="chart hourly-heatmap"/);
     assert.match(html, /viewBox="0 0 880/);
     assert.equal(html.includes('x="745"'), false);
@@ -566,8 +567,9 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.equal(html.includes('PRIVATE_RESULT'), false);
     assert.equal(html.includes('PRIVATE_FUTURE_ACCOUNTING'), false);
     assert.equal(html.includes(project), false);
-    assert.equal(html.includes('<script'), false);
-    assert.equal(html.includes('http://'), false);
+    assert.match(html, /<script>/);
+    assert.equal(/<script[^>]+src=/.test(html), false);
+    assert.equal(/<(?:script|link|img)[^>]+https?:/.test(html), false);
 
     const installedRoot = path.join(root, 'installed');
     const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
