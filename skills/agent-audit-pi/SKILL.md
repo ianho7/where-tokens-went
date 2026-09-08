@@ -11,10 +11,10 @@ The invoking Harness is fixed to Pi. Do not inspect Claude Code, Codex, DeepSeek
 
 ## Invocation
 
-For the Current Project, run:
+For the Current Project, resolve the directory containing this `SKILL.md` as `<skill-directory>` and run the bundled `scripts/agent-audit.js` with Node; do not call a global `agent-audit` command:
 
 ```text
-agent-audit inspect --harness pi --cwd <absolute-current-project-path> --since <duration> --format json
+node <skill-directory>/scripts/agent-audit.js inspect --harness pi --cwd <absolute-current-project-path> --since <duration> --format json
 ```
 
 Use `7d` when no period is requested. Use `--all-projects` only when the user explicitly asks for a Global Audit within Pi.
@@ -23,4 +23,4 @@ The local tool is authoritative. Preserve reported cost separately from token to
 
 ## Explanation
 
-Explain the returned AuditResult concisely, preserving Scope, coverage, largest contributor, Finding, Evidence, Provenance, recommendation, and limitations. If no Finding is supported, say so. Never include prompts, source code, model responses, shell output, tool results, credentials, or base64 payloads from local history.
+Explain the returned AuditResult concisely, preserving Scope, coverage, largest contributor, Finding, Evidence, Provenance, recommendation, and limitations. Use a Session ranking entry's `displayName` when present; it already contains the title and Session ID. Use `sharePercent.value` directly as percentage points and do not recalculate it. Format large numbers naturally for the user's language (for example, Chinese 万/亿 or English K/M/B), and include the exact token value when useful for verification. Explain `reported` as directly recorded, `derived` as calculated from records, `estimated` as an estimate, and `unavailable` as missing data in the user's language. If no Finding is supported, say so. Never include prompts, source code, model responses, shell output, tool results, credentials, or base64 payloads from local history.

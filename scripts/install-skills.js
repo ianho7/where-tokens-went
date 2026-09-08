@@ -15,7 +15,10 @@ const installs = [
 for (const [name, parent] of installs) {
   const source = path.join(repoRoot, 'skills', name);
   const destination = path.join(targetRoot, ...parent, name);
+  if (!fs.existsSync(path.join(source, 'SKILL.md')) || !fs.existsSync(path.join(source, 'scripts', 'agent-audit.js'))) {
+    throw new Error(`Skill ${name} is not packaged. Run npm run package-skills first.`);
+  }
   fs.mkdirSync(destination, { recursive: true });
-  fs.copyFileSync(path.join(source, 'SKILL.md'), path.join(destination, 'SKILL.md'));
-  console.log(`installed ${name} -> ${path.relative(targetRoot, destination)}`);
+  fs.cpSync(source, destination, { recursive: true });
+  console.log(`installed ${name} -> ${path.relative(targetRoot, destination)} (SKILL.md + bundled runtime)`);
 }

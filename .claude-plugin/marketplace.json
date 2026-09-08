@@ -1,0 +1,17 @@
+{
+  "name": "agent-audit",
+  "owner": {
+    "name": "Agent Audit"
+  },
+  "plugins": [
+    {
+      "name": "agent-audit-claude",
+      "source": "./skills/agent-audit-claude",
+      "description": "Explain Claude Code usage from local history with a bundled deterministic tool.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Agent Audit"
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "agent-audit-claude",
+  "version": "0.1.0",
+  "description": "Explain Claude Code usage from local history with a bundled deterministic tool.",
+  "author": {
+    "name": "Agent Audit"
+  }
+}

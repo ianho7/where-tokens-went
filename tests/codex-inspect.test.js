@@ -9,6 +9,7 @@ const { promisify } = require('node:util');
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
+const bundledCodexPath = path.resolve(__dirname, '..', 'skills', 'agent-audit-codex', 'scripts', 'agent-audit.js');
 
 function isoHoursAgo(hours) {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
@@ -16,6 +17,13 @@ function isoHoursAgo(hours) {
 
 async function runAudit(args, env) {
   return execFileAsync(process.execPath, [cliPath, ...args], {
+    env: { ...process.env, ...env },
+    maxBuffer: 1024 * 1024,
+  });
+}
+
+async function runBundledCodex(args, env) {
+  return execFileAsync(process.execPath, [bundledCodexPath, ...args], {
     env: { ...process.env, ...env },
     maxBuffer: 1024 * 1024,
   });
@@ -39,6 +47,45 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
       assert.match(skill, /--cwd <absolute-current-project-path>/);
       assert.match(skill, /--since <duration>/);
       assert.match(skill, /--format json/);
+      await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'agent-audit.js'));
+      await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'runtime', 'cli.js'));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('each copied Skill runs its bundled deterministic tool without the source checkout', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-bundled-skill-'));
+  const project = path.join(root, 'project');
+  const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
+  const installed = {
+    codex: path.join(root, '.agents', 'skills', 'agent-audit-codex', 'scripts', 'agent-audit.js'),
+    claude: path.join(root, '.claude', 'skills', 'agent-audit-claude', 'scripts', 'agent-audit.js'),
+    pi: path.join(root, '.pi', 'skills', 'agent-audit-pi', 'scripts', 'agent-audit.js'),
+    deepseek: path.join(root, '.agents', 'skills', 'agent-audit-deepseek', 'scripts', 'agent-audit.js'),
+  };
+  const envByHarness = {
+    codex: { CODEX_HOME: path.join(root, 'missing-codex') },
+    claude: { CLAUDE_CONFIG_DIR: path.join(root, 'missing-claude') },
+    pi: { PI_SESSIONS_DIR: path.join(root, 'missing-pi') },
+    deepseek: { DSH_JSONL_ROOT: path.join(root, 'missing-deepseek') },
+  };
+  await mkdir(project, { recursive: true });
+  try {
+    await execFileAsync(process.execPath, [installer, root]);
+    for (const harness of Object.keys(installed)) {
+      const { stdout } = await execFileAsync(process.execPath, [
+        installed[harness],
+        'inspect', '--harness', harness, '--cwd', project, '--since', '7d', '--format', 'json',
+      ], {
+        env: { ...process.env, ...envByHarness[harness] },
+        maxBuffer: 1024 * 1024,
+      });
+      const result = JSON.parse(stdout);
+      assert.equal(result.scope.harness, harness);
+      assert.equal(result.summary.sessionCount.value, 0);
+      assert.equal(result.summary.totalTokens.value, null);
     }
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -80,7 +127,7 @@ test('Codex Skill path reports a deterministic long-session finding without raw 
     {
       timestamp: isoHoursAgo(1.8),
       type: 'turn_context',
-      payload: { turn_id: 'turn-2', cwd: project, model: 'gpt-5.6-sol', model_provider: 'openai' },
+      payload: { turn_id: 'turn-2', cwd: project, model: 'gpt-5.6-luna', model_provider: 'openai' },
     },
     {
       timestamp: isoHoursAgo(1.7),
@@ -115,6 +162,14 @@ test('Codex Skill path reports a deterministic long-session finding without raw 
     records.map((record) => JSON.stringify(record)).join('\n') + '\n',
     'utf8',
   );
+  await writeFile(
+    path.join(codexHome, 'session_index.jsonl'),
+    [
+      { id: 'thread-codex-1', thread_name: 'Old Codex title', updated_at: isoHoursAgo(4) },
+      { id: 'thread-codex-1', thread_name: 'Codex usage deep dive', updated_at: isoHoursAgo(1) },
+    ].map((record) => JSON.stringify(record)).join('\n') + '\n',
+    'utf8',
+  );
 
   try {
     const { stdout: jsonText } = await runAudit(
@@ -132,6 +187,13 @@ test('Codex Skill path reports a deterministic long-session finding without raw 
     assert.equal(result.summary.modelCallCount.value, 2);
     assert.equal(result.summary.totalTokens.value, 430);
     assert.equal(result.summary.totalTokens.provenance, 'reported');
+    assert.equal(result.summary.topSessionTitle.value, 'Codex usage deep dive');
+    assert.equal(result.summary.topSessionSharePercent.value, 100);
+    assert.equal(result.rankings.sessions[0].displayName, 'Codex usage deep dive (thread-codex-1)');
+    assert.equal(result.rankings.models[0].key, 'gpt-5.6-luna');
+    assert.equal(result.rankings.models[0].sharePercent.value, 65.12);
+    assert.equal(result.rankings.models[1].sharePercent.value, 34.88);
+    assert.match(result.topFinding.headline, /Codex usage deep dive \(thread-codex-1\)/);
     assert.equal(result.topFinding.kind, 'long_session');
     assert.equal(result.topFinding.evidence[0].source.sessionId, 'thread-codex-1');
     assert.match(result.topFinding.recommendation, /fresh|shorter|narrow/i);
@@ -146,8 +208,19 @@ test('Codex Skill path reports a deterministic long-session finding without raw 
       { CODEX_HOME: codexHome },
     );
     assert.match(textOutput, /long_session/i);
+    assert.match(textOutput, /Top Session: Codex usage deep dive \(thread-codex-1\)/);
+    assert.match(textOutput, /share: 100%/);
+    assert.match(textOutput, /Models: .*tokens \(65\.12%\).*tokens \(34\.88%\)/);
     assert.equal(textOutput.includes('PRIVATE_PROMPT'), false);
     assert.equal(textOutput.includes('secret-source.js'), false);
+
+    const { stdout: bundledJson } = await runBundledCodex(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      { CODEX_HOME: codexHome },
+    );
+    const bundledResult = JSON.parse(bundledJson);
+    assert.equal(bundledResult.summary.topSessionTitle.value, 'Codex usage deep dive');
+    assert.equal(bundledResult.rankings.models[0].sharePercent.value, 65.12);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -218,6 +291,8 @@ test('Codex scope keeps projects separate and deduplicates repeated response usa
     assert.equal(result.coverage.recordsSkipped, 1);
     assert.equal(result.coverage.partialSessions, 1);
     assert.equal(result.summary.topSessionId.value, 'current-session');
+    assert.equal(result.summary.topSessionTitle.provenance, 'unavailable');
+    assert.equal(result.rankings.sessions[0].displayName, 'current-session');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

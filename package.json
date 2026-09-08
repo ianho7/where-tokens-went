@@ -9,10 +9,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test tests/codex-inspect.test.js",
+    "test": "npm run package-skills && node --test tests/codex-inspect.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "package-skills": "npm run build && node scripts/package-skills.js",
     "install-skills": "node scripts/install-skills.js",
-    "install-local": "npm run build && npm link && npm run install-skills"
+    "install-local": "npm run package-skills && npm link && npm run install-skills"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

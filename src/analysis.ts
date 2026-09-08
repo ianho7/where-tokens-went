@@ -20,6 +20,18 @@ function countEvidence(value: number, method: string): EvidenceValue {
   return { value, provenance: "derived", method };
 }
 
+function sharePercentEvidence(tokens: number, totalTokens: number | null, label: string, source?: EvidenceValue["source"]): EvidenceValue {
+  if (totalTokens === null || totalTokens <= 0) {
+    return unavailable(`the complete selected token total was unavailable for ${label} share calculation`);
+  }
+  return {
+    value: Math.round((tokens / totalTokens) * 10000) / 100,
+    provenance: "derived",
+    method: `${label} tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals`,
+    ...(source ? { source } : {}),
+  };
+}
+
 function callTokens(call: ModelCallRecord): number | null {
   return call.totalTokens;
 }
@@ -48,6 +60,8 @@ function rankContributions(
   calls: ModelCallRecord[],
   keyOf: (call: ModelCallRecord) => string,
   label: string,
+  totalTokens: number | null,
+  displayNameOf?: (key: string) => string | undefined,
 ): ContributionEntry[] {
   const groups = new Map<string, { tokens: number; complete: boolean; reported: boolean }>();
   for (const call of calls) {
@@ -66,12 +80,18 @@ function rankContributions(
     .sort((left, right) => right[1].tokens - left[1].tokens || left[0].localeCompare(right[0]))
     .map(([key, group]) => ({
       key,
+      ...(displayNameOf?.(key) ? { displayName: displayNameOf(key) } : {}),
       value: {
         value: group.tokens,
         provenance: group.reported ? "reported" : "derived",
         method: `${label} group sum of complete ModelCall token totals`,
       },
+      sharePercent: sharePercentEvidence(group.tokens, totalTokens, label),
     }));
+}
+
+function sessionDisplayName(session: SessionRecord): string {
+  return session.title ? `${session.title} (${session.sessionId})` : session.sessionId;
 }
 
 function timeBucket(timestamp: string | null): string {
@@ -149,13 +169,23 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
   const amplification = toolAmplification(read);
   const extraLifecycle = read.lifecycle.filter((event) => event.kind !== "compaction");
   const sessionProjects = new Map(read.sessions.map((session) => [session.sessionId, session.projectCwd]));
+  const sessionById = new Map(read.sessions.map((session) => [session.sessionId, session]));
   const rankings: ContributionRankings = {
-    sessions: rankContributions(read.modelCalls, (call) => call.sessionId, "Session"),
-    projects: rankContributions(read.modelCalls, (call) => projectKey(sessionProjects.get(call.sessionId) ?? null, scope), "project"),
-    models: rankContributions(read.modelCalls, (call) => call.model ?? "<unknown-model>", "model"),
-    timeBuckets: rankContributions(read.modelCalls, (call) => timeBucket(call.timestamp), "time bucket"),
+    sessions: rankContributions(
+      read.modelCalls,
+      (call) => call.sessionId,
+      "Session",
+      tokenTotal.value,
+      (key) => {
+        const session = sessionById.get(key);
+        return session ? sessionDisplayName(session) : undefined;
+      },
+    ),
+    projects: rankContributions(read.modelCalls, (call) => projectKey(sessionProjects.get(call.sessionId) ?? null, scope), "project", tokenTotal.value),
+    models: rankContributions(read.modelCalls, (call) => call.model ?? "<unknown-model>", "model", tokenTotal.value),
+    timeBuckets: rankContributions(read.modelCalls, (call) => timeBucket(call.timestamp), "time bucket", tokenTotal.value),
   };
-  const share = largest && tokenTotal.value !== null && tokenTotal.value > 0
+  const shareFraction = largest && tokenTotal.value !== null && tokenTotal.value > 0
     ? largest.tokens / tokenTotal.value
     : null;
   const summary: Record<string, EvidenceValue> = {
@@ -189,6 +219,12 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     topSessionTokens: largest
       ? { value: largest.tokens, provenance: "derived", method: "sum of that Session's complete ModelCall totals", source: { sessionId: largest.session.sessionId } }
       : unavailable("no Session has a complete token total"),
+    topSessionTitle: largest && largest.session.title
+      ? { value: largest.session.title, provenance: "reported", method: "title from the Harness Session metadata", source: { sessionId: largest.session.sessionId } }
+      : unavailable("the selected Harness did not provide a title for the largest Session"),
+    topSessionSharePercent: largest
+      ? sharePercentEvidence(largest.tokens, tokenTotal.value, "largest complete Session", { sessionId: largest.session.sessionId })
+      : unavailable("no Session has a complete token total"),
     topProject: rankings.projects[0]?.value ?? unavailable("no project has a complete token total"),
     topModel: rankings.models[0]?.value ?? unavailable("no model has a complete token total"),
     topTimeBucket: rankings.timeBuckets[0]?.value ?? unavailable("no time bucket has a complete token total"),
@@ -213,12 +249,12 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
   if (
     largest &&
     largestCalls.length >= 2 &&
-    share !== null &&
-    share >= 0.5
+    shareFraction !== null &&
+    shareFraction >= 0.5
   ) {
     topFinding = {
       kind: "long_session",
-      headline: `Session ${largest.session.sessionId} accounts for ${(share * 100).toFixed(1)}% of known usage across ${largestCalls.length} model calls.`,
+      headline: `Session ${sessionDisplayName(largest.session)} accounts for ${(shareFraction * 100).toFixed(1)}% of known usage across ${largestCalls.length} model calls.`,
       explanation: "A concentrated multi-call Session is the strongest supported contributor in this scope. Continuing the same context can make later requests carry more history.",
       impact: {
         value: largest.tokens,
@@ -240,10 +276,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
           source: { sessionId: largest.session.sessionId },
         },
         {
-          value: share,
-          provenance: "derived",
-          method: "largest complete Session tokens divided by complete selected tokens",
-          source: { sessionId: largest.session.sessionId },
+          ...sharePercentEvidence(largest.tokens, tokenTotal.value, "largest complete Session", { sessionId: largest.session.sessionId }),
         },
       ],
       recommendation: "Start a fresh Session or split and narrow the task before the context grows further.",

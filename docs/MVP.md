@@ -8,7 +8,7 @@ The first release succeeds when a user sees a real session, tool, retry, compact
 
 ## Product shape
 
-The user-facing product is a thin Harness-native Skill or integration plus a local deterministic tool. The Host Agent remains the UI and explains the result; the TypeScript CLI reads and calculates facts.
+The user-facing product is a thin Harness-native Skill or integration plus a local deterministic tool. Each Skill is distributed with the runtime it invokes, so copying or installing one Skill directory is sufficient; the Host Agent remains the UI and explains the result; the TypeScript CLI reads and calculates facts.
 
 MVP invocation behind the integration:
 
@@ -86,4 +86,3 @@ For each Harness, using one redacted sample derived from real local history:
 - repeated runs over unchanged files return the same totals;
 - default JSON and text contain no raw prompt, source, or tool-result content;
 - the result identifies one evidence-backed Finding or truthfully reports that none is supported.
-

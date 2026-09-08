@@ -309,6 +309,35 @@ function sessionIdFor(file: string, fallbackIndex: number): string {
   return name.startsWith("rollout-") && name.length > 8 ? name.slice(8) : `unknown-session-${fallbackIndex}`;
 }
 
+async function readSessionTitles(codexHome: string, warnings: string[]): Promise<Map<string, string>> {
+  const titles = new Map<string, string>();
+  let text: string;
+  try {
+    text = await readFile(path.join(codexHome, "session_index.jsonl"), "utf8");
+  } catch {
+    return titles;
+  }
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      warnings.push("A Codex Session title index record was malformed; that title was skipped.");
+      continue;
+    }
+    const record = asObject(parsed);
+    if (!record) {
+      warnings.push("A Codex Session title index record was not an object; that title was skipped.");
+      continue;
+    }
+    const sessionId = stringValue(record.id, record.session_id, record.sessionId);
+    const title = stringValue(record.thread_name, record.threadName, record.title);
+    if (sessionId && title) titles.set(sessionId, title);
+  }
+  return titles;
+}
+
 function updateSessionTimes(pending: PendingSession, timestamp: string | null): void {
   if (!timestamp) return;
   const milliseconds = Date.parse(timestamp);
@@ -350,6 +379,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
   };
   const pendingById = new Map<string, PendingSession>();
   let fallbackIndex = 0;
+  const sessionTitles = await readSessionTitles(codexHome, coverage.warnings);
 
   for (const file of files) {
     coverage.filesRead += 1;
@@ -577,6 +607,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
   const toolCalls = [] as ReadResult["toolCalls"];
   const lifecycle = [] as ReadResult["lifecycle"];
   for (const pending of pendingById.values()) {
+    pending.session.title = sessionTitles.get(pending.session.sessionId) ?? null;
     if (!selectedByScope(pending.session, pending.eventTimes, scope)) {
       if (pending.missingTimestamp && (scope.allProjects || sameCwd(pending.session.projectCwd, scope.cwd))) {
         coverage.partialSessions += 1;

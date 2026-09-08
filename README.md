@@ -1,57 +1,167 @@
-# agent-audit
+# Agent Audit
 
-`agent-audit` helps a coding agent explain where its own historical usage went. The user asks inside Claude Code, Codex, Pi, or DeepSeek Harness; a thin native integration invokes a local deterministic tool for that same harness and returns evidence the host agent can explain.
+`agent-audit` 用来解释编码智能体的历史用量去了哪里。用户在 Claude Code、Codex、Pi 或 DeepSeek Harness 中用自然语言提问，对应的原生 Agent Skill 会调用同一台机器上的确定性 CLI，再由当前智能体解释 CLI 返回的证据。
 
 ## Aha moment
 
-Within one minute, answer three questions about the invoking harness:
+目标是在一分钟内回答三个问题：
 
-1. Which session, project, model, or time window accounts for the most usage?
-2. What observable mechanism caused it: a long session, repeated tool output, retries/errors, compaction, or subagents?
-3. What is the single highest-impact next action, and what evidence supports it?
+1. 哪个 Session、项目、模型或时间段贡献了最多用量？
+2. 可以观察到的主要原因是什么：长 Session、重复携带工具输出、重试/错误、上下文压缩，还是子智能体？
+3. 当前最值得采取的一项行动是什么，证据是什么？
 
-Example user prompts:
+默认审计范围是：当前 Harness、当前项目、最近 7 天。用户可以明确改为所有项目或其他时间范围，但一次调用不会静默混合多个 Harness。
 
-```text
-帮我分析最近 7 天这个项目的 Codex 消耗。
-为什么我最近的 Claude Code Token 用得这么快？
-帮我对比近 30 天所有项目的 Pi 消耗情况。
+## MVP 边界
+
+- 支持 Claude Code、Codex、Pi 和 DeepSeek Harness。
+- 最终形态是“原生 Agent Skill + 本地确定性工具”。
+- 只读取已有的本地 Session 历史，不需要后台采集器。
+- JSON 是权威结果；文本格式只提供紧凑的人类可读摘要。
+- 原始 prompt、源代码、模型回复和工具输出保留在本机，不出现在默认结果中。
+
+完整范围与验收标准见 [docs/MVP.md](docs/MVP.md)。修改 CLI、共享记录、分析或隐私行为前请阅读 [docs/DESIGN.md](docs/DESIGN.md)；修改 Harness Reader 前请阅读 [docs/HARNESS_DATA_SOURCES.md](docs/HARNESS_DATA_SOURCES.md)。
+
+## 安装
+
+推荐从包含本仓库的 Git 版本或 Skill 平台安装。每个 Skill 目录现在都包含 `SKILL.md` 和同版本的本地确定性工具；不需要另行安装全局 `agent-audit` 命令。
+
+### GitHub / skills.sh
+
+仓库按 `skills/<skill-name>/SKILL.md` 约定暴露四个 Skill。选择与当前 Harness 对应的目录即可；也可以把四个目录作为一个 Skill pack 安装。
+
+```bash
+# 使用 skills.sh CLI 安装指定 Harness 的 Skill（将 owner/repo 替换为实际仓库）
+npx skills add <owner>/<repo> --skill agent-audit-codex --agent codex --yes
+npx skills add <owner>/<repo> --skill agent-audit-claude --agent claude-code --yes
+
+# 使用 GitHub CLI 安装指定 Harness 的 Skill
+gh skill install <owner>/<repo> agent-audit-codex --agent codex
+gh skill install <owner>/<repo> agent-audit-claude --agent claude-code
 ```
 
-The default scope is the invoking harness, current project, and last 7 days. A user may widen the scope to all projects or another period, but one invocation never silently mixes harnesses.
+安装前请检查 Skill 目录中的脚本和来源；默认只读取本机历史，不上传数据。需要固定版本时，使用 Git tag 或 commit。
 
-## MVP
+### Claude Code 市场
 
-- Harnesses: Claude Code, Codex, Pi, and DeepSeek Harness.
-- Experience: a native Skill/Integration calls one local TypeScript CLI command and the host agent explains its JSON evidence.
-- Inputs: existing local session history only.
-- Outputs: a concise finding in the agent conversation; JSON is authoritative and text is a compact CLI view.
-- Privacy: raw prompts, source code, and tool output stay local and are omitted from default output.
-
-The implementation scope and acceptance criteria live in [docs/MVP.md](docs/MVP.md). Read [docs/DESIGN.md](docs/DESIGN.md) before implementing the CLI or a Reader, and [docs/HARNESS_DATA_SOURCES.md](docs/HARNESS_DATA_SOURCES.md) before changing harness-specific parsing.
-
-## Local installation
-
-From a clean checkout, install dependencies and expose the CLI plus project-scoped native Skills with:
+仓库包含 `.claude-plugin/marketplace.json`，在 Claude Code 中添加仓库后安装 `agent-audit-claude`：
 
 ```text
+/plugin marketplace add <owner>/<repo>
+/plugin install agent-audit-claude@agent-audit
+```
+
+### Codex 插件市场
+
+Codex Skill 目录包含 `.codex-plugin/plugin.json`，仓库同时提供 repo-local marketplace 元数据。将该仓库作为本地 marketplace 添加后，安装 `agent-audit-codex`；具体命令以当前 Codex CLI 的插件命令为准。
+
+### 从源码开发安装
+
+前置条件：本机已安装 Node.js、npm，并已拉取本仓库。
+
+在仓库根目录执行：
+
+```bash
 npm install
 npm run install-local
 ```
 
-`install-local` builds the CLI, links the `agent-audit` command through npm, and installs one fixed-Harness Skill in each native project location:
+`install-local` 会完成三件事：
 
-| Harness | Skill location |
+1. 编译 TypeScript CLI；
+2. 将同版本运行产物和 zstd 解码依赖打包到四个 Skill 目录；
+3. 通过 `npm link` 暴露全局 `agent-audit` 命令（仅供直接 CLI 调试），并将完整 Skill 目录安装到对应 Host 的原生目录。
+
+源码变更后重新生成 Skill 产物：
+
+```bash
+npm run package-skills
+```
+
+| Harness | Skill 安装位置 |
 | --- | --- |
-| Codex | `.agents/skills/agent-audit-codex/SKILL.md` |
-| Claude Code | `.claude/skills/agent-audit-claude/SKILL.md` |
-| Pi | `.pi/skills/agent-audit-pi/SKILL.md` |
-| DeepSeek Harness | `.agents/skills/agent-audit-deepseek/SKILL.md` |
+| Codex | `.agents/skills/agent-audit-codex/`（含 `SKILL.md` 和 `scripts/`） |
+| Claude Code | `.claude/skills/agent-audit-claude/`（含 `SKILL.md` 和 `scripts/`） |
+| Pi | `.pi/skills/agent-audit-pi/`（含 `SKILL.md` 和 `scripts/`） |
+| DeepSeek Harness | `.agents/skills/agent-audit-deepseek/`（含 `SKILL.md` 和 `scripts/`） |
 
-To install the same entries into another project, pass its absolute path to `npm run install-skills -- <project-root>`. Each Skill fixes its invoking Harness and delegates all counting to the local `agent-audit inspect` command.
+如果要把已打包的 Skill 安装到另一个项目，请仍在本仓库根目录执行：
 
-## Status
+```bash
+npm run install-skills -- "<目标项目绝对路径>"
+```
 
-The local end-to-end MVP is verified. The TypeScript tool reads Codex, Claude Code, Pi, and the observed DeepSeek Harness JSONL/Zstandard history forms, ranks complete usage by Session/project/model/time bucket, and each Harness has a thin native Agent Skill entry point. Run `npm install`, then `npm run install-local` to expose the command and install the project-scoped Skills; `npm test` runs the redacted regression suite.
+该命令复制完整 Skill 目录。它只依赖本仓库中已生成的发布产物，不会在目标项目创建 `npm link`。
 
-The implementation remains deliberately local and deterministic: no cloud upload, background collector, persistent normalized database, or cross-Harness audit is included.
+安装后，从目标项目目录启动对应的 Host Agent。若正在运行的会话没有发现新 Skill，请新建一个会话。
+
+## 操作方式一：直接用自然语言
+
+在对应 Host Agent 中提问即可。例如：
+
+```text
+帮我分析当前项目最近 7 天的 Codex 用量都花在哪里，并给出一个最值得采取的改进建议。
+
+为什么我最近 7 天的 Claude Code Token 用得这么快？
+
+帮我分析最近 30 天所有项目的 Pi 消耗情况。
+
+帮我解释当前项目的 DeepSeek Harness 用量去了哪里。
+```
+
+每个 Skill 都固定绑定自己的 Harness。例如，在 Codex 中触发的 Skill 只会读取 Codex 历史；“所有项目”只扩大项目范围，不会扩大 Harness 范围。
+
+正常结果应包含：
+
+- 实际使用的审计范围与 Coverage；
+- 最大用量贡献者；
+- 一个有 Evidence 和 Provenance 的主要 Finding；
+- 一项可执行建议；
+- 数据缺失、格式不支持或统计不完整时的限制说明。
+
+## 操作方式二：直接运行 CLI
+
+直接 CLI 调试（开发安装后）：
+
+```bash
+agent-audit inspect --harness codex --cwd "<当前项目绝对路径>" --since 7d --format text
+```
+
+Skill 正常使用时会调用自身目录下的 `scripts/agent-audit.js`，不依赖全局命令。
+
+获取适合智能体继续解释的权威 JSON：
+
+```bash
+agent-audit inspect --harness codex --cwd "<当前项目绝对路径>" --since 7d --format json
+```
+
+审计同一 Harness 下的所有项目：
+
+```bash
+agent-audit inspect --harness codex --all-projects --since 30d --format json
+```
+
+将 `codex` 替换为 `claude`、`pi` 或 `deepseek`，即可审计对应 Harness。
+
+### CLI 参数
+
+| 参数 | 含义 |
+| --- | --- |
+| `--harness` | 必填：`codex`、`claude`、`pi` 或 `deepseek` |
+| `--cwd` | 当前项目的绝对路径；与 `--all-projects` 二选一 |
+| `--all-projects` | 审计当前 Harness 下的所有项目；与 `--cwd` 二选一 |
+| `--since` | 时间范围，默认 `7d`；支持 `h`、`d`、`w`、`m`，例如 `24h`、`7d`、`2w`、`1m` |
+| `--format` | `json` 或 `text`，默认 `json` |
+
+## 验证开发环境
+
+```bash
+npm run typecheck
+npm test
+```
+
+当前回归覆盖四个 Harness 的安全输出、范围边界、用量统计、工具结果配对、Pi 分支语义，以及 DeepSeek JSONL/Zstandard 持久化格式。
+
+## 当前状态
+
+本地端到端 MVP 已完成。项目刻意不包含云端上传、后台采集器、持久化标准化数据库、跨 Harness 聚合、Dashboard 或正式评测平台；只有真实使用证明需要时才考虑扩展。

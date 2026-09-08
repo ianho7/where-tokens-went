@@ -5,6 +5,8 @@ export type Provenance = "reported" | "derived" | "estimated" | "unavailable";
 export interface SessionRecord {
   harness: Harness;
   sessionId: string;
+  /** Optional title supplied by the Harness's explicit Session metadata. */
+  title?: string | null;
   projectCwd: string | null;
   startedAt: string | null;
   endedAt: string | null;
@@ -87,7 +89,11 @@ export interface EvidenceValue {
 
 export interface ContributionEntry {
   key: string;
+  /** Human-readable identity when the source provides one, such as a Session title plus ID. */
+  displayName?: string;
   value: EvidenceValue;
+  /** Percentage points of the complete selected token total, or unavailable. */
+  sharePercent: EvidenceValue;
 }
 
 export interface ContributionRankings {

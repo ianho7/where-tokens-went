@@ -11,10 +11,10 @@ The invoking Harness is fixed to Claude Code. Do not inspect Codex, Pi, DeepSeek
 
 ## Invocation
 
-Translate the user's natural-language scope into one explicit local command:
+Translate the user's natural-language scope into one explicit local command. Resolve the directory containing this `SKILL.md` as `<skill-directory>` and run the bundled `scripts/agent-audit.js` with Node; do not call a global `agent-audit` command:
 
 ```text
-agent-audit inspect --harness claude --cwd <absolute-current-project-path> --since <duration> --format json
+node <skill-directory>/scripts/agent-audit.js inspect --harness claude --cwd <absolute-current-project-path> --since <duration> --format json
 ```
 
 Use `7d` when no period is requested. The Global Audit form is supported by the local tool for this Harness; use `--all-projects` only when the user explicitly asks for all projects.
@@ -23,4 +23,4 @@ The local tool is authoritative. Do not recalculate totals, infer missing values
 
 ## Explanation
 
-Explain the returned result in one concise response, preserving the Audit Scope, coverage, largest contributor, top Finding, Evidence, Provenance, recommendation, and limitations. If `topFinding` is null, say that the available history does not support a strong cause. Never include prompts, source code, model responses, shell output, tool results, credentials, or base64 payloads from local history.
+Explain the returned result in one concise response, preserving the Audit Scope, coverage, largest contributor, top Finding, Evidence, Provenance, recommendation, and limitations. Use a Session ranking entry's `displayName` when present; it already contains the title and Session ID. Use `sharePercent.value` directly as percentage points and do not recalculate it. Format large numbers naturally for the user's language (for example, Chinese 万/亿 or English K/M/B), and include the exact token value when useful for verification. Explain `reported` as directly recorded, `derived` as calculated from records, `estimated` as an estimate, and `unavailable` as missing data in the user's language. If `topFinding` is null, say that the available history does not support a strong cause. Never include prompts, source code, model responses, shell output, tool results, credentials, or base64 payloads from local history.

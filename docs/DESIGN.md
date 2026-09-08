@@ -58,6 +58,7 @@ type Provenance = "reported" | "derived" | "estimated" | "unavailable";
 interface SessionRecord {
   harness: Harness;
   sessionId: string;
+  title?: string | null;
   projectCwd: string | null;
   startedAt: string | null;
   endedAt: string | null;
@@ -183,6 +184,8 @@ interface AuditResult {
 }
 ```
 
+Contribution rankings include the exact token `value` and a derived `sharePercent` in percentage points. Session entries may include `displayName`, which combines an explicit Harness title with the Session ID; when no title exists, the ID remains the display name. Codex titles come only from its local Session index metadata. The Host Agent formats these values for the user's language without changing the authoritative JSON.
+
 The Host Agent may rephrase explanations but must preserve values, Provenance, scope, and limitations.
 
 ## Privacy boundary
@@ -214,4 +217,3 @@ For each Reader, derive one minimal redacted sample from a real Session and reta
 7. Add the thinnest native integration for each Harness after its Reader works from the CLI.
 
 Stop the MVP when all four Readers satisfy `MVP.md`. Add MCP, persistent storage, live telemetry, richer reports, or formal evals only after real usage shows which one removes the next bottleneck.
-

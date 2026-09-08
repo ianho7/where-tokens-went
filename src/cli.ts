@@ -89,12 +89,22 @@ function evidenceText(value: { value: number | string | null; provenance: string
   return `${value.value} (${value.provenance})`;
 }
 
+function shareText(value: { value: number | string | null }): string {
+  return value.value === null ? "unavailable" : `${value.value}%`;
+}
+
 function textResult(result: AuditResult): string {
   const lines = [
     `Audit: ${result.scope.harness}; ${result.scope.allProjects ? "all projects" : "current project"}; since ${result.scope.since}`,
     `Coverage: ${result.coverage.filesRead} files, ${result.coverage.recordsRead} records, ${result.coverage.recordsSkipped} skipped, ${result.coverage.partialSessions} partial Sessions.`,
     `Sessions: ${evidenceText(result.summary.sessionCount)}; model calls: ${evidenceText(result.summary.modelCallCount)}; total tokens: ${evidenceText(result.summary.totalTokens)}.`,
   ];
+  const topSession = result.rankings.sessions[0];
+  if (topSession) lines.push(`Top Session: ${topSession.displayName ?? topSession.key}; ${evidenceText(topSession.value)}; share: ${shareText(topSession.sharePercent)}.`);
+  const modelSummary = result.rankings.models.slice(0, 5)
+    .map((entry) => `${entry.key}: ${entry.value.value ?? "unavailable"} tokens (${shareText(entry.sharePercent)})`)
+    .join(", ");
+  if (modelSummary) lines.push(`Models: ${modelSummary}.`);
   if (result.topFinding) {
     lines.push(`Top finding: ${result.topFinding.kind} — ${result.topFinding.headline}`);
     lines.push(`Recommendation: ${result.topFinding.recommendation}`);
