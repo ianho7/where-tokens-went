@@ -101,12 +101,16 @@ test('automated checks use their compact card layout', () => {
   assert.equal(html.includes('.supporting-findings ul{'), true);
 });
 
-test('daily token trend uses independent curves whose positions are raw component values', () => {
+test('daily token trend uses the Kami contrast ladder and redundant line encodings', () => {
   const html = renderHtml(result(), 'zh-CN');
   assert.doesNotMatch(html, /stack:'tokens'/);
-  assert.match(html, /lineStyle:\{color,width:2,opacity:1\}/);
-  assert.match(html, /itemStyle:\{color\}/);
-  assert.match(html, /areaStyle:\{color,opacity:\.18\}/);
+  assert.match(html, /#2d4e7a/);
+  assert.match(html, /lineType,symbol,focus/);
+  assert.match(html, /lineStyle:\{color,width:focus\?2\.5:2,opacity:focus\?1:\.92,type:lineType\}/);
+  assert.match(html, /symbol,showSymbol:d.rows.length<=14/);
+  assert.match(html, /areaStyle:\{color,opacity:\.1\}/);
+  assert.match(html, /areaStyle:\{color,opacity:\.12\}/);
+  assert.doesNotMatch(html, /areaStyle:\{color,opacity:\.18\}/);
 });
 test('automated checks are stable, evidence-backed, private, and shared by formatters', () => {
   const first = result();
