@@ -130,7 +130,7 @@ test('automated checks are stable, evidence-backed, private, and shared by forma
     assert.match(output, /Method:/);
     assert.doesNotMatch(output, /long_session|tool_amplification|extra_calls|model_concentration|data_quality/);
   }
-  assert.match(renderText(first, 'zh-CN'), /Findings:/);
+  assert.match(renderText(first, 'zh-CN'), /发现:/);
   assert.match(renderHtml(first, 'zh-CN'), />自动<\/span>/);
   assert.equal(JSON.stringify(first).includes('PRIVATE_PROMPT'), false);
 });

@@ -70,7 +70,7 @@ const ZH = {
     noToolData: "没有可配对的工具结果，工具影响不可用。",
     noQuota: "没有来自该 Harness 的第一方额度数据。",
     checksNote: "这些是自动发现；Host Agent 会结合你的问题和完整 Evidence 在对话中给出综合判断。",
-    diagnosticSignals: "Findings",
+    diagnosticSignals: "发现",
     privacyNote: "报告只保留安全元数据、大小、哈希、聚合和计算方法；不包含 prompt、源代码、回复、工具结果、参数、凭据或绝对路径。",
     methodNote: "估算值不是账单 Token；缺失值保持不可用。",
     usageView: "用量概览",
