@@ -351,12 +351,23 @@ function updateSessionTimes(pending: PendingSession, timestamp: string | null): 
   }
 }
 
+function subagentSource(value: unknown): boolean | null {
+  if (typeof value === "string") return value.toLowerCase() === "subagent";
+  const source = asObject(value);
+  if (!source) return null;
+  if ("subagent" in source) return true;
+  const kind = stringValue(source.type, source.kind);
+  return kind ? kind.toLowerCase() === "subagent" : null;
+}
+
 function mergeSession(pending: PendingSession, payload: JsonObject, timestamp: string | null): void {
   const cwd = stringValue(payload.cwd, payload.project_cwd, payload.projectCwd);
   const parentSessionId = stringValue(payload.parent_thread_id, payload.parentThreadId, payload.forked_from_id, payload.forkedFromId);
   const sourceVersion = stringValue(payload.cli_version, payload.cliVersion, payload.source_version, payload.sourceVersion);
   if (cwd) pending.session.projectCwd = cwd;
   if (parentSessionId) pending.session.parentSessionId = parentSessionId;
+  const isSubagent = subagentSource(payload.source);
+  if (isSubagent !== null) pending.session.isSubagent = isSubagent;
   if (sourceVersion) pending.session.sourceVersion = sourceVersion;
   updateSessionTimes(pending, timestamp);
 }

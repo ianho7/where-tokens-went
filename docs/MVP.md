@@ -31,8 +31,10 @@ agent-audit inspect --harness codex --all-projects --since 30d --format json
 - Current-project audit by default; all-project audit when requested.
 - User-selected time range; 7 days by default.
 - Usage totals and ranking by session, project, model, and time window when supported by the source.
-- Three initial causes: long sessions/context growth, repeated tool-result amplification, and extra calls from errors/retries/subagents.
-- One prioritized Finding with Evidence and one recommended next action.
+- Deterministic automated checks for long Session concentration, repeated tool-result amplification, extra calls from errors/retries/subagents, model concentration, and data completeness when supported by Evidence.
+- For Codex, distinguish total execution Sessions from top-level tasks and source-proven subagent Sessions when the local metadata supports that split.
+- Human-readable automated-check output with a stable pass, notice, or warning outcome, compact Evidence, and the deterministic method; internal check identifiers are not the user-facing report.
+- One Host Agent-authored Finding with Evidence and one recommended next action when justified.
 - JSON output for the Host Agent and concise text output for direct CLI use.
 - `reported`, `derived`, `estimated`, and `unavailable` value provenance.
 
@@ -73,6 +75,8 @@ The default result should fit in one Agent response:
 
 Do not dilute the result with every available chart or warning. If no strong cause is supported, say what was measured and what information is missing.
 
+For a report request, the deliverable is atomic: generate and open the deterministic standalone HTML, then provide one explicit Host Agent Finding in the same conversation turn. The HTML contains metrics, rankings, coverage, limitations, and human-readable automated checks; it does not contain an AI-authored Finding. Returning only a report path, only diagnostic signals, or only internal check identifiers does not satisfy the Aha response.
+
 ## Acceptance criteria
 
 For each Harness, using one redacted sample derived from real local history:
@@ -85,4 +89,6 @@ For each Harness, using one redacted sample derived from real local history:
 - missing values remain missing instead of becoming zero;
 - repeated runs over unchanged files return the same totals;
 - default JSON and text contain no raw prompt, source, or tool-result content;
-- the result identifies one evidence-backed Finding or truthfully reports that none is supported.
+- deterministic text, share, and HTML outputs render checks as human-readable diagnostic signals with pass, notice, or warning outcomes, Evidence, and method rather than exposing bare internal identifiers;
+- the Host Agent identifies one evidence-backed Finding or truthfully reports that none is supported;
+- a report request produces both the opened deterministic HTML and the Host Agent's separate conversational diagnosis.

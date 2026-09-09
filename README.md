@@ -115,9 +115,11 @@ npm run install-skills -- "<目标项目绝对路径>"
 
 - 实际使用的审计范围与 Coverage；
 - 最大用量贡献者；
-- 一个有 Evidence 和 Provenance 的主要 Finding；
-- 一项可执行建议；
+- 确定性工具给出的、带结果状态、Evidence、方法和 Provenance 的人类可读自动检查；
+- Host Agent 针对当前问题形成的主要 Finding，以及证据支持时的一项可执行建议；
 - 数据缺失、格式不支持或统计不完整时的限制说明。
+
+请求报告时，Skill 会生成并打开自包含 HTML，同时由 Host Agent 在同一轮对话中给出诊断。HTML 展示指标、排名、Coverage、限制和人类可读自动检查；它不内置固定的首要 Finding 或推荐动作。只返回报告路径或内部检查 ID 不算完成诊断。
 
 ## 操作方式二：直接运行 CLI
 
@@ -128,6 +130,8 @@ agent-audit inspect --harness codex --cwd "<当前项目绝对路径>" --since 7
 ```
 
 Skill 正常使用时会调用自身目录下的 `scripts/agent-audit.js`，不依赖全局命令。
+
+直接 CLI 输出是确定性证据面，不调用模型，也不替代 Host Agent 的 Finding。
 
 获取适合智能体继续解释的权威 JSON：
 
@@ -164,4 +168,4 @@ npm test
 
 ## 当前状态
 
-本地端到端 MVP 已完成。项目刻意不包含云端上传、后台采集器、持久化标准化数据库、跨 Harness 聚合、Dashboard 或正式评测平台；只有真实使用证明需要时才考虑扩展。
+本地读取、共享分析和多格式报告主干已经可运行；Tare 式 Host Agent 主导诊断正在按 [Issue 0004](issues/0004-agent-led-tare-style-diagnosis.md) 收口，当前未完成项以该 Issue 的五张 ticket 为准。项目刻意不包含云端上传、后台采集器、持久化标准化数据库、跨 Harness 聚合、Dashboard 或正式评测平台；只有真实使用证明需要时才考虑扩展。

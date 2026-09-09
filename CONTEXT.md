@@ -20,6 +20,10 @@ _Avoid_: Harness, Agent
 A persisted unit of interaction owned by one Harness and associated with a project or working directory.
 _Avoid_: Request, run
 
+**Subagent Session**:
+A persisted execution Session whose Harness metadata explicitly identifies it as a subagent; it is not the same thing as a top-level task shown in a Host Agent sidebar.
+_Avoid_: Top-level task
+
 **Current Project**:
 The absolute working directory supplied by the invoking Host Agent and used to select matching Sessions.
 _Avoid_: Repository, project slug
@@ -44,8 +48,12 @@ _Avoid_: Quota
 A value plus enough source location and method information for a person or Agent to verify how it was obtained.
 _Avoid_: Claim, insight
 
+**Automated Check**:
+A deterministic, descriptive diagnostic signal with a stable identity, outcome, Evidence, and method. Its user-facing projection is human-readable, but it does not select a primary cause, prescribe an action, or impersonate a Host Agent Finding.
+_Avoid_: Finding, recommendation, verdict
+
 **Finding**:
-A prioritized explanation of an observed usage pattern supported by Evidence.
+A Host Agent-owned prioritized explanation of an observed usage pattern supported by Evidence.
 _Avoid_: Alert, metric
 
 **Provenance**:
@@ -55,4 +63,3 @@ _Avoid_: Confidence
 **Context Amplification**:
 The repeated inclusion of earlier content, especially tool results, in later model requests within a Session.
 _Avoid_: Exact billed tokens
-

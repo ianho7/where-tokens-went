@@ -37,13 +37,9 @@ test('every inline report script parses', () => {
   assert.match(scripts.at(-1), /DOMContentLoaded/);
 });
 
-test('analysis returns deterministic primary and supporting Findings', () => {
-  const first = result().findings;
-  const second = result().findings;
-  assert.ok(first.length >= 2);
-  assert.deepEqual(first, second);
-  assert.equal(first[0].severity, 'primary');
-  assert.ok(first.slice(1).every((finding) => finding.severity === 'supporting'));
+test('analysis returns deterministic automated checks', () => {
+  assert.deepEqual(result().checks, result().checks);
+  assert.ok(result().checks.length >= 2);
 });
 
 test('tool error column is hidden when every value is unavailable', () => {
@@ -99,8 +95,42 @@ test('exact values are hover titles instead of visible secondary lines', () => {
   assert.equal(bootScript.includes('exact.format(v)'), false);
 });
 
-test('supporting Findings use their own compact card layout', () => {
+test('automated checks use their compact card layout', () => {
   const html = renderHtml(result(), 'zh-CN');
   assert.match(html, /class="supporting-finding"/);
   assert.equal(html.includes('.supporting-findings ul{'), true);
+});
+
+test('daily token trend uses independent curves whose positions are raw component values', () => {
+  const html = renderHtml(result(), 'zh-CN');
+  assert.doesNotMatch(html, /stack:'tokens'/);
+  assert.match(html, /lineStyle:\{color,width:2,opacity:1\}/);
+  assert.match(html, /itemStyle:\{color\}/);
+  assert.match(html, /areaStyle:\{color,opacity:\.18\}/);
+});
+test('automated checks are stable, evidence-backed, private, and shared by formatters', () => {
+  const first = result();
+  const second = result();
+  assert.deepEqual(first.checks, second.checks);
+  assert.ok(first.checks.length > 0);
+  for (const check of first.checks) {
+    assert.match(check.id, /^(long_session|tool_amplification|extra_calls|model_concentration|data_quality)$/);
+    assert.match(check.outcome, /^(pass|notice|warning)$/);
+    assert.match(check.method, /.+/);
+    assert.ok(check.evidence.length > 0);
+  }
+  assert.ok(first.checks.some((check) => check.outcome === 'pass'));
+  const html = renderHtml(first, 'en-US');
+  const { renderText, renderShare } = require('../dist/src/report.js');
+  const text = renderText(first, 'en-US');
+  const share = renderShare(first, 'en-US');
+  for (const output of [html, text, share]) {
+    assert.match(output, /History parsed without coverage warnings/);
+    assert.match(output, /One Session accounts for/);
+    assert.match(output, /Method:/);
+    assert.doesNotMatch(output, /long_session|tool_amplification|extra_calls|model_concentration|data_quality/);
+  }
+  assert.match(renderText(first, 'zh-CN'), /Findings:/);
+  assert.match(renderHtml(first, 'zh-CN'), />自动<\/span>/);
+  assert.equal(JSON.stringify(first).includes('PRIVATE_PROMPT'), false);
 });

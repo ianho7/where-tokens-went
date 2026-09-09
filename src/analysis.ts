@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type {
   AuditResult,
+  AutomatedCheck,
   ContributionEntry,
   ContributionRankings,
   EvidenceValue,
@@ -24,14 +25,14 @@ function countEvidence(value: number, method: string): EvidenceValue {
   return { value, provenance: "derived", method };
 }
 
-function sharePercentEvidence(tokens: number, totalTokens: number | null, label: string, source?: EvidenceValue["source"]): EvidenceValue {
+function sharePercentEvidence(tokens: number, totalTokens: number | null, label: string, source?: EvidenceValue["source"], denominatorLabel = "complete selected tokens"): EvidenceValue {
   if (totalTokens === null || totalTokens <= 0) {
     return unavailable(`the complete selected token total was unavailable for ${label} share calculation`);
   }
   return {
     value: Math.round((tokens / totalTokens) * 10000) / 100,
     provenance: "derived",
-    method: `${label} tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals`,
+    method: `${label} tokens divided by ${denominatorLabel}, expressed as percentage points and rounded to two decimals`,
     ...(source ? { source } : {}),
   };
 }
@@ -294,7 +295,7 @@ function buildToolAnalysis(read: ReadResult): { entries: ToolAnalysisEntry[]; to
         }
         : unavailable("no paired result size was available for " + key),
       sharePercent: group.hasResult
-        ? sharePercentEvidence(group.amplifiedTokens, totalAmplified > 0 ? totalAmplified : null, "tool " + key)
+        ? sharePercentEvidence(group.amplifiedTokens, totalAmplified > 0 ? totalAmplified : null, "tool " + key, undefined, "total tool amplification estimate")
         : unavailable("no paired result size was available for " + key + " share calculation"),
     }));
   return { entries, total };
@@ -434,6 +435,51 @@ function evidenceForCount(value: number, method: string): EvidenceValue {
   return { value, provenance: "derived", method };
 }
 
+function codexSessionComposition(read: ReadResult, harness: Harness): { topLevel: EvidenceValue; subagent: EvidenceValue } {
+  if (harness !== "codex") {
+    const value = unavailable("this Harness does not expose Codex subagent source metadata");
+    return { topLevel: value, subagent: value };
+  }
+  if (read.sessions.some((session) => session.isSubagent === null || session.isSubagent === undefined)) {
+    const value = unavailable("one or more selected Codex Sessions lack source metadata needed to classify subagents");
+    return { topLevel: value, subagent: value };
+  }
+  const subagent = read.sessions.filter((session) => session.isSubagent === true).length;
+  return {
+    topLevel: evidenceForCount(read.sessions.length - subagent, "count of selected Codex Sessions whose source metadata is not subagent"),
+    subagent: evidenceForCount(subagent, "count of selected Codex Sessions whose source metadata is subagent"),
+  };
+}
+
+function automatedChecks(
+  largest: { session: SessionRecord; tokens: number } | null,
+  largestCalls: ModelCallRecord[],
+  tokenTotal: number | null,
+  amplification: ReturnType<typeof toolAmplification>,
+  extraLifecycle: ReadResult["lifecycle"],
+  rankings: ContributionRankings,
+  coverage: ReadResult["coverage"],
+): AutomatedCheck[] {
+  const checks: AutomatedCheck[] = [];
+  if (largest && largestCalls.length >= 2 && tokenTotal !== null && tokenTotal > 0 && largest.tokens / tokenTotal >= 0.4) checks.push({ id: "long_session", outcome: "warning", method: "largest complete Session share is at least 40% with at least two ModelCall records", evidence: [{ value: largest.tokens, provenance: "derived", method: "sum of complete ModelCall token totals", source: { sessionId: largest.session.sessionId } }, evidenceForCount(largestCalls.length, "count of ModelCall records in the Session"), sharePercentEvidence(largest.tokens, tokenTotal, "largest complete Session", { sessionId: largest.session.sessionId })] });
+  if (amplification.largestTokens !== null && amplification.largestTokens > 0 && amplification.tool) checks.push({ id: "tool_amplification", outcome: "warning", method: "largest paired tool-result estimate is greater than zero", evidence: [{ value: amplification.tool.resultChars ?? null, provenance: "derived", method: "Unicode text-character length of the paired tool result; content is not returned", source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId, timestamp: amplification.tool.timestamp ?? undefined } }, evidenceForCount(amplification.laterCalls, "later ModelCall records in the same active Session"), { value: amplification.largestTokens, provenance: "estimated", method: "result text characters / 4 × later ModelCall records", source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId } }] });
+  if (extraLifecycle.length > 0) checks.push({ id: "extra_calls", outcome: "notice", method: "count of observed retry, interruption, and subagent lifecycle records is greater than zero", evidence: [evidenceForCount(extraLifecycle.length, "count of observed retry, interruption, and subagent lifecycle records")] });
+  const topModel = rankings.models[0];
+  if (topModel && rankings.models.length >= 2 && typeof topModel.sharePercent.value === "number" && topModel.sharePercent.value >= 60) checks.push({ id: "model_concentration", outcome: "notice", method: "largest complete model contribution share is at least 60% when more than one model is observed", evidence: [topModel.value, topModel.sharePercent, topModel.count] });
+  const coverageEvidence = [
+    evidenceForCount(coverage.filesRead, "count of source files read"),
+    evidenceForCount(coverage.recordsRead, "count of source records read"),
+    evidenceForCount(coverage.recordsSkipped, "count of skipped records"),
+    evidenceForCount(coverage.partialSessions, "count of partial Sessions"),
+    evidenceForCount(coverage.warnings.length, "count of coverage warnings"),
+  ];
+  if (coverage.recordsSkipped > 0 || coverage.partialSessions > 0 || coverage.warnings.length > 0) {
+    checks.push({ id: "data_quality", outcome: "warning", method: "coverage reports skipped records, partial Sessions, or warnings", evidence: coverageEvidence });
+  } else if (coverage.recordsRead > 0) {
+    checks.push({ id: "data_quality", outcome: "pass", method: "coverage reports at least one record with no skipped records, partial Sessions, or warnings", evidence: coverageEvidence });
+  }
+  return checks;
+}
 export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harness): AuditResult {
   const tokenTotal = sumTokens(read.modelCalls);
   const reportedCost = sumReportedCost(read.modelCalls);
@@ -441,6 +487,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
   const largestCalls = largest ? read.modelCalls.filter((call) => call.sessionId === largest.session.sessionId) : [];
   const amplification = toolAmplification(read);
   const extraLifecycle = read.lifecycle.filter((event) => event.kind !== "compaction");
+  const sessionComposition = codexSessionComposition(read, harness);
   const sessionProjects = new Map(read.sessions.map((session) => [session.sessionId, session.projectCwd]));
   const sessionById = new Map(read.sessions.map((session) => [session.sessionId, session]));
   const rankings: ContributionRankings = {
@@ -463,6 +510,8 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     : null;
   const summary: Record<string, EvidenceValue> = {
     sessionCount: countEvidence(read.sessions.length, "count of selected Session records"),
+    topLevelSessionCount: sessionComposition.topLevel,
+    subagentSessionCount: sessionComposition.subagent,
     modelCallCount: countEvidence(read.modelCalls.length, "count of selected ModelCall records"),
     activeBranchModelCallCount: countEvidence(
       read.modelCalls.filter((call) => call.activeBranch !== false).length,
@@ -518,146 +567,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     extraLifecycleCount: evidenceForCount(extraLifecycle.length, "count of retry, interruption, and subagent lifecycle records"),
   };
 
-  let topFinding: AuditResult["topFinding"] = null;
-  const findingCandidates: Array<NonNullable<AuditResult["topFinding"]>> = [];
-  if (
-    largest &&
-    largestCalls.length >= 2 &&
-    shareFraction !== null &&
-    shareFraction >= 0.4
-  ) {
-    const longFinding: NonNullable<AuditResult["topFinding"]> = {
-      id: "long-session",
-      severity: "primary",
-      kind: "long_session",
-      headline: `Session ${sessionDisplayName(largest.session)} accounts for ${(shareFraction * 100).toFixed(1)}% of known usage across ${largestCalls.length} model calls.`,
-      explanation: "A concentrated multi-call Session is the strongest supported contributor in this scope. Continuing the same context can make later requests carry more history.",
-      impact: {
-        value: largest.tokens,
-        provenance: "derived",
-        method: "sum of non-cumulative ModelCall token totals for the largest Session",
-        source: { sessionId: largest.session.sessionId },
-      },
-      evidence: [
-        {
-          value: largest.tokens,
-          provenance: "derived",
-          method: "sum of non-cumulative ModelCall token totals",
-          source: { sessionId: largest.session.sessionId },
-        },
-        {
-          value: largestCalls.length,
-          provenance: "derived",
-          method: "count of ModelCall records in the Session",
-          source: { sessionId: largest.session.sessionId },
-        },
-        {
-          ...sharePercentEvidence(largest.tokens, tokenTotal.value, "largest complete Session", { sessionId: largest.session.sessionId }),
-        },
-      ],
-      recommendation: "Start a fresh Session or split and narrow the task before the context grows further.",
-    };
-    findingCandidates.push(longFinding);
-    if (shareFraction >= 0.5) topFinding = longFinding;
-  }
-
-  if (amplification.largestTokens !== null && amplification.largestTokens > 0 && amplification.tool) {
-    const toolFinding: NonNullable<AuditResult["topFinding"]> = {
-      id: "tool-amplification",
-      severity: "primary",
-      kind: "tool_amplification",
-      headline: `Tool ${safeToolName(amplification.tool.toolName)} produced an estimated ${Math.round(amplification.largestTokens)} amplified tokens across later calls.`,
-      explanation: "A paired tool result was large enough to be carried into later model calls in the same active context. The impact is an estimate based on result size, not billed tokens.",
-      impact: {
-        value: amplification.largestTokens,
-        provenance: "estimated",
-        method: "UTF-8 text characters divided by 4, multiplied by later ModelCall records in the same active context",
-        source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId, timestamp: amplification.tool.timestamp ?? undefined },
-      },
-      evidence: [
-        {
-          value: amplification.tool.resultChars ?? null,
-          provenance: "derived",
-          method: "Unicode text-character length of the paired tool result; content is not returned",
-          source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId, timestamp: amplification.tool.timestamp ?? undefined },
-        },
-        {
-          value: amplification.laterCalls,
-          provenance: "derived",
-          method: "later ModelCall records in the same active Session",
-          source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId },
-        },
-        {
-          value: amplification.largestTokens,
-          provenance: "estimated",
-          method: "result text characters / 4 × later ModelCall records",
-          source: { sessionId: amplification.tool.sessionId, recordId: amplification.tool.callId },
-        },
-      ],
-      recommendation: "Summarize or narrow large tool results before carrying them into more model calls.",
-    };
-    findingCandidates.push(toolFinding);
-    if (!topFinding || toolFinding.impact.value! > topFinding.impact.value!) topFinding = toolFinding;
-  }
-
-  if (extraLifecycle.length > 0) {
-    const extraFinding: NonNullable<AuditResult["topFinding"]> = {
-      id: "extra-calls",
-      severity: "primary",
-      kind: "extra_calls",
-      headline: `${extraLifecycle.length} retry, interruption, or subagent lifecycle event(s) were observed.`,
-      explanation: "Lifecycle events indicate additional work around model calls. The history does not always expose exact attempt cost, so this signal is kept separate from token totals.",
-      impact: {
-        value: extraLifecycle.length,
-        provenance: "derived",
-        method: "count of observed retry, interruption, and subagent lifecycle records",
-        source: extraLifecycle[0] ? { sessionId: extraLifecycle[0].sessionId, timestamp: extraLifecycle[0].timestamp ?? undefined } : undefined,
-      },
-      evidence: [evidenceForCount(extraLifecycle.length, "count of observed retry, interruption, and subagent lifecycle records")],
-      recommendation: "Inspect the error or retry cause before repeating the same large task.",
-    };
-    findingCandidates.push(extraFinding);
-    // Token- and character-impact findings are comparable within their own
-    // units; keep the stable priority order rather than comparing unlike units.
-    if (!topFinding) topFinding = extraFinding;
-  }
-
-  const topModel = rankings.models[0];
-  if (
-    topModel &&
-    rankings.models.length >= 2 &&
-    typeof topModel.sharePercent.value === "number" &&
-    topModel.sharePercent.value >= 60
-  ) {
-    const modelFinding: NonNullable<AuditResult["topFinding"]> = {
-      id: "model-concentration",
-      severity: "supporting",
-      kind: "model_concentration",
-      headline: "Model " + topModel.key + " accounts for " + topModel.sharePercent.value.toFixed(1) + "% of known usage.",
-      explanation: "Usage is concentrated in one exactly reported model identifier. This is a usage distribution, not a quality or price judgment.",
-      impact: topModel.value,
-      evidence: [topModel.value, topModel.sharePercent, topModel.count],
-      recommendation: "Confirm that the dominant model matches the task mix before changing model selection.",
-    };
-    findingCandidates.push(modelFinding);
-    if (!topFinding) topFinding = { ...modelFinding, severity: "primary" };
-  }
-
-  const findingPriority = new Map([
-    ["tool_amplification", 0],
-    ["long_session", 1],
-    ["model_concentration", 2],
-    ["extra_calls", 3],
-  ]);
-  const findings = topFinding
-    ? [
-      topFinding,
-      ...findingCandidates
-        .filter((finding) => finding.id !== topFinding!.id)
-        .sort((a, b) => (findingPriority.get(a.kind) ?? 99) - (findingPriority.get(b.kind) ?? 99) || a.id.localeCompare(b.id))
-        .map((finding) => ({ ...finding, severity: "supporting" as const })),
-    ]
-    : [];
+  const checks = automatedChecks(largest, largestCalls, tokenTotal.value, amplification, extraLifecycle, rankings, read.coverage);
 
   return {
     scope: {
@@ -670,9 +580,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     summary,
     rankings,
     report: buildReportData(read, tokenTotal.value, harness),
-    topFinding,
-    findings,
-    healthChecks: [],
+    checks,
   };
 }
 

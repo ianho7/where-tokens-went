@@ -40,17 +40,10 @@ Natural language is the primary interface. Interpret the request into fixed Harn
 
 Pass the user's language as --locale zh-CN or --locale en-US. For full and report views, choose a local output path, pass --html <report-path>, and open that file after successful generation. Use --share <share-path> for share view. The selected Harness, Current Project versus Global Audit, and privacy boundary must remain unchanged for every view.
 
-## Explanation
+## Host Agent diagnosis
 
-Explain the returned result in one concise response, preserving:
+The bundled local tool produces authoritative metrics, rankings, coverage, limitations, Evidence, Provenance, and neutral automated checks. It does not diagnose the user’s cause. The Host Agent forms the Finding for the user’s actual question: choose, ignore, or combine checks with rankings, trends, coverage, and limitations; a relevant pattern may be used even when no check fires.
 
-1. the reported Audit Scope and coverage;
-2. the largest Session and usage contribution when available;
-3. the top Finding and its Evidence;
-4. the Provenance of each diagnostic value;
-5. one recommendation; and
-6. any limitation or unavailable value.
+Structure the response as Finding, Evidence, mechanism, action when justified, and material uncertainty without fixed wording. Preserve Scope and every returned value and Provenance. Do not recalculate totals, turn unavailable into zero, infer Provider quota, actual billing, model identity, working time, or causes not supported by Evidence. If the data is proportionate or insufficient, say so rather than manufacture a verdict.
 
-Use a Session ranking entry's `displayName` when present; it already contains the title and Session ID. Use `sharePercent.value` directly as percentage points and do not recalculate it. Format large numbers naturally for the user's language (for example, Chinese 万/亿 or English K/M/B), and include the exact token value when useful for verification. Explain `reported` as directly recorded, `derived` as calculated from records, `estimated` as an estimate, and `unavailable` as missing data in the user's language. Keep the exact JSON values authoritative.
-
-If `topFinding` is null, say that the available history does not support a strong cause. Never include prompts, source code, model responses, shell output, tool results, credentials, or base64 payloads from the local history.
+For a report request, the delivery is complete only after both steps occur in the same conversation turn: generate and open the deterministic local HTML, then give one explicit Host Agent Finding with Evidence, mechanism, action when justified, and uncertainty in conversation. The HTML is deterministic evidence and diagnostic signals, not the Finding itself. Do not end the turn after returning a report path or opening the HTML, and do not return a diagnosis without the requested report. Never include prompts, source code, model responses, command arguments, shell output, tool results, credentials, or base64 payloads.

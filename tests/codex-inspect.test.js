@@ -33,6 +33,28 @@ async function runBundledCodex(args, env) {
   });
 }
 
+test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', async () => {
+  const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'agent-audit-codex', 'SKILL.md'), 'utf8');
+  assert.match(skill, /complete only after both steps occur in the same conversation turn/i);
+  assert.match(skill, /generate and open the deterministic local HTML, then give one explicit Host Agent Finding/i);
+  assert.match(skill, /The HTML is deterministic evidence and diagnostic signals, not the Finding itself/i);
+  assert.match(skill, /Do not end the turn after returning a report path or opening the HTML/i);
+  assert.match(skill, /do not return a diagnosis without the requested report/i);
+});
+
+test('other Harness Skills preserve the same atomic report and evidence contract', async () => {
+  for (const [name, harness] of [['claude', 'claude'], ['pi', 'pi'], ['deepseek', 'deepseek']]) {
+    const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'agent-audit-' + name, 'SKILL.md'), 'utf8');
+    assert.match(skill, new RegExp('--harness ' + harness));
+    assert.match(skill, /Current Project versus Global Audit/);
+    assert.match(skill, /Finding, Evidence, mechanism, action when justified, and material uncertainty/);
+    assert.match(skill, /complete only after both steps occur in the same conversation turn/i);
+    assert.match(skill, /one explicit Host Agent Finding/i);
+    assert.match(skill, /Do not end the turn after returning a report path or opening the HTML/i);
+    assert.match(skill, /rather than manufacture a verdict/i);
+  }
+});
+
 test('native Skill installation exposes one fixed Harness entry per platform', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-skills-'));
   const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
@@ -47,6 +69,8 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
     for (const [harness, ...relative] of expected) {
       const skillPath = path.join(root, ...relative, 'SKILL.md');
       const skill = await require('node:fs/promises').readFile(skillPath, 'utf8');
+      const source = await require('node:fs/promises').readFile(path.resolve(__dirname, '..', 'skills', 'agent-audit-' + harness, 'SKILL.md'), 'utf8');
+      assert.equal(skill, source);
       assert.match(skill, new RegExp(`--harness ${harness}`));
       assert.match(skill, /--cwd <absolute-current-project-path>/);
       assert.match(skill, /--since <duration>/);
@@ -99,7 +123,7 @@ test('each copied Skill runs its bundled deterministic tool without the source c
   }
 });
 
-test('Codex Skill path reports a deterministic long-session finding without raw content', async () => {
+test('Codex Skill path reports a deterministic long-session check without raw content', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-codex-'));
   const project = path.join(root, 'project');
   const codexHome = path.join(root, 'codex-home');
@@ -200,10 +224,7 @@ test('Codex Skill path reports a deterministic long-session finding without raw 
     assert.equal(result.rankings.models[0].key, 'gpt-5.6-luna');
     assert.equal(result.rankings.models[0].sharePercent.value, 65.12);
     assert.equal(result.rankings.models[1].sharePercent.value, 34.88);
-    assert.match(result.topFinding.headline, /Codex usage deep dive \(thread-codex-1\)/);
-    assert.equal(result.topFinding.kind, 'long_session');
-    assert.equal(result.topFinding.evidence[0].source.sessionId, 'thread-codex-1');
-    assert.match(result.topFinding.recommendation, /fresh|shorter|narrow/i);
+    assert.equal(result.checks.find((check) => check.id === 'long_session').evidence[0].source.sessionId, 'thread-codex-1');
 
     const serialized = JSON.stringify(result);
     assert.equal(serialized.includes('PRIVATE_PROMPT'), false);
@@ -214,7 +235,7 @@ test('Codex Skill path reports a deterministic long-session finding without raw 
       ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'],
       { CODEX_HOME: codexHome },
     );
-    assert.match(textOutput, /long_session/i);
+    assert.match(textOutput, /One Session accounts for/i);
     assert.match(textOutput, /Top Session: Codex usage deep dive \(thread-codex-1\)/);
     assert.match(textOutput, /share: 100%/);
     assert.match(textOutput, /Models: .*tokens \(65\.12%\).*tokens \(34\.88%\)/);
@@ -305,6 +326,30 @@ test('Codex scope keeps projects separate and deduplicates repeated response usa
   }
 });
 
+test('Codex reports source-proven top-level and subagent Session counts separately', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-codex-subagents-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '07');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessions, { recursive: true });
+  const response = (id, total) => ({ timestamp: isoHoursAgo(1), type: 'event_msg', payload: { type: 'raw_response_completed', response_id: id, usage: { input_tokens: total - 10, output_tokens: 10, total_tokens: total } } });
+  try {
+    await writeFile(path.join(sessions, 'rollout-parent.jsonl'), [
+      { timestamp: isoHoursAgo(2), type: 'session_meta', payload: { id: 'parent', cwd: project, source: 'vscode' } },
+      response('parent-response', 100),
+    ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+    await writeFile(path.join(sessions, 'rollout-child.jsonl'), [
+      { timestamp: isoHoursAgo(2), type: 'session_meta', payload: { id: 'child', cwd: project, parent_thread_id: 'parent', source: { subagent: {} } } },
+      response('child-response', 50),
+    ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+    const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'], { CODEX_HOME: codexHome });
+    assert.match(stdout, /Sessions: 2 \(derived\); top-level tasks: 1 \(derived\); subagent Sessions: 1 \(derived\)/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('Codex report attributes repeated tool output and extra lifecycle calls', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-codex-tools-'));
   const project = path.join(root, 'project');
@@ -383,11 +428,9 @@ test('Codex report attributes repeated tool output and extra lifecycle calls', a
     assert.equal(result.summary.extraLifecycleCount.value, 1);
     assert.equal(result.summary.estimatedToolAmplifiedTokens.value, 1300);
     assert.equal(result.summary.estimatedToolAmplifiedTokens.provenance, 'estimated');
-    assert.equal(result.topFinding.kind, 'tool_amplification');
-    assert.equal(result.topFinding.impact.value, 1200);
-    assert.equal(result.topFinding.evidence[2].value, 1200);
-    assert.match(result.topFinding.recommendation, /output|result|summar/i);
-    assert.equal(JSON.stringify(result).includes('secret.ts'), false);
+    assert.match(result.report.tools[0].sharePercent.method, /total tool amplification estimate/);
+    assert.equal(result.checks.find((check) => check.id === 'tool_amplification').id, 'tool_amplification');
+                assert.equal(JSON.stringify(result).includes('secret.ts'), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -546,7 +589,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.equal(result.report.rollingWindow.observedTokens.value, 126000000);
     assert.match(html, /Agent Audit 诊断报告/);
     assert.match(html, /class="metric-main"[^>]*>1\.26亿</);
-    assert.match(html, /class="metric-exact">精确值：126,000,000</);
+    assert.match(html, /title="精确值：126,000,000"/);
     assert.match(html, /id="token-trend" class="echart"/);
     assert.match(html, /renderer:'svg'/);
     assert.match(html, /table class="sortable"/);
@@ -559,7 +602,9 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.match(html, /class="percentage"[^>]*>100%</);
     assert.equal(/2026-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z/.test(html), false);
     assert.equal((html.match(/已报告/g) ?? []).length <= 1, true);
-    assert.equal((html.match(/推导/g) ?? []).length <= 1, true);
+    assert.match(html, /一个工具结果估算重复进入上下文/);
+    assert.match(html, /方法：/);
+    assert.equal(html.includes('long_session'), false);
     assert.equal((html.match(/2 个 Codex Session 包含尚未支持的计量记录/g) ?? []).length, 1);
     assert.equal(html.includes('A Codex Session contains unsupported accounting records'), false);
     assert.match(html, /Provider 额度/);
@@ -594,7 +639,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.equal(installedResult.summary.totalTokens.provenance, result.summary.totalTokens.provenance);
     assert.equal(installedResult.rankings.models[0].key, result.rankings.models[0].key);
     assert.equal(installedResult.rankings.models[0].sharePercent.value, result.rankings.models[0].sharePercent.value);
-    assert.equal(installedResult.topFinding.kind, result.topFinding.kind);
+    assert.deepEqual(installedResult.checks.map((check) => check.id), result.checks.map((check) => check.id));
     assert.equal(installedResult.report.dailyUsage[0].totalTokens.value, result.report.dailyUsage[0].totalTokens.value);
     const installedHtml = await readFile(installedHtmlPath, 'utf8');
     assert.equal(installedHtml.includes('PRIVATE_ARGS'), false);
@@ -729,7 +774,7 @@ test('Claude Code Skill path deduplicates assistant usage and pairs tool results
     assert.equal(result.summary.pairedToolResultCount.value, 1);
     assert.equal(result.coverage.partialSessions, 1);
     assert.match(result.coverage.warnings.join(' '), /timestamp|time/i);
-    assert.equal(result.topFinding.kind, 'tool_amplification');
+    assert.equal(result.checks.find((check) => check.id === 'tool_amplification').id, 'tool_amplification');
     const serialized = JSON.stringify(result);
     assert.equal(serialized.includes('PRIVATE_PROMPT'), false);
     assert.equal(serialized.includes('TOOL_SECRET'), false);
@@ -833,10 +878,7 @@ test('Pi Skill path reports usage, reported cost, and branch-safe tool evidence'
     assert.equal(result.summary.pairedToolResultCount.value, 1);
     assert.equal(result.summary.estimatedToolAmplifiedTokens.value, 375);
     assert.equal(result.summary.extraLifecycleCount.value, 0);
-    assert.equal(result.topFinding.kind, 'long_session');
-    assert.equal(result.topFinding.impact.value, 1315);
-    assert.equal(result.topFinding.evidence[1].value, 3);
-    const serialized = JSON.stringify(result);
+                const serialized = JSON.stringify(result);
     assert.equal(serialized.includes('PI_TOOL_SECRET'), false);
     assert.equal(serialized.includes('secret.ts'), false);
     assert.equal(serialized.includes('inactive-secret.ts'), false);
@@ -927,7 +969,7 @@ test('DeepSeek Harness Skill path reads zstd Session events without returning co
     assert.match(result.coverage.warnings.join(' '), /durable|decode|partial/i);
     assert.match(result.coverage.warnings.join(' '), /timestamp|time/i);
     assert.match(result.coverage.warnings.join(' '), /unsupported/i);
-    assert.equal(result.topFinding.kind, 'tool_amplification');
+    assert.equal(result.checks.find((check) => check.id === 'tool_amplification').id, 'tool_amplification');
     const serialized = JSON.stringify(result);
     assert.equal(serialized.includes('DSH_SECRET'), false);
     assert.equal(serialized.includes('secret.ts'), false);
@@ -958,7 +1000,7 @@ test('every supported Harness emits the same safe empty-result contract', async 
       assert.equal(result.summary.sessionCount.value, 0);
       assert.equal(result.summary.totalTokens.value, null);
       assert.equal(result.summary.totalTokens.provenance, 'unavailable');
-      assert.equal(result.topFinding, null);
+      assert.ok(result.checks.every((check) => check.id === 'data_quality'));
 
       const { stdout: textOutput } = await runAudit([...args.slice(0, -1), 'text'], env);
       assert.match(textOutput, new RegExp(`Audit: ${harness}`));

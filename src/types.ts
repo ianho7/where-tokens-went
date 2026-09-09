@@ -15,6 +15,8 @@ export interface SessionRecord {
   startedAt: string | null;
   endedAt: string | null;
   parentSessionId: string | null;
+  /** Codex source metadata proves this persisted Session ran as a subagent. */
+  isSubagent?: boolean | null;
   sourceVersion: string | null;
 }
 
@@ -185,17 +187,13 @@ export interface ReportData {
   apiEquivalentCost: ApiEquivalentCost;
 }
 
-export type FindingKind = "long_session" | "tool_amplification" | "extra_calls" | "model_concentration" | "data_quality";
+export type AutomatedCheckId = "long_session" | "tool_amplification" | "extra_calls" | "model_concentration" | "data_quality";
 
-export interface AuditFinding {
-  id: string;
-  kind: FindingKind;
-  severity: "primary" | "supporting" | "health";
-  headline: string;
-  explanation: string;
-  impact: EvidenceValue;
+export interface AutomatedCheck {
+  id: AutomatedCheckId;
+  outcome: "pass" | "notice" | "warning";
   evidence: EvidenceValue[];
-  recommendation: string;
+  method: string;
 }
 
 export interface AuditSnapshot {
@@ -209,9 +207,7 @@ export interface AuditSnapshot {
   summary: Record<string, EvidenceValue>;
   rankings: ContributionRankings;
   report: ReportData;
-  topFinding: AuditFinding | null;
-  findings: AuditFinding[];
-  healthChecks: AuditFinding[];
+  checks: AutomatedCheck[];
 }
 
 export interface WeekComparison {
