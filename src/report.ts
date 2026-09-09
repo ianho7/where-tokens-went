@@ -128,7 +128,7 @@ const ZH: Labels = {
   localOnly: "仅表示本地历史中观察到的活动，不是 Provider 额度。",
   providerQuota: "Provider 额度",
   resetTime: "重置时间",
-  input: "输入",
+  input: "普通输入",
   cachedInput: "缓存读取",
   cacheWrite: "缓存写入",
   output: "输出",
@@ -202,7 +202,7 @@ const EN: Labels = {
   localOnly: "This is activity observed in local history, not Provider quota.",
   providerQuota: "Provider quota",
   resetTime: "reset time",
-  input: "input",
+  input: "ordinary input",
   cachedInput: "cached input",
   cacheWrite: "cache write",
   output: "output",
@@ -346,15 +346,12 @@ function evidenceHtml(value: EvidenceValue, locale: ReportLocale, compact = true
   const compactValue = typeof value.value === "number" && compact ? formatCompact(value.value, locale) : formatExact(value.value, locale);
   const exactValue = formatExact(value.value, locale);
   const prefix = value.provenance === "estimated" ? "≈ " : "";
-  const exact = typeof value.value === "number" && compact && compactValue !== exactValue
-    ? "<small class=\"metric-exact\">" + escapeHtml(labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue) + "</small>"
-    : "";
   const estimate = value.provenance === "estimated"
     ? "<small class=\"estimate\">" + escapeHtml(labels.estimated) + "</small>"
     : "";
   return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + (typeof value.value === "number" ? String(value.value) : "") + "\"><span class=\"metric-main\" title=\"" +
     escapeHtml(labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue) + "\">" +
-    escapeHtml(prefix + compactValue) + "</span>" + exact + estimate + "</span>";
+    escapeHtml(prefix + compactValue) + "</span>" + estimate + "</span>";
 }
 
 function percentageHtml(value: EvidenceValue, locale: ReportLocale): string {
@@ -370,6 +367,11 @@ function percentageHtml(value: EvidenceValue, locale: ReportLocale): string {
 
 function publicLabel(value: string, fallback: string): string {
   return value.length <= 80 && /^[A-Za-z0-9_.:@-]+$/.test(value) ? value : fallback;
+}
+
+function modelLabel(value: string, locale: ReportLocale): string {
+  if (value === "<unknown-model>") return locale === "zh-CN" ? "未知模型" : "Unknown model";
+  return publicLabel(value, labelsFor(locale).unavailable);
 }
 
 function findingProjection(result: AuditResult, locale: ReportLocale, labels: Labels): ReportProjection["finding"] {
@@ -506,6 +508,30 @@ function renderFinding(result: AuditResult, locale: ReportLocale): string {
     "<div class=\"recommendation\"><strong>" + escapeHtml(labels.recommendation) + "</strong><p>" + escapeHtml(projection.finding.recommendation) + "</p></div></section>";
 }
 
+function renderSupportingFindings(result: AuditResult, locale: ReportLocale): string {
+  const findings = result.findings.filter((finding) => finding.id !== result.topFinding?.id);
+  if (findings.length === 0) return "";
+  const title = locale === "zh-CN" ? "支持发现" : "Supporting findings";
+  const names: Record<string, string> = locale === "zh-CN"
+    ? {
+      long_session: "高用量 Session",
+      tool_amplification: "工具上下文放大",
+      extra_calls: "额外调用",
+      model_concentration: "模型用量集中",
+      data_quality: "数据完整性",
+    }
+    : {
+      long_session: "High-usage Session",
+      tool_amplification: "Tool context amplification",
+      extra_calls: "Extra calls",
+      model_concentration: "Model usage concentration",
+      data_quality: "Data completeness",
+    };
+  return "<section class=\"supporting-findings\"><h2>" + escapeHtml(title) + "</h2><ul>" +
+    findings.map((finding) => "<li class=\"supporting-finding\"><strong>" + escapeHtml(names[finding.kind] ?? finding.kind) + "</strong><span>" +
+      evidenceHtml(finding.impact, locale) + "</span></li>").join("") + "</ul></section>";
+}
+
 function tokenCell(value: EvidenceValue, locale: ReportLocale): string {
   return evidenceHtml(value, locale);
 }
@@ -524,10 +550,10 @@ function renderDaily(result: AuditResult, locale: ReportLocale): string {
   const rows = result.report.dailyUsage;
   if (rows.length === 0) return emptyState(labels);
   return "<table class=\"sortable\"><thead><tr><th>" + escapeHtml(labels.date) + "</th><th>" + escapeHtml(labels.totalTokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" +
-    escapeHtml(labels.input) + "</th><th>" + escapeHtml(labels.cachedInput) + "</th><th>" + escapeHtml(labels.output) + "</th><th>" + escapeHtml(labels.reasoning) + "</th></tr></thead><tbody>" +
+    escapeHtml(labels.input) + "</th><th>" + escapeHtml(labels.cachedInput) + "</th><th>" + escapeHtml(labels.cacheWrite) + "</th><th>" + escapeHtml(labels.output) + "</th><th>" + escapeHtml(locale === "zh-CN" ? "未分类余量" : "unclassified remainder") + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(formatDateKey(row.key, locale)) + "</th><td>" + tokenCell(row.totalTokens, locale) + "</td><td>" +
       percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(row.inputTokens, locale) + "</td><td>" + tokenCell(row.cachedInputTokens, locale) +
-      "</td><td>" + tokenCell(row.outputTokens, locale) + "</td><td>" + tokenCell(row.reasoningTokens, locale) + "</td></tr>").join("") +
+      "</td><td>" + tokenCell(row.cacheWriteTokens, locale) + "</td><td>" + tokenCell(row.outputTokens, locale) + "</td><td>" + tokenCell(row.unclassifiedTokens, locale) + "</td></tr>").join("") +
     "</tbody></table>";
 }
 
@@ -536,7 +562,7 @@ function renderModels(result: AuditResult, locale: ReportLocale): string {
   const rows = result.rankings.models;
   if (rows.length === 0) return emptyState(labels);
   return "<table class=\"sortable\"><thead><tr><th>" + escapeHtml(labels.model) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.calls) + "</th></tr></thead><tbody>" +
-    rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(publicLabel(row.key, labels.unavailable)) + "</th><td>" + tokenCell(row.value, locale) +
+    rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(modelLabel(row.key, locale)) + "</th><td>" + tokenCell(row.value, locale) +
       "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(row.count, locale) + "</td></tr>").join("") +
     "</tbody></table>";
 }
@@ -555,10 +581,12 @@ function renderTools(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.report.tools;
   if (rows.length === 0) return emptyState(labels, labels.noToolData);
-  return "<table class=\"sortable\"><thead><tr><th>Tool</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.pairedResults) + "</th><th>" + escapeHtml(labels.errors) + "</th><th>" +
+  const showErrors = rows.some((row) => row.errors.value !== null);
+  return "<table class=\"sortable\"><thead><tr><th>Tool</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.pairedResults) + "</th>" +
+    (showErrors ? "<th>" + escapeHtml(labels.errors) + "</th>" : "") + "<th>" +
     escapeHtml(labels.injected) + "</th><th>" + escapeHtml(labels.amplified) + "</th><th>" + escapeHtml(labels.share) + "</th></tr></thead><tbody>" +
     rows.map((row: ToolAnalysisEntry) => "<tr><th scope=\"row\">" + escapeHtml(publicLabel(row.key, labels.unavailable)) + "</th><td>" + tokenCell(row.calls, locale) +
-      "</td><td>" + tokenCell(row.pairedResults, locale) + "</td><td>" + tokenCell(row.errors, locale) + "</td><td>" + tokenCell(row.injectedTokens, locale) +
+      "</td><td>" + tokenCell(row.pairedResults, locale) + "</td>" + (showErrors ? "<td>" + tokenCell(row.errors, locale) + "</td>" : "") + "<td>" + tokenCell(row.injectedTokens, locale) +
       "</td><td>" + tokenCell(row.amplifiedTokens, locale) + "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td></tr>").join("") +
     "</tbody></table>";
 }
@@ -767,28 +795,28 @@ function renderInteractiveCharts(result: AuditResult, locale: ReportLocale): str
   const rows = result.report.dailyUsage.map((row) => ({
     time: formatDateKey(row.key, locale), total: numericValue(row.totalTokens), input: numericValue(row.inputTokens), cached: numericValue(row.cachedInputTokens), cacheWrite: numericValue(row.cacheWriteTokens), output: numericValue(row.outputTokens), unclassified: numericValue(row.unclassifiedTokens), cost: numericValue(row.apiEquivalentCost),
   }));
-  const models = result.rankings.models.map((row) => ({ name: publicLabel(row.key, labels.unavailable), value: numericValue(row.value) }));
+  const models = result.rankings.models.map((row) => ({ name: modelLabel(row.key, locale), value: numericValue(row.value) }));
   const tools = result.report.tools.map((row) => ({ name: publicLabel(row.key, labels.unavailable), value: numericValue(row.amplifiedTokens) }));
   const cost = result.report.apiEquivalentCost;
   const costVisible = typeof cost.coveragePercent.value === "number" && cost.coveragePercent.value >= 80 && typeof cost.total.value === "number";
   const data = JSON.stringify({ rows, models, tools, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: locale === "zh-CN" ? "未分类余量" : "unclassified remainder", cost: locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)" }, costVisible }).replaceAll("<", "\\u003c");
   const runtime = chartRuntime();
   if (!runtime || rows.length === 0) return "";
-  const script = `<script>${runtime}</script><script>(function(){const d=${data};const compact=new Intl.NumberFormat(d.locale,{notation:'compact',maximumFractionDigits:2});const exact=new Intl.NumberFormat(d.locale,{maximumFractionDigits:20});const make=(id,option)=>{const el=document.getElementById(id);if(!el||!window.echarts)return;const c=echarts.init(el,null,{renderer:'svg'});c.setOption(option);addEventListener('resize',()=>c.resize())};const series=[['input',d.labels.input,'#b76448'],['cached',d.labels.cached,'#d99a78'],['cacheWrite',d.labels.cacheWrite,'#8b7667'],['output',d.labels.output,'#557c70'],['unclassified',d.labels.unclassified,'#8d6a9f']].map(([key,name,color])=>({name,type:'line',stack:'tokens',smooth:false,symbol:'none',areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color},{offset:1,color:'rgba(255,255,255,.12)'}])},emphasis:{focus:'series'},data:d.rows.map(r=>r[key])}));if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'circle',connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:'#273c75'}});make('token-trend',{aria:{show:true,description:'${locale === "zh-CN" ? "互斥 Token 组成趋势；下方表格提供等价数据。" : "Exclusive Token composition trend; the table below provides equivalent data."}'},tooltip:{trigger:'axis',valueFormatter:v=>v==null?'${locale === "zh-CN" ? "不可用" : "unavailable"}':compact.format(v)+'\\n'+exact.format(v)},legend:{type:'scroll'},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{hideOverlap:true}},yAxis:[{type:'value',name:'Token',axisLabel:{formatter:v=>compact.format(v)}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{formatter:v=>'$'+compact.format(v)}}]:[])],series});make('model-chart',{aria:{show:true,description:'${locale === "zh-CN" ? "按模型的 Token 分布；下方表格提供等价数据。" : "Token distribution by model; the table below provides equivalent data."}'},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)+'\\n'+exact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{interval:0,rotate:24,hideOverlap:true}},yAxis:{type:'value',axisLabel:{formatter:v=>compact.format(v)}},series:[{type:'bar',data:d.models.map(r=>r.value),itemStyle:{color:'#b76448'}}]});make('tool-chart',{aria:{show:true,description:'${locale === "zh-CN" ? "按工具的上下文放大估算；下方表格提供等价数据。" : "Estimated context amplification by tool; the table below provides equivalent data."}'},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)+'\\n'+exact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{formatter:v=>compact.format(v)}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{width:88,overflow:'truncate'}},series:[{type:'bar',data:d.tools.map(r=>r.value),itemStyle:{color:'#557c70'}}]});document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent;const b=document.createElement('button');b.type='button';b.textContent=label+' ↕';b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})();</script>`;
+  const script = `<script>${runtime}</script><script>addEventListener('DOMContentLoaded',()=>{const d=${data};const compact=new Intl.NumberFormat(d.locale,{notation:'compact',maximumFractionDigits:2});const make=(id,option)=>{const el=document.getElementById(id);if(!el||!window.echarts)return;const c=echarts.init(el,null,{renderer:'svg'});c.setOption(option);addEventListener('resize',()=>c.resize())};const series=[['input',d.labels.input,'#b76448'],['cached',d.labels.cached,'#d99a78'],['cacheWrite',d.labels.cacheWrite,'#8b7667'],['output',d.labels.output,'#557c70'],['unclassified',d.labels.unclassified,'#8d6a9f']].map(([key,name,color])=>({name,type:'line',stack:'tokens',smooth:false,symbol:'none',areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color},{offset:1,color:'rgba(255,255,255,.12)'}])},emphasis:{focus:'series'},data:d.rows.map(r=>r[key])}));if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'circle',connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:'#273c75'}});make('token-trend',{aria:{show:true,description:'${locale === "zh-CN" ? "互斥 Token 组成趋势；下方表格提供等价数据。" : "Exclusive Token composition trend; the table below provides equivalent data."}'},tooltip:{trigger:'axis',valueFormatter:v=>v==null?'${locale === "zh-CN" ? "不可用" : "unavailable"}':compact.format(v)},legend:{type:'scroll'},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{hideOverlap:true}},yAxis:[{type:'value',name:'Token',axisLabel:{formatter:v=>compact.format(v)}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{formatter:v=>'$'+compact.format(v)}}]:[])],series});make('model-chart',{aria:{show:true,description:'${locale === "zh-CN" ? "按模型的 Token 分布；下方表格提供等价数据。" : "Token distribution by model; the table below provides equivalent data."}'},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{interval:0,rotate:24,hideOverlap:true}},yAxis:{type:'value',axisLabel:{formatter:v=>compact.format(v)}},series:[{type:'bar',data:d.models.map(r=>r.value),itemStyle:{color:'#b76448'}}]});make('tool-chart',{aria:{show:true,description:'${locale === "zh-CN" ? "按工具的上下文放大估算；下方表格提供等价数据。" : "Estimated context amplification by tool; the table below provides equivalent data."}'},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{formatter:v=>compact.format(v)}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{width:88,overflow:'truncate'}},series:[{type:'bar',data:d.tools.map(r=>r.value),itemStyle:{color:'#557c70'}}]});document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent;const b=document.createElement('button');b.type='button';b.textContent=label+' ↕';b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})});</script>`;
   return `<div id="token-trend" class="echart" role="img" aria-label="${escapeHtml(labels.dailyUsage)}"></div><p class="chart-summary">${escapeHtml(locale === "zh-CN" ? "Token 分量仅在可证明互斥时堆叠；不可证明的桶保持不可用。" : "Token components are stacked only when source-proven exclusive; unsupported buckets remain unavailable.")}</p>${script}`;
 }
 function renderStyles(): string {
   return "<style>" +
     ":root{color-scheme:light;--ink:#27231f;--muted:#766d64;--line:#e6ddd4;--paper:#fffdf9;--bg:#f2eee8;--accent:#b76448;--accent-soft:#f5e0d7;--ok:#3c725c}" +
     "*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}" +
-    "main{max-width:1060px;margin:0 auto;padding:38px 24px 64px}header{margin-bottom:28px}h1{font-size:32px;line-height:1.1;margin:0 0 12px;letter-spacing:-.03em}h2{font-size:19px;margin:0 0 14px}h3{font-size:16px;margin:24px 0 12px}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);font-weight:700}section{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 6px 22px rgba(53,38,25,.04)}.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{display:grid;gap:12px}.scope-grid{grid-template-columns:repeat(3,1fr);margin:0}.scope-grid div{background:#faf7f2;border-radius:10px;padding:12px}.scope-grid dt{color:var(--muted);font-size:12px}.scope-grid dd{margin:4px 0 0;font-weight:650;overflow-wrap:anywhere}.coverage-grid{grid-template-columns:repeat(4,1fr);margin-bottom:14px}.coverage-grid div,.window-grid div{padding:12px;border:1px solid var(--line);border-radius:10px}.coverage-grid strong,.coverage-grid span,.window-grid strong,.window-grid span{display:block}.coverage-grid strong{font-size:20px}.coverage-grid span,.window-grid span{color:var(--muted);font-size:12px}.warning-list{margin:10px 0 0;padding-left:20px}.coverage-note{color:var(--muted)}.ok{color:var(--ok)}.kpis{grid-template-columns:repeat(4,1fr)}.kpi{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:16px}.kpi>span{display:block;color:var(--muted);font-size:12px}.kpi strong{display:block;font-size:22px;line-height:1.2;margin-top:6px;font-variant-numeric:tabular-nums}.metric-stack{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;font-variant-numeric:tabular-nums}.metric-main{display:block}.metric-exact,.estimate{display:block;color:var(--muted);font-size:11px;font-weight:400;line-height:1.3}.percentage{display:block;white-space:nowrap}.unavailable{color:var(--muted);font-style:italic}.finding{border-color:#e8c4b5;background:linear-gradient(135deg,#fffdf9,#fff5ef)}.finding.neutral{border-color:var(--line)}.finding h2{font-size:23px;max-width:800px}.finding p{max-width:820px}.evidence{display:flex;flex-wrap:wrap;gap:9px;list-style:none;padding:0;margin:18px 0}.evidence li{background:var(--accent-soft);border-radius:9px;padding:8px 10px}.recommendation{border-top:1px solid #e8c4b5;padding-top:12px}.recommendation strong{color:var(--accent)}.recommendation p{margin:4px 0 0;font-weight:650}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}thead th{color:var(--muted);font-size:12px;font-weight:650}tbody th{font-weight:650}tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}.empty{color:var(--muted);margin:8px 0}.echart{width:100%;height:330px;margin:0 0 12px;background:#faf7f2;border-radius:12px}.chart-summary{color:var(--muted);font-size:12px}.chart{display:block;width:100%;height:auto;margin:0 0 20px;background:#faf7f2;border-radius:12px;padding:10px;overflow:visible}.chart-label,.chart-value,.heat-hour{font:12px system-ui,sans-serif;fill:var(--muted)}.chart-value{font-variant-numeric:tabular-nums;fill:var(--ink)}.chart-bar{fill:var(--accent)}.chart-track{fill:#ece6df}.segment-input{fill:#b76448}.segment-cached{fill:#d99a78}.segment-cache-write{fill:#8b7667}.segment-output{fill:#557c70}.segment-reasoning{fill:#8d6a9f}.heat-0{fill:#ebe5de}.heat-1{fill:#edd7ca}.heat-2{fill:#dda98d}.heat-3{fill:#c67f5e}.heat-4{fill:#9f4f36}details{border-top:1px solid var(--line);padding-top:12px}summary{cursor:pointer;color:var(--accent);font-weight:650;margin-bottom:10px}.window-note{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;background:#f7f1e7;border-radius:10px;padding:12px;margin-bottom:12px}.window-note span,.week-ranges span{color:var(--muted);font-size:12px}.window-grid{grid-template-columns:repeat(5,1fr)}.window-grid strong{margin-top:5px}.week-ranges{grid-template-columns:repeat(2,1fr);margin-bottom:16px}.week-ranges div{background:#faf7f2;border-radius:10px;padding:12px}.week-ranges strong,.week-ranges span{display:block}footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:26px;padding-top:16px}footer p{margin:5px 0}@media(max-width:760px){main{padding:24px 14px}.scope-grid,.kpis,.coverage-grid,.window-grid,.week-ranges{grid-template-columns:1fr 1fr}table{display:block;overflow-x:auto;white-space:nowrap}.finding h2{font-size:20px}}@media(max-width:480px){.scope-grid,.kpis,.coverage-grid,.window-grid,.week-ranges{grid-template-columns:1fr}}" +
+    "main{max-width:1060px;margin:0 auto;padding:38px 24px 64px}header{margin-bottom:28px}h1{font-size:32px;line-height:1.1;margin:0 0 12px;letter-spacing:-.03em}h2{font-size:19px;margin:0 0 14px}h3{font-size:16px;margin:24px 0 12px}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);font-weight:700}section{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 6px 22px rgba(53,38,25,.04)}.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{display:grid;gap:12px}.scope-grid{grid-template-columns:repeat(3,1fr);margin:0}.scope-grid div{background:#faf7f2;border-radius:10px;padding:12px}.scope-grid dt{color:var(--muted);font-size:12px}.scope-grid dd{margin:4px 0 0;font-weight:650;overflow-wrap:anywhere}.coverage-grid{grid-template-columns:repeat(4,1fr);margin-bottom:14px}.coverage-grid div,.window-grid div{padding:12px;border:1px solid var(--line);border-radius:10px}.coverage-grid strong,.coverage-grid span,.window-grid strong,.window-grid span{display:block}.coverage-grid strong{font-size:20px}.coverage-grid span,.window-grid span{color:var(--muted);font-size:12px}.warning-list{margin:10px 0 0;padding-left:20px}.coverage-note{color:var(--muted)}.ok{color:var(--ok)}.kpis{grid-template-columns:repeat(4,1fr)}.kpi{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:16px}.kpi>span{display:block;color:var(--muted);font-size:12px}.kpi strong{display:block;font-size:22px;line-height:1.2;margin-top:6px;font-variant-numeric:tabular-nums}.metric-stack{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;font-variant-numeric:tabular-nums}.metric-main{display:block}.estimate{display:block;color:var(--muted);font-size:11px;font-weight:400;line-height:1.3}.percentage{display:block;white-space:nowrap}.unavailable{color:var(--muted);font-style:italic}.finding{border-color:#e8c4b5;background:linear-gradient(135deg,#fffdf9,#fff5ef)}.finding.neutral{border-color:var(--line)}.finding h2{font-size:23px;max-width:800px}.finding p{max-width:820px}.evidence{display:flex;flex-wrap:wrap;gap:9px;list-style:none;padding:0;margin:18px 0}.evidence li{background:var(--accent-soft);border-radius:9px;padding:8px 10px}.recommendation{border-top:1px solid #e8c4b5;padding-top:12px}.recommendation strong{color:var(--accent)}.recommendation p{margin:4px 0 0;font-weight:650}.supporting-findings ul{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;list-style:none;margin:0;padding:0}.supporting-finding{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:#faf7f2}.supporting-finding>strong{font-size:14px}.supporting-finding>.metric-stack{align-items:flex-end;color:var(--accent);font-weight:700}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{text-align:left;border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}thead th{color:var(--muted);font-size:12px;font-weight:650}tbody th{font-weight:650}tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}.empty{color:var(--muted);margin:8px 0}.echart{width:100%;height:330px;margin:0 0 12px;background:#faf7f2;border-radius:12px}.chart-summary{color:var(--muted);font-size:12px}.chart{display:block;width:100%;height:auto;margin:0 0 20px;background:#faf7f2;border-radius:12px;padding:10px;overflow:visible}.chart-label,.chart-value,.heat-hour{font:12px system-ui,sans-serif;fill:var(--muted)}.chart-value{font-variant-numeric:tabular-nums;fill:var(--ink)}.chart-bar{fill:var(--accent)}.chart-track{fill:#ece6df}.segment-input{fill:#b76448}.segment-cached{fill:#d99a78}.segment-cache-write{fill:#8b7667}.segment-output{fill:#557c70}.segment-reasoning{fill:#8d6a9f}.heat-0{fill:#ebe5de}.heat-1{fill:#edd7ca}.heat-2{fill:#dda98d}.heat-3{fill:#c67f5e}.heat-4{fill:#9f4f36}details{border-top:1px solid var(--line);padding-top:12px}summary{cursor:pointer;color:var(--accent);font-weight:650;margin-bottom:10px}.window-note{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;background:#f7f1e7;border-radius:10px;padding:12px;margin-bottom:12px}.window-note span,.week-ranges span{color:var(--muted);font-size:12px}.window-grid{grid-template-columns:repeat(5,1fr)}.window-grid strong{margin-top:5px}.week-ranges{grid-template-columns:repeat(2,1fr);margin-bottom:16px}.week-ranges div{background:#faf7f2;border-radius:10px;padding:12px}.week-ranges strong,.week-ranges span{display:block}footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:26px;padding-top:16px}footer p{margin:5px 0}@media(max-width:760px){main{padding:24px 14px}.scope-grid,.kpis,.coverage-grid,.window-grid,.week-ranges{grid-template-columns:1fr 1fr}table{display:block;overflow-x:auto;white-space:nowrap}.finding h2{font-size:20px}}@media(max-width:480px){.scope-grid,.kpis,.coverage-grid,.window-grid,.week-ranges{grid-template-columns:1fr}}" +
     "</style>";
 }
 
 export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US"): string {
   const projection = projectReport(result, locale);
   const labels = projection.labels;
-  const modelBars = result.rankings.models.map((row) => ({ key: publicLabel(row.key, labels.unavailable), value: row.value }));
+  const modelBars = result.rankings.models.map((row) => ({ key: modelLabel(row.key, locale), value: row.value }));
   const parts = [
     "<!doctype html><html lang=\"" + (locale === "zh-CN" ? "zh-CN" : "en") + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
       escapeHtml(labels.title) + "</title>" + renderStyles() + "</head><body><main>",
@@ -796,6 +824,7 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US"):
     "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "</section>",
     renderKpis(result, locale),
     renderFinding(result, locale),
+    renderSupportingFindings(result, locale),
     result.weekComparison ? "<section><h2>" + escapeHtml(labels.weekView) + "</h2>" + renderWeek(result, locale) + "</section>" : "",
     "<section><h2>" + escapeHtml(labels.time) + "</h2><h3>" + escapeHtml(labels.dailyUsage) + "</h3>" +
       renderInteractiveCharts(result, locale) + renderDaily(result, locale) +
@@ -855,7 +884,7 @@ export function renderText(result: AuditResult, locale: ReportLocale = "en-US", 
   }
   if (view === "usage") {
     const lines = [labels.usageView, ...renderTopLine(result, locale)];
-    const model = result.rankings.models.slice(0, 5).map((entry) => publicLabel(entry.key, labels.unavailable) + " " + evidencePlain(entry.value, locale) + " / " + percentageText(entry.sharePercent, locale)).join(", ");
+    const model = result.rankings.models.slice(0, 5).map((entry) => modelLabel(entry.key, locale) + " " + evidencePlain(entry.value, locale) + " / " + percentageText(entry.sharePercent, locale)).join(", ");
     if (model) lines.push(labels.models + ": " + model + ".");
     const session = result.rankings.sessions[0];
     if (session) lines.push(labels.sessionsByUsage + ": " + sessionLabel(session, locale) + " — " + evidencePlain(session.value, locale) + ".");
@@ -871,7 +900,7 @@ export function renderText(result: AuditResult, locale: ReportLocale = "en-US", 
     );
   }
   const modelSummary = result.rankings.models.slice(0, 5)
-    .map((entry) => publicLabel(entry.key, labels.unavailable) + ": " + formatExact(entry.value.value, locale) + " " + labels.tokens + " (" + percentageText(entry.sharePercent, locale) + ")")
+    .map((entry) => modelLabel(entry.key, locale) + ": " + formatExact(entry.value.value, locale) + " " + labels.tokens + " (" + percentageText(entry.sharePercent, locale) + ")")
     .join(", ");
   if (modelSummary) lines.push((locale === "zh-CN" ? labels.models : "Models") + ": " + modelSummary + ".");
   if (result.topFinding) {

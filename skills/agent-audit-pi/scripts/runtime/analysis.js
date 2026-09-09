@@ -92,6 +92,13 @@ function composition(call, harness) {
     const { totalTokens: total, inputTokens: input, cachedInputTokens: cached, cacheWriteTokens: cacheWrite, outputTokens: output } = call;
     if ([total, input, cached, cacheWrite, output].some((value) => value === null))
         return null;
+    if (harness === "codex") {
+        const ordinaryInput = input - cached - cacheWrite;
+        const unclassified = total - input - output;
+        return ordinaryInput >= 0 && unclassified >= 0
+            ? { input: ordinaryInput, cached: cached, cacheWrite: cacheWrite, output: output, unclassified }
+            : null;
+    }
     if (harness === "deepseek") {
         const unclassified = total - input - cached - cacheWrite - output;
         return unclassified >= 0 ? { input: input, cached: cached, cacheWrite: cacheWrite, output: output, unclassified } : null;
@@ -468,11 +475,12 @@ function analyseAudit(scope, read, harness) {
         extraLifecycleCount: evidenceForCount(extraLifecycle.length, "count of retry, interruption, and subagent lifecycle records"),
     };
     let topFinding = null;
+    const findingCandidates = [];
     if (largest &&
         largestCalls.length >= 2 &&
         shareFraction !== null &&
-        shareFraction >= 0.5) {
-        topFinding = {
+        shareFraction >= 0.4) {
+        const longFinding = {
             id: "long-session",
             severity: "primary",
             kind: "long_session",
@@ -503,6 +511,9 @@ function analyseAudit(scope, read, harness) {
             ],
             recommendation: "Start a fresh Session or split and narrow the task before the context grows further.",
         };
+        findingCandidates.push(longFinding);
+        if (shareFraction >= 0.5)
+            topFinding = longFinding;
     }
     if (amplification.largestTokens !== null && amplification.largestTokens > 0 && amplification.tool) {
         const toolFinding = {
@@ -539,6 +550,7 @@ function analyseAudit(scope, read, harness) {
             ],
             recommendation: "Summarize or narrow large tool results before carrying them into more model calls.",
         };
+        findingCandidates.push(toolFinding);
         if (!topFinding || toolFinding.impact.value > topFinding.impact.value)
             topFinding = toolFinding;
     }
@@ -558,11 +570,46 @@ function analyseAudit(scope, read, harness) {
             evidence: [evidenceForCount(extraLifecycle.length, "count of observed retry, interruption, and subagent lifecycle records")],
             recommendation: "Inspect the error or retry cause before repeating the same large task.",
         };
+        findingCandidates.push(extraFinding);
         // Token- and character-impact findings are comparable within their own
         // units; keep the stable priority order rather than comparing unlike units.
         if (!topFinding)
             topFinding = extraFinding;
     }
+    const topModel = rankings.models[0];
+    if (topModel &&
+        rankings.models.length >= 2 &&
+        typeof topModel.sharePercent.value === "number" &&
+        topModel.sharePercent.value >= 60) {
+        const modelFinding = {
+            id: "model-concentration",
+            severity: "supporting",
+            kind: "model_concentration",
+            headline: "Model " + topModel.key + " accounts for " + topModel.sharePercent.value.toFixed(1) + "% of known usage.",
+            explanation: "Usage is concentrated in one exactly reported model identifier. This is a usage distribution, not a quality or price judgment.",
+            impact: topModel.value,
+            evidence: [topModel.value, topModel.sharePercent, topModel.count],
+            recommendation: "Confirm that the dominant model matches the task mix before changing model selection.",
+        };
+        findingCandidates.push(modelFinding);
+        if (!topFinding)
+            topFinding = { ...modelFinding, severity: "primary" };
+    }
+    const findingPriority = new Map([
+        ["tool_amplification", 0],
+        ["long_session", 1],
+        ["model_concentration", 2],
+        ["extra_calls", 3],
+    ]);
+    const findings = topFinding
+        ? [
+            topFinding,
+            ...findingCandidates
+                .filter((finding) => finding.id !== topFinding.id)
+                .sort((a, b) => (findingPriority.get(a.kind) ?? 99) - (findingPriority.get(b.kind) ?? 99) || a.id.localeCompare(b.id))
+                .map((finding) => ({ ...finding, severity: "supporting" })),
+        ]
+        : [];
     return {
         scope: {
             harness,
@@ -575,7 +622,7 @@ function analyseAudit(scope, read, harness) {
         rankings,
         report: buildReportData(read, tokenTotal.value, harness),
         topFinding,
-        findings: topFinding ? [topFinding] : [],
+        findings,
         healthChecks: [],
     };
 }
