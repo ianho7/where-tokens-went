@@ -42,13 +42,11 @@ const path = __importStar(require("node:path"));
 const analysis_1 = require("./analysis");
 const claude_reader_1 = require("./claude-reader");
 const codex_reader_1 = require("./codex-reader");
-const deepseek_reader_1 = require("./deepseek-reader");
-const pi_reader_1 = require("./pi-reader");
 const report_1 = require("./report");
 function usage() {
     return [
-        "Usage: where-tokens-went inspect --harness <claude|codex|pi|deepseek> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
-        "       where-tokens-went inspect --harness <claude|codex|pi|deepseek> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
+        "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
+        "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
     ].join("\n");
 }
 function parseDuration(value) {
@@ -90,8 +88,8 @@ function parseArgs(args) {
         if (flag === "--harness") {
             const value = requireValue(args, index, flag);
             index += 1;
-            if (value !== "codex" && value !== "claude" && value !== "pi" && value !== "deepseek")
-                throw new Error(`Harness ${value} is not implemented yet.\n${usage()}`);
+            if (value !== "codex" && value !== "claude")
+                throw new Error(`Unsupported Harness ${value}; supported Harnesses are claude and codex.\n${usage()}`);
             harness = value;
         }
         else if (flag === "--cwd") {
@@ -150,11 +148,7 @@ function parseArgs(args) {
 async function readHarness(harness, scope) {
     return harness === "codex"
         ? (0, codex_reader_1.readCodex)(scope)
-        : harness === "claude"
-            ? (0, claude_reader_1.readClaude)(scope)
-            : harness === "pi"
-                ? (0, pi_reader_1.readPi)(scope)
-                : (0, deepseek_reader_1.readDeepSeek)(scope);
+        : (0, claude_reader_1.readClaude)(scope);
 }
 function differenceEvidence(left, right, label) {
     if (typeof left.value !== "number" || typeof right.value !== "number") {

@@ -7,7 +7,7 @@ description: Explain recent Claude Code usage from local transcript history usin
 
 Use this Skill when the user asks where Claude Code usage went, why usage rose, which Session or project was largest, or what action could reduce repeated context usage.
 
-The invoking Harness is fixed to Claude Code. Do not inspect Codex, Pi, DeepSeek Harness, or any other Harness in response to a Claude Code request.
+The invoking Harness is fixed to Claude Code. Do not inspect any other Harness in response to a Claude Code request.
 
 ## Invocation
 

@@ -1,10 +1,9 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { mkdtemp, mkdir, writeFile, readFile, rm } = require('node:fs/promises');
+const { mkdtemp, mkdir, writeFile, readFile, access, rm } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
-const { zstdCompressSync } = require('node:zlib');
 const { promisify } = require('node:util');
 
 const execFileAsync = promisify(execFile);
@@ -42,8 +41,8 @@ test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', 
   assert.match(skill, /do not return a diagnosis without the requested report/i);
 });
 
-test('other Harness Skills preserve the same atomic report and evidence contract', async () => {
-  for (const [name, harness] of [['claude', 'claude'], ['pi', 'pi'], ['deepseek', 'deepseek']]) {
+test('Claude Code Skill preserves the same atomic report and evidence contract', async () => {
+  for (const [name, harness] of [['claude', 'claude']]) {
     const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-' + name, 'SKILL.md'), 'utf8');
     assert.match(skill, new RegExp('--harness ' + harness));
     assert.match(skill, /Current Project versus Global Audit/);
@@ -61,8 +60,6 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
   const expected = [
     ['codex', '.agents', 'skills', 'where-tokens-went-codex'],
     ['claude', '.claude', 'skills', 'where-tokens-went-claude'],
-    ['pi', '.pi', 'skills', 'where-tokens-went-pi'],
-    ['deepseek', '.agents', 'skills', 'where-tokens-went-deepseek'],
   ];
   try {
     await execFileAsync(process.execPath, [installer, root]);
@@ -93,14 +90,10 @@ test('each copied Skill runs its bundled deterministic tool without the source c
   const installed = {
     codex: path.join(root, '.agents', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js'),
     claude: path.join(root, '.claude', 'skills', 'where-tokens-went-claude', 'scripts', 'where-tokens-went.js'),
-    pi: path.join(root, '.pi', 'skills', 'where-tokens-went-pi', 'scripts', 'where-tokens-went.js'),
-    deepseek: path.join(root, '.agents', 'skills', 'where-tokens-went-deepseek', 'scripts', 'where-tokens-went.js'),
   };
   const envByHarness = {
     codex: { CODEX_HOME: path.join(root, 'missing-codex') },
     claude: { CLAUDE_CONFIG_DIR: path.join(root, 'missing-claude') },
-    pi: { PI_SESSIONS_DIR: path.join(root, 'missing-pi') },
-    deepseek: { DSH_JSONL_ROOT: path.join(root, 'missing-deepseek') },
   };
   await mkdir(project, { recursive: true });
   try {
@@ -121,6 +114,29 @@ test('each copied Skill runs its bundled deterministic tool without the source c
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('CLI rejects suspended Pi and DeepSeek Harness values', async () => {
+  for (const harness of ['pi', 'deepseek']) {
+    await assert.rejects(
+      runAudit(['inspect', '--harness', harness, '--cwd', os.tmpdir(), '--since', '7d', '--format', 'json']),
+      (error) => {
+        assert.equal(error.code, 2);
+        assert.match(error.stderr, /supported Harnesses are claude and codex/i);
+        return true;
+      },
+    );
+  }
+});
+
+test('suspended Harnesses are absent from the packaged source and installed layout', async () => {
+  for (const skill of ['where-tokens-went-claude', 'where-tokens-went-codex']) {
+    for (const file of ['pi-reader.js', 'deepseek-reader.js', 'fzstd.js', 'fzstd.LICENSE']) {
+      await assert.rejects(access(path.resolve(__dirname, '..', 'skills', skill, 'scripts', 'runtime', file)));
+    }
+  }
+  await assert.rejects(access(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-pi')));
+  await assert.rejects(access(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-deepseek')));
 });
 
 test('Codex Skill path reports a deterministic long-session check without raw content', async () => {
@@ -828,202 +844,6 @@ test('Claude Code Skill path deduplicates assistant usage and pairs tool results
   }
 });
 
-test('Pi Skill path reports usage, reported cost, and branch-safe tool evidence', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-pi-'));
-  const project = path.join(root, 'project');
-  const sessions = path.join(root, 'pi-sessions');
-  await mkdir(project, { recursive: true });
-  await mkdir(sessions, { recursive: true });
-
-  const records = [
-    { type: 'session', version: 3, id: 'pi-session', timestamp: isoHoursAgo(3), cwd: project },
-    {
-      type: 'message',
-      id: 'pi-entry-1',
-      parentId: null,
-      timestamp: isoHoursAgo(2.9),
-      message: {
-        role: 'assistant',
-        provider: 'openai',
-        model: 'gpt-5.6-sol',
-        usage: { input: 100, output: 40, cacheRead: 20, cacheWrite: 5, totalTokens: 140, cost: { total: 0.01 } },
-        content: [{ type: 'toolCall', id: 'pi-tool-1', name: 'read', arguments: { file: 'secret.ts' } }],
-      },
-    },
-    {
-      type: 'message',
-      id: 'pi-entry-2',
-      parentId: 'pi-entry-1',
-      timestamp: isoHoursAgo(2.8),
-      message: { role: 'toolResult', toolCallId: 'pi-tool-1', toolName: 'read', content: 'PI_TOOL_SECRET '.repeat(100), isError: false },
-    },
-    {
-      type: 'message',
-      id: 'pi-entry-3',
-      parentId: 'pi-entry-2',
-      timestamp: isoHoursAgo(1.8),
-      message: {
-        role: 'assistant',
-        provider: 'openai',
-        model: 'gpt-5.6-sol',
-        usage: { input: 110, output: 50, cacheRead: 10, cacheWrite: 5, totalTokens: 160, cost: { total: 0.02 } },
-        content: [{ type: 'text', text: 'safe summary' }],
-      },
-    },
-    {
-      type: 'message',
-      id: 'pi-without-time',
-      parentId: 'pi-entry-3',
-      message: { role: 'assistant', usage: { input: 10, output: 5, totalTokens: 15 }, content: [] },
-    },
-    { type: 'unknown_usage_event', id: 'pi-unknown', parentId: 'pi-entry-3', timestamp: isoHoursAgo(1.75), payload: { usage: { total: 9999 } } },
-    {
-      type: 'message',
-      id: 'pi-inactive-branch',
-      parentId: 'pi-entry-1',
-      timestamp: isoHoursAgo(1.72),
-      message: { role: 'assistant', usage: { input: 900, output: 100, cacheRead: 10, cacheWrite: 5, totalTokens: 1015, cost: { total: 0.5 } }, content: [{ type: 'toolCall', id: 'pi-inactive-tool', name: 'read', arguments: { file: 'inactive-secret.ts' } }] },
-    },
-    {
-      type: 'message',
-      id: 'pi-inactive-result',
-      parentId: 'pi-inactive-branch',
-      timestamp: isoHoursAgo(1.71),
-      message: { role: 'toolResult', toolCallId: 'pi-inactive-tool', content: 'INACTIVE_SECRET '.repeat(500), isError: false },
-    },
-    { type: 'compaction', id: 'pi-entry-4', parentId: 'pi-entry-3', timestamp: isoHoursAgo(1.7), tokensBefore: 500 },
-  ];
-  await writeFile(path.join(sessions, 'pi-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
-
-  try {
-    const { stdout } = await runAudit(
-      ['inspect', '--harness', 'pi', '--cwd', project, '--since', '7d', '--format', 'json'],
-      { PI_SESSIONS_DIR: sessions },
-    );
-    const result = JSON.parse(stdout);
-
-    assert.equal(result.scope.harness, 'pi');
-    assert.equal(result.summary.sessionCount.value, 1);
-    assert.equal(result.summary.modelCallCount.value, 3);
-    assert.equal(result.summary.totalTokens.value, 1315);
-    assert.equal(result.summary.topSessionId.value, 'pi-session');
-    assert.equal(result.summary.topSessionTokens.value, 1315);
-    assert.equal(result.rankings.sessions[0].key, 'pi-session');
-    assert.equal(result.rankings.sessions[0].value.value, 1315);
-    assert.equal(result.summary.activeBranchModelCallCount.value, 2);
-    assert.equal(result.summary.activeBranchTokens.value, 300);
-    assert.equal(result.summary.reportedCost.value, 0.53);
-    assert.equal(result.summary.reportedCost.provenance, 'reported');
-    assert.equal(result.summary.toolCallCount.value, 1);
-    assert.equal(result.coverage.recordsSkipped, 1);
-    assert.equal(result.coverage.partialSessions, 1);
-    assert.match(result.coverage.warnings.join(' '), /timestamp|time/i);
-    assert.match(result.coverage.warnings.join(' '), /unsupported accounting/i);
-    assert.equal(result.summary.pairedToolResultCount.value, 1);
-    assert.equal(result.summary.estimatedToolAmplifiedTokens.value, 375);
-    assert.equal(result.summary.extraLifecycleCount.value, 0);
-                const serialized = JSON.stringify(result);
-    assert.equal(serialized.includes('PI_TOOL_SECRET'), false);
-    assert.equal(serialized.includes('secret.ts'), false);
-    assert.equal(serialized.includes('inactive-secret.ts'), false);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test('DeepSeek Harness Skill path reads zstd Session events without returning content', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-dsh-'));
-  const project = path.join(root, 'project');
-  const sessionFile = path.join(root, 'session.jsonl.zstd');
-  await mkdir(project, { recursive: true });
-
-  const records = [
-    { type: 'header', sessionId: 'dsh-session', cwd: project, version: 1, time: isoHoursAgo(3) },
-    { type: 'request/header', seq: 1, time: isoHoursAgo(2.9), data: { provider: 'deepseek', model: 'deepseek-chat' } },
-    {
-      type: 'assistant/message',
-      seq: 2,
-      time: isoHoursAgo(2.8),
-      data: {
-        stepId: 'step-1',
-        messageId: 'message-1',
-        usage: { inputTokens: 100, outputTokens: 30, cacheReadTokens: 20, cacheWriteTokens: 5, reasoningTokens: 10, totalTokens: 140 },
-        content: [{ type: 'tool_call', callId: 'dsh-tool-1', name: 'read', arguments: { file: 'secret.ts' } }],
-      },
-    },
-    { type: 'tool/result', seq: 3, time: isoHoursAgo(2.7), data: { callId: 'dsh-tool-1', name: 'read', result: 'DSH_SECRET '.repeat(200) } },
-    {
-      type: 'assistant/chunk',
-      seq: 4,
-      time: isoHoursAgo(2.5),
-      data: { turn: 1, step: 2, chunk: { type: 'tool-call-delta', index: 0, id: 'dsh-packed-tool', name: 'read', argumentsDelta: '{"file":"' } },
-    },
-    {
-      type: 'tool-call-chunks',
-      seq0: 5,
-      time0: Date.now() - 2.45 * 60 * 60 * 1000,
-      data: { turn: 1, step: 2, index: 0, dt: [0, 2], id: 'packed-row-id', name: '', args: ['packed-secret.ts', '"}'] },
-    },
-    { type: 'tool/result', seq: 7, time: isoHoursAgo(2.3), data: { callId: 'dsh-packed-tool', name: 'read', result: 'PACKED_SECRET '.repeat(100) } },
-    {
-      type: 'assistant/message',
-      seq: 8,
-      time: isoHoursAgo(1.8),
-      data: { stepId: 'step-2', messageId: 'message-2', usage: { inputTokens: 110, outputTokens: 40, totalTokens: 160 }, content: [] },
-    },
-    {
-      type: 'text-chunks',
-      seq0: 9,
-      time0: Date.now() - 1.75 * 60 * 60 * 1000,
-      data: { turn: 1, step: 2, index: 0, dt: [0, 4, 6], texts: ['safe', ' packed', ' delta'] },
-    },
-    {
-      type: 'tool-call-chunks',
-      seq0: 12,
-      time0: Date.now() - 1.72 * 60 * 60 * 1000,
-      data: { id: 'ambiguous-packed-row', args: ['not-enough-position-data'] },
-    },
-    { type: 'retry', seq: 13, time: isoHoursAgo(1.7), data: { attemptId: 'attempt-1' } },
-    { type: 'assistant/message', seq: 14, data: { messageId: 'message-without-time', usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 }, content: [] } },
-    { type: 'compaction/start', seq: 15, time: isoHoursAgo(1.6), data: {} },
-  ];
-  const logical = records.map((record) => JSON.stringify(record)).join('\n') + '\n';
-  const split = Math.floor(logical.length / 2);
-  const tornTail = zstdCompressSync(Buffer.from(JSON.stringify({ type: 'assistant/message', seq: 15, data: { usage: { inputTokens: 999, outputTokens: 1, totalTokens: 1000 } } }) + '\n', 'utf8'));
-  await writeFile(sessionFile, Buffer.concat([
-    zstdCompressSync(Buffer.from(logical.slice(0, split), 'utf8')),
-    zstdCompressSync(Buffer.from(logical.slice(split), 'utf8')),
-    tornTail.subarray(0, Math.max(1, Math.floor(tornTail.length / 2))),
-  ]));
-
-  try {
-    const { stdout } = await runAudit(
-      ['inspect', '--harness', 'deepseek', '--cwd', project, '--since', '7d', '--format', 'json'],
-      { DSH_SESSION_JSONL: sessionFile },
-    );
-    const result = JSON.parse(stdout);
-    assert.equal(result.scope.harness, 'deepseek');
-    assert.equal(result.summary.sessionCount.value, 1);
-    assert.equal(result.summary.modelCallCount.value, 2);
-    assert.equal(result.summary.totalTokens.value, 300);
-    assert.equal(result.summary.toolCallCount.value, 2);
-    assert.equal(result.summary.pairedToolResultCount.value, 2);
-    assert.equal(result.summary.extraLifecycleCount.value, 1);
-    assert.equal(result.coverage.partialSessions, 1);
-    assert.match(result.coverage.warnings.join(' '), /durable|decode|partial/i);
-    assert.match(result.coverage.warnings.join(' '), /timestamp|time/i);
-    assert.match(result.coverage.warnings.join(' '), /unsupported/i);
-    assert.equal(result.checks.find((check) => check.id === 'tool_amplification').id, 'tool_amplification');
-    const serialized = JSON.stringify(result);
-    assert.equal(serialized.includes('DSH_SECRET'), false);
-    assert.equal(serialized.includes('secret.ts'), false);
-    assert.equal(serialized.includes('PACKED_SECRET'), false);
-    assert.equal(serialized.includes('packed-secret.ts'), false);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test('every supported Harness emits the same safe empty-result contract', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-empty-'));
   const project = path.join(root, 'project');
@@ -1031,8 +851,6 @@ test('every supported Harness emits the same safe empty-result contract', async 
   const envByHarness = {
     codex: { CODEX_HOME: path.join(root, 'missing-codex') },
     claude: { CLAUDE_CONFIG_DIR: path.join(root, 'missing-claude') },
-    pi: { PI_SESSIONS_DIR: path.join(root, 'missing-pi') },
-    deepseek: { DSH_JSONL_ROOT: path.join(root, 'missing-deepseek') },
   };
 
   try {

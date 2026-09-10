@@ -6,8 +6,6 @@ import * as path from "node:path";
 import { analyseAudit } from "./analysis";
 import { readClaude } from "./claude-reader";
 import { readCodex } from "./codex-reader";
-import { readDeepSeek } from "./deepseek-reader";
-import { readPi } from "./pi-reader";
 import { normalizeLocale, renderHtml, renderShare, renderText, renderWeekText } from "./report";
 import type { AuditResult, AuditSnapshot, AuditView, EvidenceValue, Harness, ReadResult, ReadScope, ReportLocale, WeekComparison, WeekStructureChange } from "./types";
 
@@ -26,8 +24,8 @@ interface CliOptions {
 
 function usage(): string {
   return [
-    "Usage: where-tokens-went inspect --harness <claude|codex|pi|deepseek> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
-    "       where-tokens-went inspect --harness <claude|codex|pi|deepseek> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
+    "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
+    "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
   ].join("\n");
 }
 
@@ -70,7 +68,7 @@ export function parseArgs(args: string[]): CliOptions {
     if (flag === "--harness") {
       const value = requireValue(args, index, flag);
       index += 1;
-      if (value !== "codex" && value !== "claude" && value !== "pi" && value !== "deepseek") throw new Error(`Harness ${value} is not implemented yet.\n${usage()}`);
+      if (value !== "codex" && value !== "claude") throw new Error(`Unsupported Harness ${value}; supported Harnesses are claude and codex.\n${usage()}`);
       harness = value as Harness;
     } else if (flag === "--cwd") {
       cwd = requireValue(args, index, flag);
@@ -117,11 +115,7 @@ export function parseArgs(args: string[]): CliOptions {
 async function readHarness(harness: Harness, scope: ReadScope): Promise<ReadResult> {
   return harness === "codex"
     ? readCodex(scope)
-    : harness === "claude"
-      ? readClaude(scope)
-      : harness === "pi"
-        ? readPi(scope)
-        : readDeepSeek(scope);
+    : readClaude(scope);
 }
 
 function differenceEvidence(left: { value: number | string | null }, right: { value: number | string | null }, label: string) {

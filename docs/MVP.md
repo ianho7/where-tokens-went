@@ -2,7 +2,7 @@
 
 ## Product promise
 
-When invoked inside Claude Code, Codex, Pi, or DeepSeek Harness, where-tokens-went examines only that Harness's existing local history and produces one evidence-backed explanation of where usage went and what the user should try next.
+When invoked inside Claude Code or Codex, where-tokens-went examines only that Harness's existing local history and produces one evidence-backed explanation of where usage went and what the user should try next.
 
 The first release succeeds when a user sees a real session, tool, retry, compaction, or subagent behavior responsible for a meaningful share of usage and says, “原来消耗在这里。”
 
@@ -13,7 +13,7 @@ The user-facing product is a thin Harness-native Skill or integration plus a loc
 MVP invocation behind the integration:
 
 ```text
-where-tokens-went inspect --harness <claude|codex|pi|deepseek> --cwd <absolute-path> --since 7d --format json
+where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> --since 7d --format json
 ```
 
 For a requested global view within the invoking Harness:
@@ -26,7 +26,7 @@ where-tokens-went inspect --harness codex --all-projects --since 30d --format js
 
 ## In scope
 
-- Existing local Session history for four Harnesses: Claude Code, Codex, Pi, and DeepSeek Harness.
+- Existing local Session history for two Harnesses: Claude Code and Codex.
 - One explicitly selected Harness per invocation.
 - Current-project audit by default; all-project audit when requested.
 - User-selected time range; 7 days by default.
@@ -47,7 +47,7 @@ where-tokens-went inspect --harness codex --all-projects --since 30d --format js
 - MCP server, dashboard, team analytics, or a plugin framework.
 - A persistent normalized event database.
 - A formal golden evaluation platform.
-- DeepSeek Harness SQLite persistence; MVP supports the observed `.jsonl.zstd` backend.
+- Pi and DeepSeek Harness history support is temporarily suspended and outside the current MVP.
 
 ## Default privacy
 

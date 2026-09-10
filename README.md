@@ -1,10 +1,10 @@
 # where-tokens-went
 
-`where-tokens-went` 用来解释编码智能体的历史用量去了哪里。用户在 Claude Code、Codex、Pi 或 DeepSeek Harness 中用自然语言提问，对应的原生 Agent Skill 会调用同一台机器上的确定性 CLI，再由当前智能体解释 CLI 返回的证据。
+`where-tokens-went` 用来解释编码智能体的历史用量去了哪里。用户在 Claude Code 或 Codex 中用自然语言提问，对应的原生 Agent Skill 会调用同一台机器上的确定性 CLI，再由当前智能体解释 CLI 返回的证据。
 
 ## 名称与迁移状态
 
-`where-tokens-went` 是项目正式对外名称，也已经同步作为 CLI 命令、四个 Skill/plugin 的安装标识和目录命名空间。旧版 agent-audit 命令和 agent-audit-* Skill 标识不再是当前发布入口；已有旧版安装需要按新名称重新安装。
+`where-tokens-went` 是项目正式对外名称，也已经同步作为 CLI 命令、两个 Skill/plugin 的安装标识和目录命名空间。旧版 agent-audit 命令和 agent-audit-* Skill 标识不再是当前发布入口；已有旧版安装需要按新名称重新安装。
 
 ## Aha moment
 
@@ -18,7 +18,7 @@
 
 ## MVP 边界
 
-- 支持 Claude Code、Codex、Pi 和 DeepSeek Harness。
+- 支持 Claude Code 和 Codex。
 - 最终形态是“原生 Agent Skill + 本地确定性工具”。
 - 只读取已有的本地 Session 历史，不需要后台采集器。
 - JSON 是权威结果；文本格式只提供紧凑的人类可读摘要。
@@ -32,7 +32,7 @@
 
 ### GitHub / skills.sh
 
-仓库按 `skills/<skill-name>/SKILL.md` 约定暴露四个 Skill。选择与当前 Harness 对应的目录即可；也可以把四个目录作为一个 Skill pack 安装。
+仓库按 `skills/<skill-name>/SKILL.md` 约定暴露两个 Skill。选择与当前 Harness 对应的目录即可；也可以把两个目录作为一个 Skill pack 安装。
 
 ```bash
 # 使用 skills.sh CLI 安装指定 Harness 的 Skill（将 owner/repo 替换为实际仓库）
@@ -73,7 +73,7 @@ npm run install-local
 `install-local` 会完成三件事：
 
 1. 编译 TypeScript CLI；
-2. 将同版本运行产物和 zstd 解码依赖打包到四个 Skill 目录；
+2. 将同版本运行产物打包到两个 Skill 目录；
 3. 通过 `npm link` 暴露全局 `where-tokens-went` 命令（仅供直接 CLI 调试），并将完整 Skill 目录安装到对应 Host 的原生目录。
 
 源码变更后重新生成 Skill 产物：
@@ -86,8 +86,6 @@ npm run package-skills
 | --- | --- |
 | Codex | `.agents/skills/where-tokens-went-codex/`（含 `SKILL.md` 和 `scripts/`） |
 | Claude Code | `.claude/skills/where-tokens-went-claude/`（含 `SKILL.md` 和 `scripts/`） |
-| Pi | `.pi/skills/where-tokens-went-pi/`（含 `SKILL.md` 和 `scripts/`） |
-| DeepSeek Harness | `.agents/skills/where-tokens-went-deepseek/`（含 `SKILL.md` 和 `scripts/`） |
 
 如果要把已打包的 Skill 安装到另一个项目，请仍在本仓库根目录执行：
 
@@ -108,9 +106,6 @@ npm run install-skills -- "<目标项目绝对路径>"
 
 为什么我最近 7 天的 Claude Code Token 用得这么快？
 
-帮我分析最近 30 天所有项目的 Pi 消耗情况。
-
-帮我解释当前项目的 DeepSeek Harness 用量去了哪里。
 ```
 
 每个 Skill 都固定绑定自己的 Harness。例如，在 Codex 中触发的 Skill 只会读取 Codex 历史；“所有项目”只扩大项目范围，不会扩大 Harness 范围。
@@ -149,13 +144,13 @@ where-tokens-went inspect --harness codex --cwd "<当前项目绝对路径>" --s
 where-tokens-went inspect --harness codex --all-projects --since 30d --format json
 ```
 
-将 `codex` 替换为 `claude`、`pi` 或 `deepseek`，即可审计对应 Harness。
+将 `codex` 替换为 `claude`，即可审计对应 Harness。
 
 ### CLI 参数
 
 | 参数 | 含义 |
 | --- | --- |
-| `--harness` | 必填：`codex`、`claude`、`pi` 或 `deepseek` |
+| `--harness` | 必填：`codex` 或 `claude` |
 | `--cwd` | 当前项目的绝对路径；与 `--all-projects` 二选一 |
 | `--all-projects` | 审计当前 Harness 下的所有项目；与 `--cwd` 二选一 |
 | `--since` | 时间范围，默认 `7d`；支持 `h`、`d`、`w`、`m`，例如 `24h`、`7d`、`2w`、`1m` |
@@ -168,7 +163,7 @@ npm run typecheck
 npm test
 ```
 
-当前回归覆盖四个 Harness 的安全输出、范围边界、用量统计、工具结果配对、Pi 分支语义，以及 DeepSeek JSONL/Zstandard 持久化格式。
+当前回归覆盖 Claude Code 和 Codex 的安全输出、范围边界、用量统计、工具结果配对，以及 Codex 的 Session 语义。
 
 ## 当前状态
 

@@ -1,4 +1,4 @@
-export type Harness = "claude" | "codex" | "pi" | "deepseek";
+export type Harness = "claude" | "codex";
 
 export type Provenance = "reported" | "derived" | "estimated" | "unavailable";
 
@@ -37,7 +37,7 @@ export interface ModelCallRecord {
   reportedCost: number | null;
   status: "ok" | "error" | "interrupted" | "unknown";
   tokenProvenance: Provenance;
-  /** Pi-only branch marker; false means the call was incurred outside the active context. */
+  /** Optional branch marker retained for output compatibility; false means outside the active context. */
   activeBranch?: boolean;
 }
 
@@ -50,7 +50,7 @@ export interface ToolCallRecord {
   resultBytes: number | null;
   /** Unicode text-character count used by the amplification estimate. */
   resultChars?: number | null;
-  /** Pi entry that owns this call, when the source exposes branch entries. */
+  /** Optional source entry that owns this call when the source exposes branch entries. */
   entryId?: string | null;
   isError: boolean | null;
 }

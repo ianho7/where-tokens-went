@@ -7,7 +7,7 @@ description: Explain recent Codex usage from local history using the where-token
 
 Use this Skill when the user asks where their Codex usage went, why usage rose, which Session or project was largest, or what action could reduce repeated context usage.
 
-The invoking Harness is fixed to Codex. Do not inspect Claude Code, Pi, DeepSeek Harness, or any other Harness in response to a Codex request.
+The invoking Harness is fixed to Codex. Do not inspect any other Harness in response to a Codex request.
 
 ## Invocation
 

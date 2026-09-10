@@ -9,7 +9,7 @@ The coding agent in which the user invokes where-tokens-went, such as Codex or C
 _Avoid_: Provider, model, client
 
 **Harness**:
-The agent runtime that owns sessions, tools, persistence, and execution behavior. Claude Code, Codex, Pi, and DeepSeek Harness are Harnesses.
+The agent runtime that owns sessions, tools, persistence, and execution behavior. Claude Code and Codex are the currently supported Harnesses in this project.
 _Avoid_: Model, Provider
 
 **Provider**:

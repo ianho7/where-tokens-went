@@ -6,23 +6,14 @@ const path = require('node:path');
 const repoRoot = path.resolve(__dirname, '..');
 const compiledRoot = path.join(repoRoot, 'dist', 'src');
 const echartsAssets = path.join(repoRoot, 'dist', 'assets');
-const dependencyRoot = path.join(repoRoot, 'node_modules', 'fzstd');
-const dependencyEntry = path.join(dependencyRoot, 'lib', 'index.js');
-const dependencyLicense = path.join(dependencyRoot, 'LICENSE');
 const skillNames = [
   'where-tokens-went-codex',
   'where-tokens-went-claude',
-  'where-tokens-went-pi',
-  'where-tokens-went-deepseek',
 ];
 
 if (!fs.existsSync(path.join(compiledRoot, 'cli.js'))) {
   throw new Error('Compiled CLI not found. Run npm run build before packaging Skills.');
 }
-if (!fs.existsSync(dependencyEntry)) {
-  throw new Error('The fzstd dependency is not installed. Run npm install before packaging Skills.');
-}
-
 const launcher = `#!/usr/bin/env node
 
 const { main } = require('./runtime/cli.js');
@@ -39,11 +30,6 @@ for (const name of skillNames) {
   fs.mkdirSync(scriptsRoot, { recursive: true });
   fs.cpSync(compiledRoot, runtimeRoot, { recursive: true });
   fs.cpSync(echartsAssets, path.join(runtimeRoot, 'assets'), { recursive: true });
-  fs.copyFileSync(dependencyEntry, path.join(runtimeRoot, 'fzstd.js'));
-  if (fs.existsSync(dependencyLicense)) fs.copyFileSync(dependencyLicense, path.join(runtimeRoot, 'fzstd.LICENSE'));
-  const deepSeekRuntime = path.join(runtimeRoot, 'deepseek-reader.js');
-  const deepSeekSource = fs.readFileSync(deepSeekRuntime, 'utf8');
-  fs.writeFileSync(deepSeekRuntime, deepSeekSource.replace('require("fzstd")', 'require("./fzstd.js")'), 'utf8');
   fs.writeFileSync(path.join(scriptsRoot, 'where-tokens-went.js'), launcher, 'utf8');
   console.log(`packaged ${name}`);
 }

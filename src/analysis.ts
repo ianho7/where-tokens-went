@@ -125,10 +125,6 @@ function composition(call: ModelCallRecord, harness: Harness): Composition | nul
       ? { input: ordinaryInput, cached: cached!, cacheWrite: cacheWrite!, output: output!, unclassified }
       : null;
   }
-  if (harness === "deepseek") {
-    const unclassified = total! - input! - cached! - cacheWrite! - output!;
-    return unclassified >= 0 ? { input: input!, cached: cached!, cacheWrite: cacheWrite!, output: output!, unclassified } : null;
-  }
   if (call.reasoningTokens === null || input! + cached! + cacheWrite! + output! + call.reasoningTokens !== total) return null;
   return { input: input!, cached: cached!, cacheWrite: cacheWrite!, output: output!, unclassified: call.reasoningTokens };
 }
@@ -555,7 +551,7 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     modelCallCount: countEvidence(read.modelCalls.length, "count of selected ModelCall records"),
     activeBranchModelCallCount: countEvidence(
       read.modelCalls.filter((call) => call.activeBranch !== false).length,
-      "count of selected ModelCall records in the active context; non-Pi calls are treated as active",
+      "count of selected ModelCall records in the active context; calls without a branch marker are treated as active",
     ),
     activeBranchTokens: (() => {
       const active = sumTokens(read.modelCalls.filter((call) => call.activeBranch !== false));

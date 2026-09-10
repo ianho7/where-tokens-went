@@ -23,9 +23,9 @@ Only one Reader runs per invocation. There is no source registry scan, backgroun
 
 ## Runtime choice
 
-Implement the local tool in TypeScript. Start with the Node.js standard library and add dependencies only where the source format requires them. DeepSeek Harness `.jsonl.zstd` requires Zstandard decoding; choose the smallest maintained package that can decode concatenated frames, then verify packed storage rows against the official implementation described in `HARNESS_DATA_SOURCES.md`.
+Implement the local tool in TypeScript. Start with the Node.js standard library and add dependencies only where the source format requires them.
 
-Do not choose a bundler, single-binary packager, MCP transport, or plugin SDK until the CLI demonstrates the Aha moment on all four Readers.
+Do not choose a bundler, single-binary packager, MCP transport, or plugin SDK until the CLI demonstrates the Aha moment on both Readers.
 
 ## CLI contract
 
@@ -33,7 +33,7 @@ MVP exposes one command:
 
 ```text
 where-tokens-went inspect \
-  --harness <claude|codex|pi|deepseek> \
+  --harness <claude|codex> \
   [--cwd <absolute-path> | --all-projects] \
   [--since <duration>] \
   [--format text|json]
@@ -53,7 +53,7 @@ Rules:
 Readers return plain values, not a general event platform:
 
 ```ts
-type Harness = "claude" | "codex" | "pi" | "deepseek";
+type Harness = "claude" | "codex";
 type Provenance = "reported" | "derived" | "estimated" | "unavailable";
 
 interface SessionRecord {
@@ -150,7 +150,7 @@ estimated result tokens = UTF-8 text characters / 4
 amplified tokens = estimated result tokens × later model calls in the same active context
 ```
 
-Mark the value `estimated` and retain the method. Pi branches and compaction, Codex compaction, and DSH surface replacement must limit what counts as the same active context when the source makes that boundary available.
+Mark the value `estimated` and retain the method. Claude Code and Codex compaction boundaries must limit what counts as the same active context when the source makes that boundary available.
 
 Do not introduce a generic rules engine. Ordinary analysis functions returning a small stable list of automated checks are enough.
 
@@ -213,8 +213,6 @@ The Host Agent forms the Finding from the complete sanitized result. It may sele
 
 1. **Codex** — prove current-project and all-project scope over rollout JSONL, using `raw_response_completed` or non-cumulative usage correctly.
 2. **Claude Code** — prove response-level deduplication and tool call/result pairing over transcript JSONL.
-3. **Pi** — add active-branch and compaction-aware accounting; preserve reported cost separately.
-4. **DeepSeek Harness** — decode the observed `.jsonl.zstd` backend and packed rows; SQLite remains out of scope.
 
 For each Reader, derive one minimal redacted sample from a real Session and retain only the records necessary to catch parser and counting regressions. This is a smoke check, not a formal evaluation platform.
 
@@ -225,7 +223,7 @@ For each Reader, derive one minimal redacted sample from a real Session and reta
 3. Produce contribution ranking and one human-readable long-Session automated check.
 4. Add Codex tool pairing and an amplification automated check.
 5. Add `--all-projects` without changing Harness selection.
-6. Repeat the Reader slice for Claude, Pi, and DeepSeek Harness.
+6. Keep the Codex and Claude Reader slices aligned with the shared contract.
 7. Add the thinnest native integration for each Harness after its Reader works from the CLI.
 
-Stop the MVP when all four Readers satisfy `MVP.md`. Add MCP, persistent storage, live telemetry, richer reports, or formal evals only after real usage shows which one removes the next bottleneck.
+Stop the MVP when both Readers satisfy `MVP.md`. Add MCP, persistent storage, live telemetry, richer reports, or formal evals only after real usage shows which one removes the next bottleneck.

@@ -1,21 +1,19 @@
-# where-tokens-went MVP：四种 Harness 的历史数据源与 Reader 约定
+# where-tokens-went MVP：Claude Code 与 Codex 的历史数据源与 Reader 约定
 
-> 调研快照：2026-09-07。范围仅包括 Claude Code、OpenAI Codex、Pi（`earendil-works/pi`）和 DeepSeek Harness。目标是：工具由哪个 Harness 调用，就只读取该 Harness、当前项目的既有本地历史；不默认扫描其他 Harness，也不把实时采集放进 MVP。
+> 调研快照：2026-09-07。当前实现仅支持 Claude Code 和 OpenAI Codex。Pi（`earendil-works/pi`）与 DeepSeek Harness 的 Reader 暂停支持；下方对应章节保留为未来恢复参考，不代表当前 CLI、Skill 或安装脚本仍支持它们。目标是：工具由哪个 Harness 调用，就只读取该 Harness、当前项目的既有本地历史；不默认扫描其他 Harness，也不把实时采集放进 MVP。
 
 ## 结论先行
 
-四种 Harness 都能支撑“当前 Harness / 当前项目 / 最近一段时间”的历史诊断，但接口稳定性不对称：
+当前支持的两种 Harness 都能支撑“当前 Harness / 当前项目 / 最近一段时间”的历史诊断，但接口稳定性不对称：
 
 | Harness | MVP 首选历史源 | 可得到的关键事实 | 主要风险 |
 |---|---|---|---|
 | Claude Code | `~/.claude/projects/<project>/<session-id>.jsonl` | 消息、工具调用/结果、模型响应 usage；子 Agent sidecar | 路径和 JSONL 存在是官方契约，**逐字段 transcript schema 并未完整发布** |
 | Codex | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` | thread/turn/item、工具、错误、压缩、逐响应或增量 usage、子 Agent 关系 | rollout 是官方开源实现细节，演进快；可用 app-server 降低耦合 |
-| Pi | `~/.pi/agent/sessions/--<path>--/*.jsonl` | 完整消息/工具、usage、cost、分支、压缩、父 session | 四者中历史格式文档最完整；仍须按 header `version` 分派 |
-| DeepSeek Harness | 配置的 `SessionPersistence`；JSONL 默认物理编码为 `.jsonl.zstd`，也可能是 SQLite | 完整事件流、请求 header、usage、失败 attempt、retry、工具、压缩、父子 lineage | Developer Preview；根目录无 backend 级默认，事件集合可被插件扩展 |
 
 MVP 的共同原则：
 
-1. **入口显式指定 Harness**，Reader 不自行探测四种来源。
+1. **入口显式指定 Harness**，Reader 不自行探测两种来源。
 2. **当前项目由调用入口传入绝对 cwd**；不要依赖目录名反解。
 3. **只读、流式、容错解析**；未知记录保留计数并跳过，不因一个新事件类型使整份报告失败。
 4. 每项结果携带最小来源标签：`reported`、`derived`、`estimated` 或 `unavailable`。
@@ -24,7 +22,7 @@ MVP 的共同原则：
 
 ## MVP Reader 的最小输出
 
-Reader 不需要先构造通用事件平台。四个 Reader 只需返回下列最小记录，缺失字段为 `null`，不得补零：
+Reader 不需要先构造通用事件平台。两个 Reader 只需返回下列最小记录，缺失字段为 `null`，不得补零：
 
 ```text
 Session
@@ -46,7 +44,7 @@ Lifecycle
   related_id?, details?
 ```
 
-“成本”不放进 Reader 的必填契约。只有 Pi 在历史记录中直接提供分桶成本；其他 Harness 的成本需要价格表和生效日期，是后续派生值，不能标为 `reported`。
+“成本”不放进 Reader 的必填契约。Claude Code 与 Codex 都不把成本作为 Reader 必填值；成本需要价格表和生效日期，是后续派生值，不能标为 `reported`。
 
 ## 1. Claude Code
 
@@ -139,7 +137,9 @@ Codex 有两个可用面：
 5. 工具统一从 item lifecycle 的 started/completed 配对；输出大小从 completed item 的 stdout/stderr/content 计算。只保留摘要，不回显正文。
 6. 若未来格式变化导致 rollout 解析失败，切换到与本机版本匹配的 app-server schema，而不是永久兼容所有内部 variant。
 
-## 3. Pi（earendil-works/pi）
+## 暂停支持：Pi（earendil-works/pi）
+
+以下内容保留调研证据，不代表当前 CLI、Skill 或安装脚本仍支持 Pi。
 
 ### 官方明确的事实
 
@@ -178,7 +178,9 @@ Pi 发布了完整的 Session File Format 文档：session 是 JSONL，每行带
 5. cost 直接使用日志数值并标 `reported`，同时保留币种未知这一事实；不要自行假设都是 USD。
 6. tool content 默认只计大小；图片 base64 不输出。
 
-## 4. DeepSeek Harness
+## 暂停支持：DeepSeek Harness
+
+以下内容保留调研证据，不代表当前 CLI、Skill 或安装脚本仍支持 DeepSeek Harness。
 
 ### 官方明确的事实
 
@@ -226,14 +228,12 @@ DeepSeek Harness 把 session 定义为 append-only `SessionEvent` 日志，是�
 
 ## 实施优先级与验收
 
-按用户日常频率，建议顺序为 Codex → Claude Code → Pi → DeepSeek Harness：
+当前实现优先验证 Codex → Claude Code：
 
 1. **Codex**：先用真实 rollout 打通“当前 cwd 最近 7 天 → 最大 token session → 最大工具输出/错误 → 一条证据化建议”。
 2. **Claude Code**：验证相同最小输出契约能容纳另一种 JSONL，并实现响应去重。
-3. **Pi**：验证明确的 cost、树形 branch 和 compaction 语义。
-4. **DeepSeek Harness**：最后处理可配置 backend、zstd packed rows 和插件扩展事件。
 
-每个 Reader 的最低验收只需要一份用户自己的脱敏历史样本：
+每个当前支持的 Reader 的最低验收只需要一份用户自己的脱敏历史样本：
 
 - 能按当前 cwd 找到正确 session，不碰其他 Harness；
 - 总 usage 与 Harness 自己显示的量级一致；

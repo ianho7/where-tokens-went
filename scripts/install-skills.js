@@ -8,8 +8,6 @@ const targetRoot = path.resolve(process.argv[2] || repoRoot);
 const installs = [
   ['where-tokens-went-codex', ['.agents', 'skills']],
   ['where-tokens-went-claude', ['.claude', 'skills']],
-  ['where-tokens-went-pi', ['.pi', 'skills']],
-  ['where-tokens-went-deepseek', ['.agents', 'skills']],
 ];
 
 for (const [name, parent] of installs) {
