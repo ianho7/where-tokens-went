@@ -65,6 +65,7 @@ interface SessionRecord {
   endedAt: string | null;
   parentSessionId: string | null;
   isSubagent?: boolean | null; // only when the Harness source proves it
+  partial?: boolean | null; // true/false only when the Reader can attribute coverage completeness to this Session
   sourceVersion: string | null;
 }
 
@@ -189,7 +190,11 @@ interface AuditResult {
 
 Contribution rankings include the exact token `value` and a derived `sharePercent` in percentage points. Session entries may include `displayName`, which combines an explicit Harness title with the Session ID; when no title exists, the ID remains the display name. Codex titles come only from its local Session index metadata. The Host Agent formats these values for the user's language without changing the authoritative JSON.
 
-For Codex, when every selected Session has source metadata that proves whether it is a subagent, `summary.topLevelSessionCount` and `summary.subagentSessionCount` split the total execution Session count. When that source metadata is missing, both remain `unavailable`; the report never guesses from a title or sidebar state.
+For Codex, when every selected Session has source metadata that proves whether it is a subagent, `summary.topLevelSessionCount` and `summary.subagentSessionCount` split the total execution Session count. When that source metadata is missing, both remain `unavailable`; the report never guesses from a title or sidebar state. `SessionRecord.partial` is `true` when the Reader attributes an unsupported accounting record, unusable timestamp, or broken tail to that Session; it is `false` after the Reader checks the Session and finds no such gap; it remains `null` when attribution is not possible.
+
+The partial/subagent cross-statistics `summary.partialTopLevelSessionCount`, `summary.partialSubagentSessionCount`, and `summary.partialSessionRatePercent` are derived only when every selected Codex Session has boolean `isSubagent` and `partial` values, the attributed partial count equals `coverage.partialSessions`, and the selected Session denominator is greater than zero. Otherwise all three remain `unavailable`. This prevents an aggregate partial count from being presented as proof that the same Sessions are subagents.
+
+`summary.totalTokens` and related usage totals describe observed tokens from supported, selected ModelCall records. They are not a completeness claim: when Coverage is partial or records were skipped, the observed total may undercount actual usage. The analysis method that refers to “complete ModelCall token totals” means complete within those supported observed records, not complete history coverage.
 
 Check identifiers and outcomes are stable machine data, not report copy. A shared presentation function maps each check and its Evidence to a concise localized observation for text, share, and HTML without rerunning thresholds or selecting a primary cause. A visible check must communicate what was observed, the relevant values, and the method; showing only an internal identifier such as `long_session` is invalid. Passed checks may be shown when they establish useful data health or the absence of a detectable pattern. The presentation must not add a fixed mechanism, recommendation, or final diagnosis.
 

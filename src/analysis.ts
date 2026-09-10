@@ -435,19 +435,56 @@ function evidenceForCount(value: number, method: string): EvidenceValue {
   return { value, provenance: "derived", method };
 }
 
-function codexSessionComposition(read: ReadResult, harness: Harness): { topLevel: EvidenceValue; subagent: EvidenceValue } {
+function codexSessionComposition(read: ReadResult, harness: Harness): {
+  topLevel: EvidenceValue;
+  subagent: EvidenceValue;
+  partialTopLevel: EvidenceValue;
+  partialSubagent: EvidenceValue;
+  partialRate: EvidenceValue;
+} {
   if (harness !== "codex") {
     const value = unavailable("this Harness does not expose Codex subagent source metadata");
-    return { topLevel: value, subagent: value };
+    const partial = unavailable("this Harness does not expose source-proven partial Session metadata");
+    return { topLevel: value, subagent: value, partialTopLevel: partial, partialSubagent: partial, partialRate: partial };
   }
   if (read.sessions.some((session) => session.isSubagent === null || session.isSubagent === undefined)) {
     const value = unavailable("one or more selected Codex Sessions lack source metadata needed to classify subagents");
-    return { topLevel: value, subagent: value };
+    const partial = unavailable("one or more selected Codex Sessions lack source metadata needed to attribute partial coverage");
+    return { topLevel: value, subagent: value, partialTopLevel: partial, partialSubagent: partial, partialRate: partial };
   }
   const subagent = read.sessions.filter((session) => session.isSubagent === true).length;
+  const partialUnavailable = unavailable("partial Session attribution is unavailable without source-proven partial metadata for every selected Codex Session");
+  if (read.sessions.length === 0 || read.sessions.some((session) => typeof session.partial !== "boolean")) {
+    return {
+      topLevel: evidenceForCount(read.sessions.length - subagent, "count of selected Codex Sessions whose source metadata is not subagent"),
+      subagent: evidenceForCount(subagent, "count of selected Codex Sessions whose source metadata is subagent"),
+      partialTopLevel: partialUnavailable,
+      partialSubagent: partialUnavailable,
+      partialRate: partialUnavailable,
+    };
+  }
+  const partialSessions = read.sessions.filter((session) => session.partial === true);
+  if (partialSessions.length !== read.coverage.partialSessions) {
+    return {
+      topLevel: evidenceForCount(read.sessions.length - subagent, "count of selected Codex Sessions whose source metadata is not subagent"),
+      subagent: evidenceForCount(subagent, "count of selected Codex Sessions whose source metadata is subagent"),
+      partialTopLevel: partialUnavailable,
+      partialSubagent: partialUnavailable,
+      partialRate: partialUnavailable,
+    };
+  }
+  const partialTopLevel = partialSessions.filter((session) => session.isSubagent === false).length;
+  const partialSubagent = partialSessions.filter((session) => session.isSubagent === true).length;
   return {
     topLevel: evidenceForCount(read.sessions.length - subagent, "count of selected Codex Sessions whose source metadata is not subagent"),
     subagent: evidenceForCount(subagent, "count of selected Codex Sessions whose source metadata is subagent"),
+    partialTopLevel: evidenceForCount(partialTopLevel, "count of source-proven partial top-level Codex Sessions"),
+    partialSubagent: evidenceForCount(partialSubagent, "count of source-proven partial Codex subagent Sessions"),
+    partialRate: {
+      value: Math.round((partialSessions.length / read.sessions.length) * 10000) / 100,
+      provenance: "derived",
+      method: "source-proven partial selected Session count divided by selected Session count, expressed as percentage points and rounded to two decimals",
+    },
   };
 }
 
@@ -512,6 +549,9 @@ export function analyseAudit(scope: ReadScope, read: ReadResult, harness: Harnes
     sessionCount: countEvidence(read.sessions.length, "count of selected Session records"),
     topLevelSessionCount: sessionComposition.topLevel,
     subagentSessionCount: sessionComposition.subagent,
+    partialTopLevelSessionCount: sessionComposition.partialTopLevel,
+    partialSubagentSessionCount: sessionComposition.partialSubagent,
+    partialSessionRatePercent: sessionComposition.partialRate,
     modelCallCount: countEvidence(read.modelCalls.length, "count of selected ModelCall records"),
     activeBranchModelCallCount: countEvidence(
       read.modelCalls.filter((call) => call.activeBranch !== false).length,

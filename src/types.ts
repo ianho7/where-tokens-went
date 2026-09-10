@@ -17,6 +17,8 @@ export interface SessionRecord {
   parentSessionId: string | null;
   /** Codex source metadata proves this persisted Session ran as a subagent. */
   isSubagent?: boolean | null;
+  /** Reader attribution of a coverage gap to this Session; null means unknown. */
+  partial?: boolean | null;
   sourceVersion: string | null;
 }
 

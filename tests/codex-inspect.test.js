@@ -318,6 +318,8 @@ test('Codex scope keeps projects separate and deduplicates repeated response usa
     assert.equal(result.coverage.filesRead, 2);
     assert.equal(result.coverage.recordsSkipped, 1);
     assert.equal(result.coverage.partialSessions, 1);
+    assert.equal(result.summary.partialSessionRatePercent.value, null);
+    assert.equal(result.summary.partialSessionRatePercent.provenance, 'unavailable');
     assert.equal(result.summary.topSessionId.value, 'current-session');
     assert.equal(result.summary.topSessionTitle.provenance, 'unavailable');
     assert.equal(result.rankings.sessions[0].displayName, 'current-session');
@@ -345,6 +347,48 @@ test('Codex reports source-proven top-level and subagent Session counts separate
     ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
     const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'], { CODEX_HOME: codexHome });
     assert.match(stdout, /Sessions: 2 \(derived\); top-level tasks: 1 \(derived\); subagent Sessions: 1 \(derived\)/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Codex reports source-proven partial Session composition without guessing', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-codex-partial-composition-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '07');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessions, { recursive: true });
+  const response = (id, total) => ({ timestamp: isoHoursAgo(1), type: 'event_msg', payload: { type: 'raw_response_completed', response_id: id, usage: { input_tokens: total - 10, output_tokens: 10, total_tokens: total } } });
+  try {
+    await writeFile(path.join(sessions, 'rollout-parent.jsonl'), [
+      { timestamp: isoHoursAgo(2), type: 'session_meta', payload: { id: 'parent-complete', cwd: project, source: 'vscode' } },
+      response('parent-complete-response', 100),
+    ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+    await writeFile(path.join(sessions, 'rollout-child.jsonl'), [
+      { timestamp: isoHoursAgo(2), type: 'session_meta', payload: { id: 'child-partial', cwd: project, parent_thread_id: 'parent-complete', source: { subagent: {} } } },
+      response('child-partial-response', 50),
+      { timestamp: isoHoursAgo(0.8), type: 'future_token_usage', payload: { usage: { total_tokens: 999 } } },
+    ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+
+    const { stdout: jsonText } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      { CODEX_HOME: codexHome },
+    );
+    const result = JSON.parse(jsonText);
+    assert.equal(result.coverage.partialSessions, 1);
+    assert.equal(result.summary.partialTopLevelSessionCount.value, 0);
+    assert.equal(result.summary.partialSubagentSessionCount.value, 1);
+    assert.equal(result.summary.partialSessionRatePercent.value, 50);
+    assert.equal(result.summary.partialSessionRatePercent.provenance, 'derived');
+    assert.match(result.summary.partialSessionRatePercent.method, /partial.*Session count divided by selected Session count/i);
+
+    const { stdout: textOutput } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'],
+      { CODEX_HOME: codexHome },
+    );
+    assert.match(textOutput, /1 of 2 Sessions \(50%/);
+    assert.match(textOutput, /All partial Sessions are source-proven subagent Sessions/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -602,7 +646,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.match(html, /class="percentage"[^>]*>100%</);
     assert.equal(/2026-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z/.test(html), false);
     assert.equal((html.match(/已报告/g) ?? []).length <= 1, true);
-    assert.match(html, /一个工具结果估算重复进入上下文/);
+    assert.match(html, /一个工具结果可能在后续上下文中延续；暴露估算/);
     assert.match(html, /方法：/);
     assert.equal(html.includes('long_session'), false);
     assert.equal((html.match(/2 个 Codex Session 包含尚未支持的计量记录/g) ?? []).length, 1);

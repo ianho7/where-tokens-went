@@ -29,6 +29,40 @@ function result(isError = null) {
   return analyseAudit({ cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') }, evidenceRead(isError), 'codex');
 }
 
+function findingsResult() {
+  const read = evidenceRead();
+  read.modelCalls[0] = { ...read.modelCalls[0], timestamp: '2026-09-08T08:00:00.000Z' };
+  read.modelCalls[1] = { ...read.modelCalls[1], timestamp: '2026-09-08T09:00:00.000Z' };
+  read.toolCalls[0] = { ...read.toolCalls[0], timestamp: '2026-09-08T08:30:00.000Z' };
+  return analyseAudit({ cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') }, read, 'codex');
+}
+
+function injectedChartResult() {
+  const read = evidenceRead();
+  read.modelCalls[0] = { ...read.modelCalls[0], timestamp: '2026-09-08T08:00:00.000Z' };
+  read.modelCalls[1] = { ...read.modelCalls[1], timestamp: '2026-09-08T09:00:00.000Z' };
+  read.modelCalls.push({
+    ...read.modelCalls[1],
+    callId: 'large-call-3',
+    timestamp: '2026-09-08T10:00:00.000Z',
+    totalTokens: 80,
+    inputTokens: 70,
+    outputTokens: 10,
+  });
+  read.toolCalls[0] = { ...read.toolCalls[0], timestamp: '2026-09-08T07:30:00.000Z', resultChars: 40 };
+  return analyseAudit({ cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') }, read, 'codex');
+}
+
+function partialCoverageResult(sourceProof = true) {
+  const read = evidenceRead();
+  read.coverage.partialSessions = 1;
+  if (sourceProof) {
+    read.sessions[0] = { ...read.sessions[0], isSubagent: false, partial: false };
+    read.sessions[1] = { ...read.sessions[1], isSubagent: true, partial: true };
+  }
+  return analyseAudit({ cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') }, read, 'codex');
+}
+
 test('every inline report script parses', () => {
   const html = renderHtml(result(), 'en-US');
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
@@ -44,14 +78,14 @@ test('analysis returns deterministic automated checks', () => {
 
 test('tool error column is hidden when every value is unavailable', () => {
   const html = renderHtml(result(), 'en-US');
-  const toolTable = html.match(/<section><h2>Tool context impact<\/h2>[\s\S]*?<\/section>/)?.[0] ?? '';
+  const toolTable = html.match(/<section(?: class="tool-impact")?><h2>Tool context impact<\/h2>[\s\S]*?<\/section>/)?.[0] ?? '';
   assert.doesNotMatch(toolTable, /<th>errors<\/th>/);
 });
 
 
 test('tool error column remains when any value is available', () => {
   const html = renderHtml(result(true), 'en-US');
-  const toolTable = html.match(/<section><h2>Tool context impact<\/h2>[\s\S]*?<\/section>/)?.[0] ?? '';
+  const toolTable = html.match(/<section(?: class="tool-impact")?><h2>Tool context impact<\/h2>[\s\S]*?<\/section>/)?.[0] ?? '';
   assert.match(toolTable, /<th>errors<\/th>/);
 });
 
@@ -99,6 +133,62 @@ test('automated checks use their compact card layout', () => {
   const html = renderHtml(result(), 'zh-CN');
   assert.match(html, /class="supporting-finding"/);
   assert.equal(html.includes('.supporting-findings ul{'), true);
+});
+
+test('Findings format percentages and estimated provenance exactly once', () => {
+  const finding = findingsResult();
+  const html = renderHtml(finding, 'en-US');
+  const text = require('../dist/src/report.js').renderText(finding, 'en-US');
+  assert.match(html, /One Session accounts for[\s\S]*?99%/);
+  assert.match(html, /class="finding-evidence" data-provenance="derived"[\s\S]*?99%/);
+  assert.doesNotMatch(html, /One Session accounts for 99 \(derived\)/);
+  assert.match(text, /One Session accounts for 99% \(derived\) of observed tokens/);
+  assert.match(text, /One tool result may be carried forward/);
+  const toolFinding = text.split('\n').find((line) => line.includes('One tool result may be carried forward')) ?? '';
+  assert.equal((toolFinding.match(/estimated/g) ?? []).length, 1);
+  assert.match(toolFinding, /characters/);
+  assert.doesNotMatch(html, /complete tokens/i);
+  assert.doesNotMatch(text, /complete tokens/i);
+  assert.doesNotMatch(text, /adds an estimated.*estimated/);
+});
+
+test('Coverage narrative proves partial subagent overlap or stays unavailable', () => {
+  const proven = partialCoverageResult(true);
+  const provenHtml = renderHtml(proven, 'en-US');
+  const { renderText, renderShare } = require('../dist/src/report.js');
+  assert.match(provenHtml, /class="coverage-alert"/);
+  const provenCoverageText = provenHtml.replace(/<[^>]+>/g, '');
+  assert.match(provenCoverageText, /1 of 2 Sessions[\s\S]*50%/);
+  assert.match(provenCoverageText, /All partial Sessions are source-proven subagent Sessions/);
+  assert.match(renderText(proven, 'en-US'), /Coverage: 1 of 2 Sessions \(50%, derived\)/);
+  assert.match(renderShare(proven, 'en-US'), /- Coverage: 1 of 2 Sessions \(50%, derived\)/);
+
+  const unknown = partialCoverageResult(false);
+  const unknownText = renderText(unknown, 'en-US');
+  assert.match(unknownText, /partial Session composition is unavailable/);
+  assert.doesNotMatch(unknownText, /\(50%/);
+});
+
+test('tool chart uses injected estimate and labels carry-forward as uncapped', () => {
+  const report = injectedChartResult();
+  const html = renderHtml(report, 'en-US');
+  assert.equal(report.report.tools[0].injectedTokens.value, 10);
+  assert.equal(report.report.tools[0].amplifiedTokens.value, 30);
+  assert.match(html, /"tools":\[\{"name":"read","value":10\}\]/);
+  assert.match(html, /Estimated tool-result injection by tool/);
+  assert.match(html, /carry-forward estimate \(uncapped\)/);
+  assert.match(html, /\.tool-impact \.metric-stack\[data-provenance="estimated"\]/);
+});
+
+test('rolling activity distinguishes latest window from historical peak', () => {
+  const report = result();
+  const html = renderHtml(report, 'en-US');
+  const { renderText } = require('../dist/src/report.js');
+  assert.match(html, /Latest 5h tokens/);
+  assert.match(html, /Highest rolling 5h in selected range/);
+  const text = renderText(report, 'en-US', 'window');
+  assert.match(text, /Latest 5h tokens/);
+  assert.match(text, /Highest rolling 5h in selected range/);
 });
 
 test('daily token trend uses the Kami contrast ladder and redundant line encodings', () => {

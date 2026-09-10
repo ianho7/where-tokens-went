@@ -386,7 +386,16 @@ async function readCodex(scope) {
             catch {
                 coverage.recordsSkipped += 1;
                 if (lineIndex === lines.length - 1 && !hadTrailingNewline) {
-                    coverage.partialSessions += 1;
+                    const pending = activeSessionId ? pendingById.get(activeSessionId) : undefined;
+                    if (pending) {
+                        pending.partial = true;
+                        if (!pending.partialCoverageCounted) {
+                            coverage.partialSessions += 1;
+                            pending.partialCoverageCounted = true;
+                        }
+                    }
+                    else
+                        coverage.partialSessions += 1;
                 }
                 continue;
             }
@@ -424,6 +433,8 @@ async function readCodex(scope) {
                         currentProvider: null,
                         unsupported: false,
                         missingTimestamp: false,
+                        partial: false,
+                        partialCoverageCounted: false,
                     });
                 }
                 mergeSession(pendingById.get(sessionId), payload, timestamp);
@@ -452,6 +463,8 @@ async function readCodex(scope) {
                 currentProvider: null,
                 unsupported: false,
                 missingTimestamp: false,
+                partial: false,
+                partialCoverageCounted: false,
             };
             pendingById.set(sessionId, pending);
             updateSessionTimes(pending, timestamp);
@@ -461,6 +474,7 @@ async function readCodex(scope) {
                 coverage.recordsSkipped += 1;
                 if (accountingSensitiveCodexType(recordType ?? payloadType ?? "")) {
                     pending.unsupported = true;
+                    pending.partial = true;
                     if (!timestamp)
                         pending.missingTimestamp = true;
                 }
@@ -588,6 +602,8 @@ async function readCodex(scope) {
     let missingTimestampSessions = 0;
     for (const pending of pendingById.values()) {
         pending.session.title = sessionTitles.get(pending.session.sessionId) ?? null;
+        const partial = pending.partial || pending.unsupported || pending.missingTimestamp;
+        pending.session.partial = partial;
         if (!selectedByScope(pending.session, pending.eventTimes, scope)) {
             if (pending.missingTimestamp && (scope.allProjects || sameCwd(pending.session.projectCwd, scope.cwd))) {
                 coverage.partialSessions += 1;
@@ -598,13 +614,13 @@ async function readCodex(scope) {
         if (pending.unsupported) {
             unsupportedSessions += 1;
         }
-        let partial = pending.unsupported;
         if (pending.missingTimestamp) {
-            partial = true;
             missingTimestampSessions += 1;
         }
-        if (partial)
+        if (partial && !pending.partialCoverageCounted) {
             coverage.partialSessions += 1;
+            pending.partialCoverageCounted = true;
+        }
         sessions.push(pending.session);
         toolCalls.push(...pending.toolCalls.filter((tool) => tool.timestamp !== null && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
         lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp !== null && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));

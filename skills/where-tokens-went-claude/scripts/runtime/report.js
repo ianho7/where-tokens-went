@@ -19,6 +19,7 @@ const ZH = {
     files: "文件",
     records: "记录",
     skipped: "跳过",
+    warnings: "覆盖警告",
     partialSessions: "不完整 Session",
     totalTokens: "总 Token",
     sessions: "Session",
@@ -32,7 +33,7 @@ const ZH = {
     hourlyActivity: "小时活动热图",
     models: "模型分布",
     tools: "工具上下文影响",
-    toolImpactNote: "注入估算是工具结果加入上下文的大小；放大估算是其在同一活跃上下文后续调用中可能重复携带的量。两者均不是账单，也不是最终问题结论。",
+    toolImpactNote: "注入估算是工具结果加入上下文的大小；延续估算（未封顶）是它在同一活跃上下文的后续调用中可能携带的上下文暴露量。延续估算不是账单、真实新增 Token，也不能与总 Token 相加。",
     sessionsByUsage: "高用量 Session",
     limitations: "限制与缺失",
     provenance: "Provenance",
@@ -45,7 +46,10 @@ const ZH = {
     pairedResults: "配对结果",
     errors: "错误",
     injected: "注入估算",
-    amplified: "放大估算",
+    amplified: "延续估算（未封顶）",
+    characters: "字符",
+    latestWindowTokens: "最近 5 小时 Token",
+    historicalPeakTokens: "所选范围内最高滚动 5 小时 Token",
     observedActivity: "本地观察到的滚动活动",
     localOnly: "仅表示本地历史中观察到的活动，不是 Provider 额度。",
     providerQuota: "Provider 额度",
@@ -95,6 +99,7 @@ const EN = {
     files: "files",
     records: "records",
     skipped: "skipped",
+    warnings: "coverage warnings",
     partialSessions: "partial Sessions",
     totalTokens: "total tokens",
     sessions: "Sessions",
@@ -108,7 +113,7 @@ const EN = {
     hourlyActivity: "Hourly activity heatmap",
     models: "Model distribution",
     tools: "Tool context impact",
-    toolImpactNote: "The injected estimate is the tool-result size added to context; the amplified estimate is how much it may be carried by later calls in the same active context. Neither is a bill or a final problem conclusion.",
+    toolImpactNote: "The injected estimate is the tool-result size added to context; the carry-forward estimate is an uncapped exposure heuristic for how much it may be carried by later calls in the same active context. It is not a bill, actual new Token usage, or additive to total tokens.",
     sessionsByUsage: "Heavy Sessions",
     limitations: "Limitations and missing data",
     provenance: "Provenance",
@@ -121,7 +126,10 @@ const EN = {
     pairedResults: "paired results",
     errors: "errors",
     injected: "injected estimate",
-    amplified: "amplified estimate",
+    amplified: "carry-forward estimate (uncapped)",
+    characters: "characters",
+    latestWindowTokens: "Latest 5h tokens",
+    historicalPeakTokens: "Highest rolling 5h in selected range",
     observedActivity: "Locally observed rolling activity",
     localOnly: "This is activity observed in local history, not Provider quota.",
     providerQuota: "Provider quota",
@@ -240,6 +248,12 @@ function evidencePlain(value, locale, compact = true) {
         : String(value.value);
     return (value.provenance === "estimated" ? "≈ " : "") + raw + " (" + provenanceLabel(value.provenance, locale) + ")";
 }
+function percentagePlain(value, locale) {
+    if (value.value === null)
+        return labelsFor(locale).unavailable;
+    const raw = typeof value.value === "number" ? formatExact(value.value, locale) : String(value.value);
+    return (value.provenance === "estimated" ? "≈ " : "") + raw + "% (" + provenanceLabel(value.provenance, locale) + ")";
+}
 function metricPlain(value, locale, compact = true) {
     if (value.value === null)
         return labelsFor(locale).unavailable;
@@ -262,6 +276,26 @@ function evidenceHtml(value, locale, compact = true) {
     return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + (typeof value.value === "number" ? String(value.value) : "") + "\"><span class=\"metric-main\" title=\"" +
         escapeHtml(labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue) + "\">" +
         escapeHtml(prefix + compactValue) + "</span>" + estimate + "</span>";
+}
+function findingEvidenceHtml(value, locale, kind, compact = true) {
+    if (value.value === null)
+        return evidenceHtml(value, locale, false);
+    const labels = labelsFor(locale);
+    const compactValue = kind === "percentage"
+        ? formatExact(value.value, locale) + "%"
+        : typeof value.value === "number" && compact ? formatCompact(value.value, locale) : formatExact(value.value, locale);
+    const exactValue = formatExact(value.value, locale) + (kind === "percentage" ? "%" : "");
+    const prefix = value.provenance === "estimated" ? "≈ " : "";
+    return "<span class=\"finding-evidence\" data-provenance=\"" + escapeHtml(value.provenance) + "\" data-sort=\"" +
+        (typeof value.value === "number" ? String(value.value) : "") + "\"><span class=\"finding-value\" title=\"" +
+        escapeHtml(labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue) + "\">" + escapeHtml(prefix + compactValue) +
+        "</span><small class=\"provenance\">" + escapeHtml(provenanceLabel(value.provenance, locale)) + "</small></span>";
+}
+function findingMetricHtml(value, locale, compact = true) {
+    return findingEvidenceHtml(value, locale, "metric", compact);
+}
+function findingPercentageHtml(value, locale) {
+    return findingEvidenceHtml(value, locale, "percentage", false);
 }
 function percentageHtml(value, locale) {
     const labels = labelsFor(locale);
@@ -308,19 +342,111 @@ function renderWarningList(result, locale) {
         .map((warning) => "<li>" + escapeHtml(localizeWarning(warning, locale)) + "</li>")
         .join("") + "</ul>";
 }
+function coverageEvidence(value, method) {
+    return { value, provenance: "derived", method };
+}
+function unavailableEvidence(method) {
+    return { value: null, provenance: "unavailable", method };
+}
+function coverageSummaryEvidence(result, key, method) {
+    const candidate = result.summary[key];
+    return candidate && candidate.value !== undefined ? candidate : unavailableEvidence(method);
+}
+function coveragePercentageText(value, locale) {
+    if (value.value === null)
+        return labelsFor(locale).unavailable;
+    const raw = typeof value.value === "number" ? formatExact(value.value, locale) : String(value.value);
+    return raw + "%, " + provenanceLabel(value.provenance, locale);
+}
+function coveragePercentageHtml(value, locale) {
+    if (value.value === null)
+        return evidenceHtml(value, locale, false);
+    const labels = labelsFor(locale);
+    const exactValue = formatExact(value.value, locale) + "%";
+    return "<span class=\"coverage-percentage\" data-provenance=\"" + escapeHtml(value.provenance) + "\" data-sort=\"" +
+        String(value.value) + "\"><span title=\"" + escapeHtml(labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue) + "\">" +
+        escapeHtml(exactValue) + "</span><small class=\"provenance\">, " + escapeHtml(provenanceLabel(value.provenance, locale)) + "</small></span>";
+}
+function coverageMetricHtml(value, locale) {
+    return evidenceHtml(value, locale, false);
+}
+function coverageNarrative(result, locale) {
+    const chinese = locale === "zh-CN";
+    const partialCount = coverageEvidence(result.coverage.partialSessions, "count of partial Sessions reported by coverage");
+    const sessionCount = coverageSummaryEvidence(result, "sessionCount", "count of selected Session records");
+    const rate = result.summary.partialSessionRatePercent ?? unavailableEvidence("source-proven partial Session rate was not reported");
+    const partialTop = result.summary.partialTopLevelSessionCount ?? unavailableEvidence("source-proven partial top-level Session count was not reported");
+    const partialSubagent = result.summary.partialSubagentSessionCount ?? unavailableEvidence("source-proven partial subagent Session count was not reported");
+    const hasQualityGaps = result.coverage.partialSessions > 0 || result.coverage.recordsSkipped > 0 || result.coverage.warnings.length > 0;
+    if (!hasQualityGaps) {
+        const clean = chinese ? "历史记录解析完成，未发现覆盖警告。" : "History parsed without coverage warnings.";
+        return { text: clean, html: escapeHtml(clean) };
+    }
+    const observedCaveat = chinese
+        ? "总 Token 是已观测且受支持记录的汇总；存在不完整覆盖时，实际使用量可能更高。"
+        : "Total tokens are the sum of observed, supported records; incomplete coverage may undercount actual usage.";
+    let text;
+    let html;
+    if (result.coverage.partialSessions > 0 && rate.value !== null) {
+        const partialText = metricPlain(partialCount, locale, false);
+        const sessionText = metricPlain(sessionCount, locale, false);
+        const rateText = coveragePercentageText(rate, locale);
+        text = chinese
+            ? partialText + " / " + sessionText + " 个 Session（" + rateText + "）不完整。"
+            : partialText + " of " + sessionText + " Sessions (" + rateText + ") are partial.";
+        html = coverageMetricHtml(partialCount, locale) + (chinese ? " / " : " of ") + coverageMetricHtml(sessionCount, locale) +
+            (chinese ? " 个 Session（" : " Sessions (") + coveragePercentageHtml(rate, locale) + (chinese ? "）不完整。" : ") are partial.");
+        if (partialTop.value !== null && partialSubagent.value !== null) {
+            const allSubagents = partialTop.value === 0 && partialSubagent.value === result.coverage.partialSessions;
+            if (allSubagents) {
+                text += chinese ? "所有不完整 Session 都是来源已证明的子 Agent Session。" : " All partial Sessions are source-proven subagent Sessions.";
+                html += chinese ? "所有不完整 Session 都是来源已证明的子 Agent Session。" : " All partial Sessions are source-proven subagent Sessions.";
+            }
+            else {
+                text += chinese
+                    ? " 来源已证明的不完整 Session 组成：顶层 " + metricPlain(partialTop, locale, false) + "，子 Agent " + metricPlain(partialSubagent, locale, false) + "。"
+                    : " Source-proven partial composition: " + metricPlain(partialTop, locale, false) + " top-level; " + metricPlain(partialSubagent, locale, false) + " subagent.";
+                html += chinese
+                    ? " 来源已证明的不完整 Session 组成：顶层 " + coverageMetricHtml(partialTop, locale) + "，子 Agent " + coverageMetricHtml(partialSubagent, locale) + "。"
+                    : " Source-proven partial composition: " + coverageMetricHtml(partialTop, locale) + " top-level; " + coverageMetricHtml(partialSubagent, locale) + " subagent.";
+            }
+        }
+    }
+    else if (result.coverage.partialSessions > 0) {
+        text = chinese
+            ? metricPlain(partialCount, locale, false) + " 个 Session 数据不完整；不完整 Session 的来源交叉关系不可用。"
+            : metricPlain(partialCount, locale, false) + " partial Sessions; partial Session composition is unavailable because the source cannot prove the overlap.";
+        html = coverageMetricHtml(partialCount, locale) + (chinese
+            ? " 个 Session 数据不完整；不完整 Session 的来源交叉关系不可用。"
+            : " partial Sessions; partial Session composition is unavailable because the source cannot prove the overlap.");
+    }
+    else {
+        text = chinese
+            ? "覆盖范围包含跳过记录或警告；"
+            : "Coverage includes skipped records or warnings;";
+        html = escapeHtml(text);
+    }
+    text += (chinese ? " " : " ") + observedCaveat;
+    html += (chinese ? " " : " ") + escapeHtml(observedCaveat);
+    return { text, html };
+}
+function coverageLineText(result, locale) {
+    const stats = locale === "zh-CN"
+        ? result.coverage.filesRead + " 个文件，" + result.coverage.recordsRead + " 条记录，跳过 " + result.coverage.recordsSkipped + "，" + result.coverage.partialSessions + " 个不完整 Session，" + result.coverage.warnings.length + " 条覆盖警告。"
+        : result.coverage.filesRead + " files, " + result.coverage.recordsRead + " records, " + result.coverage.recordsSkipped + " skipped, " + result.coverage.partialSessions + " partial Sessions, " + result.coverage.warnings.length + " coverage warnings.";
+    return coverageNarrative(result, locale).text + " " + stats;
+}
 function renderCoverage(result, locale) {
     const labels = labelsFor(locale);
-    const status = result.coverage.warnings.length === 0
-        ? (locale === "zh-CN" ? "历史记录解析完成，未发现覆盖警告。" : "History parsed without coverage warnings.")
-        : (locale === "zh-CN"
-            ? result.coverage.partialSessions + " 个 Session 数据不完整，详情见“限制与缺失”。"
-            : result.coverage.partialSessions + " Sessions are partial; see Limitations and missing data.");
+    const narrative = coverageNarrative(result, locale);
+    const alert = result.coverage.partialSessions > 0 || result.coverage.recordsSkipped > 0 || result.coverage.warnings.length > 0;
     return "<div class=\"coverage-grid\">" +
         "<div><strong>" + result.coverage.filesRead + "</strong><span>" + escapeHtml(labels.files) + "</span></div>" +
         "<div><strong>" + result.coverage.recordsRead + "</strong><span>" + escapeHtml(labels.records) + "</span></div>" +
         "<div><strong>" + result.coverage.recordsSkipped + "</strong><span>" + escapeHtml(labels.skipped) + "</span></div>" +
         "<div><strong>" + result.coverage.partialSessions + "</strong><span>" + escapeHtml(labels.partialSessions) + "</span></div>" +
-        "</div><p class=\"" + (result.coverage.warnings.length === 0 ? "ok" : "coverage-note") + "\">" + escapeHtml(status) + "</p>";
+        "<div><strong>" + result.coverage.warnings.length + "</strong><span>" + escapeHtml(labels.warnings) + "</span></div>" +
+        "</div><p class=\"" + (alert ? "coverage-alert" : "ok") + "\">" + narrative.html + "</p>";
 }
 function renderScope(result, locale) {
     const labels = labelsFor(locale);
@@ -347,20 +473,28 @@ function renderKpis(result, locale) {
 }
 function presentCheck(check, locale) {
     const evidence = (index) => evidencePlain(check.evidence[index], locale);
+    const percentage = (index) => percentagePlain(check.evidence[index], locale);
+    const metricHtml = (index, compact = true) => findingMetricHtml(check.evidence[index], locale, compact);
+    const percentageHtmlValue = (index) => findingPercentageHtml(check.evidence[index], locale);
     const chinese = locale === "zh-CN";
+    const labels = labelsFor(locale);
     const marker = check.outcome === "pass" ? "✓" : "▲";
     if (check.id === "long_session")
         return {
             marker,
-            headline: chinese ? "一个 Session 占完整 Token 的 " + evidence(2) : "One Session accounts for " + evidence(2) + " of complete tokens",
-            detail: chinese ? evidence(1) + " 次模型调用；" + evidence(0) + " 完整 Token。" : evidence(1) + " ModelCall records; " + evidence(0) + " complete tokens.",
+            headline: chinese ? "一个 Session 占已观测 Token 的 " + percentage(2) : "One Session accounts for " + percentage(2) + " of observed tokens",
+            detail: chinese ? evidence(1) + " 次模型调用；" + evidence(0) + " 个已观测 Token。" : evidence(1) + " ModelCall records; " + evidence(0) + " observed tokens.",
+            headlineHtml: (chinese ? "一个 Session 占已观测 Token 的 " : "One Session accounts for ") + percentageHtmlValue(2) + (chinese ? "" : " of observed tokens"),
+            detailHtml: (chinese ? metricHtml(1) + " 次模型调用；" + metricHtml(0) + " 个已观测 Token。" : metricHtml(1) + " ModelCall records; " + metricHtml(0) + " observed tokens."),
             method: check.method,
         };
     if (check.id === "tool_amplification")
         return {
             marker,
-            headline: chinese ? "一个工具结果估算重复进入上下文 " + evidence(2) : "One tool result adds an estimated " + evidence(2) + " of repeated context",
-            detail: chinese ? "配对结果 " + evidence(0) + "；其后有 " + evidence(1) + " 次模型调用。" : "Paired result: " + evidence(0) + "; later ModelCall records: " + evidence(1) + ".",
+            headline: chinese ? "一个工具结果可能在后续上下文中延续；暴露估算 " + evidence(2) : "One tool result may be carried forward; exposure estimate " + evidence(2),
+            detail: chinese ? "配对结果 " + evidence(0) + " " + labels.characters + "；其后有 " + evidence(1) + " 次模型调用。" : "Paired result: " + evidence(0) + " " + labels.characters + "; later ModelCall records: " + evidence(1) + ".",
+            headlineHtml: (chinese ? "一个工具结果可能在后续上下文中延续；暴露估算 " : "One tool result may be carried forward; exposure estimate ") + metricHtml(2),
+            detailHtml: (chinese ? "配对结果 " + metricHtml(0) + " " + escapeHtml(labels.characters) + "；其后有 " + metricHtml(1) + " 次模型调用。" : "Paired result: " + metricHtml(0) + " " + escapeHtml(labels.characters) + "; later ModelCall records: " + metricHtml(1) + "."),
             method: check.method,
         };
     if (check.id === "extra_calls")
@@ -368,13 +502,17 @@ function presentCheck(check, locale) {
             marker,
             headline: chinese ? "观察到 " + evidence(0) + " 条重试、中断或子 Agent 生命周期记录" : evidence(0) + " retry, interruption, or subagent lifecycle records observed",
             detail: chinese ? "该检查只计数已观察到的生命周期记录。" : "This check counts only observed lifecycle records.",
+            headlineHtml: (chinese ? "观察到 " : "") + metricHtml(0) + (chinese ? " 条重试、中断或子 Agent 生命周期记录" : " retry, interruption, or subagent lifecycle records observed"),
+            detailHtml: chinese ? "该检查只计数已观察到的生命周期记录。" : "This check counts only observed lifecycle records.",
             method: check.method,
         };
     if (check.id === "model_concentration")
         return {
             marker,
-            headline: chinese ? evidence(0) + " 占完整 Token 的 " + evidence(1) : evidence(0) + " accounts for " + evidence(1) + " of complete tokens",
+            headline: chinese ? evidence(0) + " 占已观测 Token 的 " + percentage(1) : evidence(0) + " accounts for " + percentage(1) + " of observed tokens",
             detail: chinese ? evidence(2) + " 次模型调用。" : evidence(2) + " ModelCall records.",
+            headlineHtml: metricHtml(0) + (chinese ? " 占已观测 Token 的 " : " accounts for ") + percentageHtmlValue(1) + (chinese ? "" : " of observed tokens"),
+            detailHtml: metricHtml(2) + (chinese ? " 次模型调用。" : " ModelCall records."),
             method: check.method,
         };
     if (check.outcome === "pass")
@@ -382,12 +520,16 @@ function presentCheck(check, locale) {
             marker,
             headline: chinese ? "历史记录未报告覆盖警告" : "History parsed without coverage warnings",
             detail: chinese ? evidence(1) + " 条记录来自 " + evidence(0) + " 个文件；没有跳过或不完整 Session。" : evidence(1) + " records from " + evidence(0) + " files; no skipped or partial Sessions.",
+            headlineHtml: chinese ? "历史记录未报告覆盖警告" : "History parsed without coverage warnings",
+            detailHtml: chinese ? metricHtml(1) + " 条记录来自 " + metricHtml(0) + " 个文件；没有跳过或不完整 Session。" : metricHtml(1) + " records from " + metricHtml(0) + " files; no skipped or partial Sessions.",
             method: check.method,
         };
     return {
         marker,
         headline: chinese ? "覆盖范围报告存在跳过、不完整或警告记录" : "Coverage reports skipped, partial, or warning records",
         detail: chinese ? evidence(2) + " 条跳过记录；" + evidence(3) + " 个不完整 Session；" + evidence(4) + " 条覆盖警告。" : evidence(2) + " skipped records; " + evidence(3) + " partial Sessions; " + evidence(4) + " coverage warnings.",
+        headlineHtml: chinese ? "覆盖范围报告存在跳过、不完整或警告记录" : "Coverage reports skipped, partial, or warning records",
+        detailHtml: chinese ? metricHtml(2) + " 条跳过记录；" + metricHtml(3) + " 个不完整 Session；" + metricHtml(4) + " 条覆盖警告。" : metricHtml(2) + " skipped records; " + metricHtml(3) + " partial Sessions; " + metricHtml(4) + " coverage warnings.",
         method: check.method,
     };
 }
@@ -402,7 +544,7 @@ function renderChecks(result, locale) {
         return "<section><h2>" + escapeHtml(title) + "</h2>" + emptyState(labelsFor(locale), none) + "</section>";
     return "<section class=\"supporting-findings\"><h2>" + escapeHtml(title) + "</h2><p class=\"coverage-note\">" + escapeHtml(labelsFor(locale).checksNote) + "</p><ul>" + result.checks.map((check) => {
         const presented = presentCheck(check, locale);
-        return "<li class=\"supporting-finding\"><div><strong><span class=\"check-marker\" aria-label=\"" + escapeHtml(check.outcome) + "\">" + presented.marker + "</span> <span class=\"finding-source\">" + escapeHtml(locale === "zh-CN" ? "自动" : "Automated") + "</span> " + escapeHtml(presented.headline) + "</strong><span>" + escapeHtml(presented.detail) + "</span><small>" + escapeHtml(locale === "zh-CN" ? "方法：" : "Method: ") + escapeHtml(presented.method) + "</small></div></li>";
+        return "<li class=\"supporting-finding\"><div><strong><span class=\"check-marker\" aria-label=\"" + escapeHtml(check.outcome) + "\">" + presented.marker + "</span> <span class=\"finding-source\">" + escapeHtml(locale === "zh-CN" ? "自动" : "Automated") + "</span> " + presented.headlineHtml + "</strong><span>" + presented.detailHtml + "</span><small>" + escapeHtml(locale === "zh-CN" ? "方法：" : "Method: ") + escapeHtml(presented.method) + "</small></div></li>";
     }).join("") + "</ul></section>";
 }
 function tokenCell(value, locale) {
@@ -624,8 +766,8 @@ function renderRolling(result, locale) {
     return "<div class=\"window-note\"><strong>" + escapeHtml(labels.localOnly) + "</strong><span>" + escapeHtml(formatDateTime(rolling.startAt, locale) + " → " + formatDateTime(rolling.endAt, locale)) + "</span></div>" +
         "<div class=\"window-grid\">" +
         "<div><span>" + escapeHtml(labels.calls) + "</span><strong>" + tokenCell(rolling.observedModelCallCount, locale) + "</strong></div>" +
-        "<div><span>" + escapeHtml(labels.tokens) + "</span><strong>" + tokenCell(rolling.observedTokens, locale) + "</strong></div>" +
-        "<div><span>5h peak</span><strong>" + tokenCell(rolling.historicalPeakObservedTokens, locale) + "</strong></div>" +
+        "<div><span>" + escapeHtml(labels.latestWindowTokens) + "</span><strong>" + tokenCell(rolling.observedTokens, locale) + "</strong></div>" +
+        "<div><span>" + escapeHtml(labels.historicalPeakTokens) + "</span><strong>" + tokenCell(rolling.historicalPeakObservedTokens, locale) + "</strong></div>" +
         "<div><span>" + escapeHtml(labels.providerQuota) + "</span><strong>" + tokenCell(rolling.providerQuota, locale) + "</strong></div>" +
         "<div><span>" + escapeHtml(labels.resetTime) + "</span><strong>" + tokenCell(rolling.resetAt, locale) + "</strong></div>" +
         "</div><p class=\"empty\">" + escapeHtml(labels.noQuota) + "</p>";
@@ -676,7 +818,7 @@ function renderInteractiveCharts(result, locale) {
         time: formatDateKey(row.key, locale), total: numericValue(row.totalTokens), input: numericValue(row.inputTokens), cached: numericValue(row.cachedInputTokens), cacheWrite: numericValue(row.cacheWriteTokens), output: numericValue(row.outputTokens), unclassified: numericValue(row.unclassifiedTokens), cost: numericValue(row.apiEquivalentCost),
     }));
     const models = result.rankings.models.map((row) => ({ name: modelLabel(row.key, locale), value: numericValue(row.value) }));
-    const tools = result.report.tools.map((row) => ({ name: publicLabel(row.key, labels.unavailable), value: numericValue(row.amplifiedTokens) }));
+    const tools = result.report.tools.map((row) => ({ name: publicLabel(row.key, labels.unavailable), value: numericValue(row.injectedTokens) }));
     const cost = result.report.apiEquivalentCost;
     const costVisible = typeof cost.coveragePercent.value === "number" && cost.coveragePercent.value >= 80 && typeof cost.total.value === "number";
     const data = JSON.stringify({ rows, models, tools, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: locale === "zh-CN" ? "未分类余量" : "unclassified remainder", cost: locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)" }, costVisible }).replaceAll("<", "\\u003c");
@@ -694,7 +836,7 @@ function renderInteractiveCharts(result, locale) {
         "if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'diamond',showSymbol:d.rows.length<=14,symbolSize:5,connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:p.darkWarm,width:2,type:'dashed'},itemStyle:{color:p.darkWarm},emphasis:{focus:'series',lineStyle:{color:p.darkWarm,width:3,opacity:1}}});",
         "make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',valueFormatter:v=>v==null?", unavailableLabel, ":compact.format(v)},legend:{type:'scroll',textStyle:{color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
         "make('model-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按模型的 Token 分布；下方表格提供等价数据。" : "Token distribution by model; the table below provides equivalent data."), "},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand,borderRadius:[3,3,0,0]}}]});",
-        "make('tool-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按工具的上下文放大估算；下方表格提供等价数据。" : "Estimated context amplification by tool; the table below provides equivalent data."), "},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.olive,borderRadius:[0,3,3,0]}}]});",
+        "make('tool-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按工具的估算工具结果注入大小；下方表格提供等价数据。" : "Estimated tool-result injection by tool; the table below provides equivalent data."), "},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.chartMidBlue,borderRadius:[0,3,3,0]}}]});",
         "document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent;const b=document.createElement('button');b.type='button';b.textContent=label+' ↕';b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})});</script>"
     ].join('');
     const script = "<script>" + runtime + "</script><script>" + chartScript;
@@ -706,13 +848,14 @@ function renderStyles() {
 html[lang="zh-CN"]{--serif:"Source Han Serif SC","Source Han Serif CN","Noto Serif CJK SC","Noto Serif SC","Songti SC","STSong",Georgia,serif;--sans:var(--serif)}
 *{box-sizing:border-box}html,body{margin:0;padding:0}body{background:var(--parchment);color:var(--near-black);font-family:var(--serif);font-size:15px;font-weight:400;line-height:1.55;letter-spacing:0;font-synthesis:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}html[lang="zh-CN"] body{letter-spacing:.3px}
 main{max-width:1120px;margin:0 auto;padding:88px 64px 120px}header{padding-bottom:32px;border-bottom:1px solid var(--border-soft);margin-bottom:48px}.eyebrow{font-family:var(--sans);font-size:12px;font-weight:500;line-height:1.35;letter-spacing:1px;text-transform:uppercase;color:var(--stone);margin:0 0 16px}h1,h2,h3{font-family:var(--serif);font-weight:500;color:var(--near-black)}h1{font-size:38px;line-height:1.1;letter-spacing:-.4px;margin:0 0 12px}header p{font-family:var(--serif);font-size:16px;line-height:1.55;color:var(--olive);max-width:720px;margin:0}h2{font-size:24px;line-height:1.2;margin:0 0 20px}h3{font-size:18px;line-height:1.3;margin:32px 0 12px}section{margin:0 0 56px;padding:0;background:transparent;border:0;border-radius:0}section>h2{margin-top:0}
-.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{display:grid;gap:24px}.scope-grid{grid-template-columns:repeat(3,1fr);margin:0 0 32px}.scope-grid div{padding:0 16px 16px 0;border-bottom:1px solid var(--border-soft)}.scope-grid dt{color:var(--stone);font-size:12px;line-height:1.35}.scope-grid dd{margin:6px 0 0;font-weight:500;line-height:1.45;overflow-wrap:anywhere}.coverage-grid{grid-template-columns:repeat(4,1fr);margin:0 0 12px}.coverage-grid div,.window-grid div{padding:0 16px 16px 0;border-bottom:1px solid var(--border-soft)}.coverage-grid strong,.coverage-grid span,.window-grid strong,.window-grid span{display:block}.coverage-grid strong{font-family:var(--serif);font-size:24px;line-height:1.1;font-weight:500;color:var(--brand)}.coverage-grid span,.window-grid span{color:var(--stone);font-size:12px;line-height:1.4}.coverage-note,.empty{color:var(--olive);font-size:13px;line-height:1.5}.warning-list{margin:12px 0 0;padding-left:20px}.ok{color:var(--olive)}
+.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{display:grid;gap:24px}.scope-grid{grid-template-columns:repeat(3,1fr);margin:0 0 32px}.scope-grid div{padding:0 16px 16px 0;border-bottom:1px solid var(--border-soft)}.scope-grid dt{color:var(--stone);font-size:12px;line-height:1.35}.scope-grid dd{margin:6px 0 0;font-weight:500;line-height:1.45;overflow-wrap:anywhere}.coverage-grid{grid-template-columns:repeat(5,1fr);margin:0 0 12px}.coverage-grid div,.window-grid div{padding:0 16px 16px 0;border-bottom:1px solid var(--border-soft)}.coverage-grid strong,.coverage-grid span,.window-grid strong,.window-grid span{display:block}.coverage-grid strong{font-family:var(--serif);font-size:24px;line-height:1.1;font-weight:500;color:var(--brand)}.coverage-grid span,.window-grid span{color:var(--stone);font-size:12px;line-height:1.4}.coverage-note,.empty{color:var(--olive);font-size:13px;line-height:1.5}.warning-list{margin:12px 0 0;padding-left:20px}.ok{color:var(--olive)}
 .kpis{grid-template-columns:repeat(4,1fr);gap:32px;margin:0 0 56px}.kpi{padding:0 0 20px;border:0;border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent}.kpi>span{display:block;color:var(--stone);font-size:13px;line-height:1.4}.kpi strong{display:block;margin-top:8px;font-family:var(--serif);font-size:36px;font-weight:500;line-height:1.05;color:var(--brand);font-variant-numeric:lining-nums tabular-nums}.metric-stack{display:inline-flex;flex-direction:column;align-items:flex-start;gap:3px;font-variant-numeric:lining-nums tabular-nums}.metric-main{display:block}.estimate{display:block;color:var(--stone);font-family:var(--sans);font-size:12px;font-weight:400;line-height:1.35}.percentage{display:block;white-space:nowrap}.unavailable{color:var(--stone);font-style:normal}
 .finding{padding:24px;background:var(--ivory);border:0;border-radius:8px}.finding.neutral{padding:0;background:transparent}.finding h2{font-size:24px;line-height:1.2;max-width:800px}.finding p{max-width:820px}.evidence{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:20px 0}.evidence li{background:var(--tag-bg);border-radius:2px;padding:4px 8px;color:var(--brand);font-size:12px;line-height:1.35}.recommendation{border-top:1px solid var(--border-soft);padding-top:16px}.recommendation strong{color:var(--brand);font-weight:500}.recommendation p{margin:6px 0 0;font-weight:500}.supporting-findings ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 32px;list-style:none;margin:0;padding:0;border-top:1px solid var(--border-soft)}.supporting-finding{padding:16px 0;border:0;border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent}.supporting-finding strong,.supporting-finding span,.supporting-finding small{display:block}.supporting-finding strong{font-size:15px;font-weight:500;line-height:1.4}.supporting-finding>div>span,.supporting-finding small{margin-top:6px;color:var(--olive);font-size:12px;line-height:1.45}.check-marker{display:inline!important;margin:0!important;color:var(--brand);font-size:14px!important}.finding-source{display:inline!important;margin:0 5px 0 0!important;border:0;border-radius:2px;padding:2px 6px;background:var(--tag-quiet);color:var(--brand);font-size:11px!important;font-weight:500}
 table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;line-height:1.5;font-variant-numeric:lining-nums tabular-nums}th,td{text-align:left;border-bottom:.5px solid var(--border-soft);padding:8px 8px;vertical-align:top}thead th{color:var(--dark-warm);font-size:12px;font-weight:500;line-height:1.35;border-bottom:1px solid var(--border)}tbody th{font-weight:500}tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}.sortable button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-weight:500;padding:0;cursor:pointer;text-align:left}.sortable button:focus-visible,summary:focus-visible{outline:2px solid var(--brand);outline-offset:3px}.empty{margin:8px 0}.echart{width:100%;height:300px;margin:0 0 12px;background:var(--ivory);border-radius:8px}.chart-summary{color:var(--olive);font-size:12px;line-height:1.45}.chart{display:block;width:100%;height:auto;margin:0 0 20px;background:var(--ivory);border-radius:4px;padding:12px;overflow:visible}.chart-label,.chart-value,.heat-hour{font-family:var(--serif);font-size:12px;fill:var(--stone)}.chart-value{font-variant-numeric:lining-nums tabular-nums;fill:var(--near-black)}.chart-bar{fill:var(--brand)}.chart-track{fill:var(--border)}.segment-input{fill:var(--brand)}.segment-cached{fill:var(--stone)}.segment-cache-write{fill:var(--olive)}.segment-output{fill:var(--chart-mid-blue)}.segment-reasoning{fill:var(--chart-muted)}.heat-0{fill:var(--parchment)}.heat-1{fill:var(--tag-quiet)}.heat-2{fill:var(--tag-bg)}.heat-3{fill:var(--stone)}.heat-4{fill:var(--brand)}details{border-top:1px solid var(--border-soft);padding-top:16px}summary{cursor:pointer;color:var(--brand);font-weight:500;line-height:1.4;margin-bottom:12px}.window-note{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;background:var(--ivory);border-radius:4px;padding:16px;margin-bottom:16px}.window-note span,.week-ranges span{color:var(--stone);font-size:12px;line-height:1.4}.window-grid{grid-template-columns:repeat(5,1fr)}.window-grid strong{margin-top:8px;font-family:var(--serif);font-size:20px;font-weight:500;color:var(--brand)}.week-ranges{grid-template-columns:repeat(2,1fr);margin-bottom:24px}.week-ranges div{background:var(--ivory);border-radius:4px;padding:16px}.week-ranges strong,.week-ranges span{display:block}footer{color:var(--stone);font-size:12px;line-height:1.45;border-top:1px solid var(--border-soft);margin-top:24px;padding-top:24px}footer p{margin:6px 0 16px}
 @media print{ @page{size:A4;margin:14mm 16mm;background:#f5f4ed} body{background:#f5f4ed;-webkit-print-color-adjust:exact;print-color-adjust:exact}main{max-width:none;padding:0}section{break-inside:auto;margin-bottom:36px}.finding,.supporting-finding,.window-note,.week-ranges div,table,.echart{break-inside:avoid}.sortable button{color:inherit} }
 @media(max-width:880px){main{padding:64px 32px 88px}.scope-grid,.coverage-grid,.kpis,.window-grid{grid-template-columns:repeat(2,1fr)}.week-ranges{grid-template-columns:1fr}h1{font-size:40px}.supporting-findings ul{grid-template-columns:1fr}}
 @media(max-width:480px){main{padding:40px 20px 64px}header{margin-bottom:40px;padding-bottom:24px}h1{font-size:30px;letter-spacing:0}header p{font-size:14px}h2{font-size:22px}h3{font-size:16px;margin-top:24px}section{margin-bottom:40px}.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{grid-template-columns:1fr;gap:16px}.kpis{margin-bottom:40px}.kpi{padding-bottom:16px}.kpi strong{font-size:30px}.supporting-findings ul{grid-template-columns:1fr}.echart{height:260px}table{display:block;overflow-x:auto;white-space:nowrap}}
+.finding-evidence{display:inline-flex!important;vertical-align:baseline;flex-direction:column;align-items:flex-start;gap:1px;margin:0 2px!important;color:var(--near-black)!important;font-size:inherit!important;line-height:1.2!important}.finding-value{display:inline!important;margin:0!important;color:inherit!important;font-size:inherit!important}.finding-evidence .provenance{display:inline!important;margin:0!important;color:var(--stone)!important;font-family:var(--sans);font-size:10px!important;font-weight:400;line-height:1.2!important}.finding-evidence[data-provenance="estimated"] .finding-value{color:var(--stone)!important;font-weight:400}.coverage-alert{color:var(--near-black);background:var(--tag-quiet);border-left:3px solid var(--brand);padding:10px 12px;margin:12px 0 0;font-size:13px;line-height:1.5}.coverage-alert .finding-evidence{vertical-align:middle}.coverage-percentage{display:inline-flex;align-items:baseline;gap:2px;font-variant-numeric:lining-nums tabular-nums}.coverage-percentage .provenance{color:var(--stone);font-family:var(--sans);font-size:10px;font-weight:400}.tool-impact .metric-stack[data-provenance="estimated"] .metric-main{color:var(--stone);font-weight:400}.tool-impact .metric-stack[data-provenance="estimated"] .estimate{color:var(--chart-muted);font-weight:400}.tool-impact .coverage-note{color:var(--stone)}
 </style>`;
 }
 function renderHtml(result, locale = "en-US") {
@@ -731,7 +874,7 @@ function renderHtml(result, locale = "en-US") {
             "<h3>" + escapeHtml(labels.hourlyActivity) + "</h3>" + renderHourly(result, locale) +
             "<h3>" + escapeHtml(labels.observedActivity) + "</h3>" + renderRolling(result, locale) + "</section>",
         "<section><h2>" + escapeHtml(labels.models) + "</h2><div id=\"model-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.models) + "\"></div>" + renderModels(result, locale) + "</section>",
-        "<section><h2>" + escapeHtml(labels.tools) + "</h2><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.tools) + "\"></div>" + renderTools(result, locale) + "</section>",
+        "<section class=\"tool-impact\"><h2>" + escapeHtml(labels.tools) + "</h2><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "按工具的估算工具结果注入大小" : "Estimated tool-result injection by tool") + "\"></div>" + renderTools(result, locale) + "</section>",
         "<section><h2>" + escapeHtml(labels.sessionsByUsage) + "</h2>" + renderSessions(result, locale) + "</section>",
         "<section><h2>" + escapeHtml(labels.limitations) + "</h2><p>" + escapeHtml(labels.methodNote) + "</p>" +
             renderWarningList(result, locale) + "</section>",
@@ -748,7 +891,7 @@ function renderTopLine(result, locale) {
         : "";
     return [
         "Audit: " + result.scope.harness + "; " + (result.scope.allProjects ? labels.allProjects : labels.currentProject) + "; " + labels.since + " " + formatDateTime(result.scope.since, locale),
-        labels.coverage + ": " + result.coverage.filesRead + " " + labels.files + ", " + result.coverage.recordsRead + " " + labels.records + ", " + result.coverage.recordsSkipped + " " + labels.skipped + ", " + result.coverage.partialSessions + " " + labels.partialSessions + ".",
+        labels.coverage + ": " + coverageLineText(result, locale),
         labels.totalTokens + ": " + evidencePlain(result.summary.totalTokens, locale) + "; " + labels.sessions + ": " + evidencePlain(result.summary.sessionCount, locale, false) + sessionBreakdown + "; " + labels.modelCalls + ": " + evidencePlain(result.summary.modelCallCount, locale, false) + ".",
     ];
 }
@@ -761,7 +904,7 @@ function renderText(result, locale = "en-US", view = "full") {
         const rolling = result.report.rollingWindow;
         const lines = [labels.windowView + " — " + (rolling ? labels.localOnly : labels.noTimestampData)];
         if (rolling) {
-            lines.push(labels.calls + ": " + evidencePlain(rolling.observedModelCallCount, locale, false) + "; " + labels.tokens + ": " + evidencePlain(rolling.observedTokens, locale) + ".");
+            lines.push(labels.calls + ": " + evidencePlain(rolling.observedModelCallCount, locale, false) + "; " + labels.latestWindowTokens + ": " + evidencePlain(rolling.observedTokens, locale) + "; " + labels.historicalPeakTokens + ": " + evidencePlain(rolling.historicalPeakObservedTokens, locale) + ".");
             lines.push(labels.providerQuota + ": " + evidencePlain(rolling.providerQuota, locale) + "; " + labels.resetTime + ": " + evidencePlain(rolling.resetAt, locale) + ".");
         }
         return lines.join("\n") + "\n";
@@ -831,6 +974,7 @@ function renderShare(result, locale = "en-US") {
         "- " + labels.totalTokens + ": " + evidencePlain(result.summary.totalTokens, locale, false),
         "- " + labels.sessions + ": " + evidencePlain(result.summary.sessionCount, locale, false),
         "- " + labels.modelCalls + ": " + evidencePlain(result.summary.modelCallCount, locale, false),
+        "- " + labels.coverage + ": " + coverageLineText(result, locale),
         "",
         "## " + labels.models,
         "",
