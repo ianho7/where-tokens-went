@@ -2,6 +2,26 @@
 
 The formal external project name and current CLI/Skill/plugin namespace is `where-tokens-went`. Keep this namespace consistent across user-facing text, executable names, Skill IDs, plugin IDs, paths, and generated artifacts.
 
+## Simple Task Fast Path
+
+Use this path by default for small, local, low-risk changes, especially UI, copy, formatting, symbol, single-file, and localized logic changes:
+
+`Locate → Edit → Targeted tests → Fix/retest failures → Optional one-time full validation → Diff review → Stop`
+
+- Locate and modify the relevant code directly; avoid unrelated exploration.
+- Run only tests directly related to the changed code first.
+- After a test failure, rerun only the failed or relevant tests. Do not rerun the full suite after every fix.
+- Run the full test suite at most once, during final verification, and only when justified. If targeted tests provide sufficient confidence and project rules do not require it, skip it.
+- Run each relevant global validation step such as `typecheck`, `build`, or `lint` at most once. Skip unrelated packaging, release, artifact, cross-platform, and broad integration checks.
+- Record unrelated pre-existing test failures and continue. Do not fix unrelated issues or expand task scope.
+- Never repeat a validation step that has already passed just “to be safe.”
+- Generate reports, screenshots, or artifacts only when explicitly required by the task.
+- Finish with one quick `git diff` / changed-files review to catch accidental changes.
+- Escalate to full validation only for public APIs, core logic, dependencies, build systems, security, migrations, broad refactors, or similarly high-risk changes.
+
+> Validation must be proportional to change risk, not performed mechanically.  
+> Do not turn a small task into a release-level verification cycle.
+
 Build the smallest end-to-end path that improves the Aha moment in [docs/MVP.md](docs/MVP.md).
 
 - Before changing product scope or acceptance behavior, read `docs/MVP.md`.
