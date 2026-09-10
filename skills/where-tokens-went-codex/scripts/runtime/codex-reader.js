@@ -59,6 +59,77 @@ function stringValue(...values) {
     }
     return null;
 }
+function skillNameValue(...values) {
+    for (const value of values) {
+        if (typeof value === "string") {
+            const cleaned = value.trim().replace(/^\/+/, "").replace(/\\/g, "/");
+            const match = /(?:^|\/)([^/]+?)(?:\/SKILL\.md)?$/i.exec(cleaned);
+            const candidate = match?.[1] ?? cleaned;
+            if (candidate && candidate.length <= 80 && /^[A-Za-z0-9_.:@-]+$/.test(candidate))
+                return candidate;
+        }
+        const object = asObject(value);
+        if (object) {
+            const nested = skillNameValue(object.name, object.skill, object.skill_name, object.skillName, object.id);
+            if (nested)
+                return nested;
+        }
+    }
+    return null;
+}
+function redactedSource(file) {
+    return "rollout:" + path.basename(file, ".jsonl");
+}
+function skillRecord(sessionId, skillName, state, evidenceType, turnId, callId, timestamp, sourceLocation, provenance) {
+    return { sessionId, skillName, state, evidenceType, turnId, callId, timestamp, sourceLocation, provenance };
+}
+function listedSkillNames(...values) {
+    const names = [];
+    for (const value of values) {
+        const items = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value];
+        for (const item of items) {
+            const name = skillNameValue(item);
+            if (name)
+                names.push(name);
+        }
+    }
+    return [...new Set(names)].sort();
+}
+function skillPathEvidence(value) {
+    const text = typeof value === "string" ? value : (() => {
+        try {
+            return JSON.stringify(value);
+        }
+        catch {
+            return null;
+        }
+    })();
+    if (!text)
+        return null;
+    const normalized = text.replaceAll("\\", "/").replace(/\/+/g, "/");
+    const match = /(?:^|\/)skills\/([^\/\"']+?)(?:\/SKILL\.md|\/scripts\/[^\/\"']+)/i.exec(normalized);
+    if (!match)
+        return null;
+    return { name: skillNameValue(match[1]), evidenceType: /\/SKILL\.md/i.test(match[0]) ? "resource-read" : "script-execution" };
+}
+function structuredSkillName(record, payload, payloadType) {
+    const explicitFields = [
+        payload.skill_name,
+        payload.skillName,
+        payload.invoked_skill,
+        payload.invokedSkill,
+        record.skill_name,
+        record.skillName,
+        record.invoked_skill,
+        record.invokedSkill,
+    ];
+    const explicit = skillNameValue(...explicitFields);
+    if (explicit)
+        return explicit;
+    if (payloadType?.includes("skill"))
+        return skillNameValue(payload.input, payload.arguments, payload.parameters, payload.skill, payload.name);
+    return null;
+}
 function numberValue(...values) {
     for (const value of values) {
         if (typeof value === "number" && Number.isFinite(value))
@@ -110,10 +181,9 @@ function usageValues(value) {
         totalTokens,
     };
 }
-function callFromUsage(sessionId, callId, timestamp, model, provider, usage) {
-    const totalTokens = usage.totalTokens ?? (usage.inputTokens !== null && usage.cachedInputTokens !== null && usage.cacheWriteTokens !== null
-        && usage.outputTokens !== null && usage.reasoningTokens !== null
-        ? usage.inputTokens + usage.cachedInputTokens + usage.cacheWriteTokens + usage.outputTokens + usage.reasoningTokens
+function callFromUsage(sessionId, callId, timestamp, model, provider, turnId, usage) {
+    const totalTokens = usage.totalTokens ?? (usage.inputTokens !== null && usage.outputTokens !== null && usage.reasoningTokens !== null
+        ? usage.inputTokens + usage.outputTokens + usage.reasoningTokens
         : null);
     const tokenProvenance = usage.totalTokens !== null ? "reported" : (totalTokens === null ? "unavailable" : "derived");
     return {
@@ -131,6 +201,7 @@ function callFromUsage(sessionId, callId, timestamp, model, provider, usage) {
         reportedCost: null,
         status: "ok",
         tokenProvenance,
+        turnId,
     };
 }
 function normaliseCwd(value) {
@@ -178,7 +249,7 @@ const knownCodexTypes = new Set([
     "session_meta", "session_metadata", "turn_context", "event_msg", "response_item", "token_count",
     "raw_response_completed", "raw_response_completed_event", "function_call", "function_call_output",
     "custom_tool_call", "custom_tool_call_output", "shell_command", "tool_call", "tool_result", "stream_error",
-    "turn_aborted", "interrupted", "error", "compaction", "subagent",
+    "turn_aborted", "interrupted", "error", "compaction", "subagent", "skill", "skill_input", "skill_invocation", "skill_listing", "skill-listing",
 ]);
 function accountingSensitiveCodexType(type) {
     return /usage|token|response|assistant|message|tool|call|turn|retry|interrupt|compact|subagent|error/i.test(type);
@@ -431,6 +502,8 @@ async function readCodex(scope) {
                         lifecycle: [],
                         currentModel: null,
                         currentProvider: null,
+                        currentTurnId: null,
+                        skillEvidence: [],
                         unsupported: false,
                         missingTimestamp: false,
                         partial: false,
@@ -461,6 +534,8 @@ async function readCodex(scope) {
                 lifecycle: [],
                 currentModel: null,
                 currentProvider: null,
+                currentTurnId: null,
+                skillEvidence: [],
                 unsupported: false,
                 missingTimestamp: false,
                 partial: false,
@@ -480,16 +555,47 @@ async function readCodex(scope) {
                 }
                 continue;
             }
+            const sourceLocation = redactedSource(file);
+            const evidenceTurnId = stringValue(payload.turn_id, payload.turnId) ?? pending.currentTurnId;
+            const isListing = recordType === "skill-listing" || recordType === "skill_listing" || payloadType === "skill-listing" || payloadType === "skill_listing";
+            const listingNames = listedSkillNames(record.available_skills, record.availableSkills, record.skill_listing, record.skillListing, record.skills, payload.available_skills, payload.availableSkills, payload.skill_listing, payload.skillListing, payload.skills);
+            for (const skillName of listingNames)
+                pending.skillEvidence.push(skillRecord(sessionId, skillName, "available", "listing", evidenceTurnId, null, timestamp, sourceLocation, "reported"));
+            const explicit = !isListing ? structuredSkillName(record, payload, payloadType ?? recordType ?? null) : null;
+            if (explicit) {
+                const evidenceId = stringValue(payload.call_id, payload.callId, payload.id, record.id);
+                pending.skillEvidence.push(skillRecord(sessionId, explicit, "invoked", "explicit-input", evidenceTurnId, evidenceId, timestamp, sourceLocation, "reported"));
+            }
+            const pathCandidates = [
+                payload.path,
+                payload.file,
+                payload.resource,
+                payload.arguments,
+                payload.command,
+                payload.input,
+                record.path,
+                record.file,
+                record.resource,
+                record.command,
+            ];
+            for (const candidate of pathCandidates) {
+                const pathEvidence = skillPathEvidence(candidate);
+                if (!pathEvidence)
+                    continue;
+                const evidenceId = stringValue(payload.call_id, payload.callId, payload.id, record.id);
+                pending.skillEvidence.push(skillRecord(sessionId, pathEvidence.name, "invoked", pathEvidence.evidenceType, evidenceTurnId, evidenceId, timestamp, sourceLocation, "derived"));
+            }
             if (isType(record, payload, "turn_context")) {
                 mergeSession(pending, payload, timestamp);
                 pending.currentModel = stringValue(payload.model, payload.model_name, payload.modelName) ?? pending.currentModel;
                 pending.currentProvider = stringValue(payload.model_provider, payload.modelProvider, payload.provider) ?? pending.currentProvider;
+                pending.currentTurnId = stringValue(payload.turn_id, payload.turnId) ?? pending.currentTurnId;
             }
             const model = stringValue(payload.model, payload.model_name, payload.modelName) ?? pending.currentModel;
             const provider = stringValue(payload.model_provider, payload.modelProvider, payload.provider) ?? pending.currentProvider;
             const response = responseUsage(record, payload);
             if (response) {
-                const call = callFromUsage(sessionId, response.id, timestamp, model, provider, response.usage);
+                const call = callFromUsage(sessionId, response.id, timestamp, model, provider, pending.currentTurnId, response.usage);
                 if (!call.timestamp)
                     pending.missingTimestamp = true;
                 const existingIndex = response.id
@@ -506,7 +612,7 @@ async function readCodex(scope) {
             }
             const tokenCount = tokenCountUsage(record, payload);
             if (tokenCount) {
-                const call = callFromUsage(sessionId, tokenCount.id, timestamp, model, provider, tokenCount.usage);
+                const call = callFromUsage(sessionId, tokenCount.id, timestamp, model, provider, pending.currentTurnId, tokenCount.usage);
                 if (!call.timestamp)
                     pending.missingTimestamp = true;
                 if (tokenCount.isFinal) {
@@ -598,6 +704,7 @@ async function readCodex(scope) {
     const modelCalls = [];
     const toolCalls = [];
     const lifecycle = [];
+    const skillEvidence = [];
     let unsupportedSessions = 0;
     let missingTimestampSessions = 0;
     for (const pending of pendingById.values()) {
@@ -624,6 +731,7 @@ async function readCodex(scope) {
         sessions.push(pending.session);
         toolCalls.push(...pending.toolCalls.filter((tool) => tool.timestamp !== null && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
         lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp !== null && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
+        skillEvidence.push(...pending.skillEvidence.filter((record) => record.timestamp !== null && !Number.isNaN(Date.parse(record.timestamp)) && Date.parse(record.timestamp) >= scope.since.getTime()));
         const calls = pending.rawCalls.length > 0
             ? pending.rawCalls
             : pending.incrementalCalls.length > 0
@@ -652,6 +760,7 @@ async function readCodex(scope) {
         modelCalls,
         lifecycle,
         toolCalls,
+        skillEvidence,
         coverage,
     };
 }

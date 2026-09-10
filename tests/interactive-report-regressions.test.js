@@ -123,8 +123,17 @@ test('unknown model identity is distinct from an unavailable metric', () => {
 
 test('exact values are hover titles instead of visible secondary lines', () => {
   const html = renderHtml(result(), 'zh-CN');
+  const text = require('../dist/src/report.js').renderText(result(), 'zh-CN');
   assert.doesNotMatch(html, /class="metric-exact"/);
   assert.match(html, /title="精确值：/);
+  assert.equal((html.match(/估算值仅作参考，不代表实际账单；“—”表示数据不可用。/g) ?? []).length, 1);
+  assert.match(text, /^估算值仅作参考，不代表实际账单；“—”表示数据不可用。/);
+  assert.match(html, /data-provenance="reported"/);
+  assert.match(html, /data-provenance="derived"/);
+  assert.match(html, /data-provenance="estimated"/);
+  assert.match(html, /data-provenance="unavailable"/);
+  assert.match(html, /class="unavailable"[^>]*>—<\/span>/);
+  assert.doesNotMatch(html, />[●◆≈]\s/);
   const bootScript = html.split('<script>').at(-1).split('</script>')[0];
   assert.equal(bootScript.includes('exact.format(v)'), false);
 });
@@ -135,18 +144,22 @@ test('automated checks use their compact card layout', () => {
   assert.equal(html.includes('.supporting-findings ul{'), true);
 });
 
-test('Findings format percentages and estimated provenance exactly once', () => {
+test('Findings keep values quiet and describe estimates naturally', () => {
   const finding = findingsResult();
   const html = renderHtml(finding, 'en-US');
   const text = require('../dist/src/report.js').renderText(finding, 'en-US');
   assert.match(html, /One Session accounts for[\s\S]*?99%/);
   assert.match(html, /class="finding-evidence" data-provenance="derived"[\s\S]*?99%/);
   assert.doesNotMatch(html, /One Session accounts for 99 \(derived\)/);
-  assert.match(text, /One Session accounts for 99% \(derived\) of observed tokens/);
+  assert.match(text, /One Session accounts for 99% of observed tokens/);
   assert.match(text, /One tool result may be carried forward/);
   const toolFinding = text.split('\n').find((line) => line.includes('One tool result may be carried forward')) ?? '';
-  assert.equal((toolFinding.match(/estimated/g) ?? []).length, 1);
+  assert.match(toolFinding, /about 10/);
+  assert.doesNotMatch(toolFinding, /[●◆≈]/);
   assert.match(toolFinding, /characters/);
+  const chineseText = require('../dist/src/report.js').renderText(finding, 'zh-CN');
+  assert.match(chineseText, /暴露估算约 10/);
+  assert.doesNotMatch(chineseText, /[●◆≈]|证据标识/);
   assert.doesNotMatch(html, /complete tokens/i);
   assert.doesNotMatch(text, /complete tokens/i);
   assert.doesNotMatch(text, /adds an estimated.*estimated/);
@@ -160,8 +173,9 @@ test('Coverage narrative proves partial subagent overlap or stays unavailable', 
   const provenCoverageText = provenHtml.replace(/<[^>]+>/g, '');
   assert.match(provenCoverageText, /1 of 2 Sessions[\s\S]*50%/);
   assert.match(provenCoverageText, /All partial Sessions are source-proven subagent Sessions/);
-  assert.match(renderText(proven, 'en-US'), /Coverage: 1 of 2 Sessions \(50%, derived\)/);
-  assert.match(renderShare(proven, 'en-US'), /- Coverage: 1 of 2 Sessions \(50%, derived\)/);
+  assert.match(renderText(proven, 'en-US'), /Coverage: 1 of 2 Sessions \(50%\)/);
+  assert.match(renderShare(proven, 'en-US'), /- Coverage: 1 of 2 Sessions \(50%\)/);
+  assert.doesNotMatch(provenHtml, /[●◆≈]\s|Evidence markers/);
 
   const unknown = partialCoverageResult(false);
   const unknownText = renderText(unknown, 'en-US');
@@ -177,7 +191,8 @@ test('tool chart uses injected estimate and labels carry-forward as uncapped', (
   assert.match(html, /"tools":\[\{"name":"read","value":10\}\]/);
   assert.match(html, /Estimated tool-result injection by tool/);
   assert.match(html, /carry-forward estimate \(uncapped\)/);
-  assert.match(html, /\.tool-impact \.metric-stack\[data-provenance="estimated"\]/);
+  assert.match(html, /data-provenance="estimated"/);
+  assert.doesNotMatch(html, /\.tool-impact \.metric-stack\[data-provenance="estimated"\]/);
 });
 
 test('rolling activity distinguishes latest window from historical peak', () => {
@@ -189,6 +204,21 @@ test('rolling activity distinguishes latest window from historical peak', () => 
   const text = renderText(report, 'en-US', 'window');
   assert.match(text, /Latest 5h tokens/);
   assert.match(text, /Highest rolling 5h in selected range/);
+});
+
+test('time presentation uses numeric editorial dates and yearless chart labels', () => {
+  const report = result();
+  const { renderText } = require('../dist/src/report.js');
+  const chineseHtml = renderHtml(report, 'zh-CN');
+  const englishHtml = renderHtml(report, 'en-US');
+  assert.match(chineseHtml, /2026\.09\.01 \d{2}:\d{2}/);
+  assert.match(chineseHtml, /<text[^>]*class="chart-label">09\.08<\/text>/);
+  assert.match(chineseHtml, /"time":"09\.08"/);
+  assert.match(chineseHtml, /2026\.09\.08 \d{2}:\d{2}/);
+  assert.doesNotMatch(chineseHtml, /GMT|\d{4}年\d{1,2}月\d{1,2}日/);
+  assert.match(englishHtml, /2026\.09\.01 \d{2}:\d{2}/);
+  assert.doesNotMatch(englishHtml, /GMT|Sep \d/);
+  assert.match(renderText(report, 'zh-CN'), /2026\.09\.01 \d{2}:\d{2}/);
 });
 
 test('daily token trend uses the Kami contrast ladder and redundant line encodings', () => {

@@ -7,6 +7,8 @@ import type {
   ReadResult,
   ReadScope,
   SessionRecord,
+  SessionCostRecord,
+  SkillUseRecord,
   ToolCallRecord,
 } from "./types";
 
@@ -18,6 +20,8 @@ interface PendingSession {
   modelCalls: ModelCallRecord[];
   tools: ToolCallRecord[];
   lifecycle: LifecycleRecord[];
+  skillEvidence: SkillUseRecord[];
+  sessionCosts: SessionCostRecord[];
   unsupported: boolean;
   missingTimestamp: boolean;
 }
@@ -79,6 +83,63 @@ function contentBlocks(value: unknown): JsonObject[] {
   return object ? [object] : [];
 }
 
+function skillNameValue(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string") {
+      const cleaned = value.trim().replace(/^\/+/, "").replace(/\\/g, "/");
+      const match = /(?:^|\/)([^/]+?)(?:\/SKILL\.md)?$/i.exec(cleaned);
+      const candidate = match?.[1] ?? cleaned;
+      if (candidate && candidate.length <= 80 && /^[A-Za-z0-9_.:@-]+$/.test(candidate)) return candidate;
+    }
+    const object = objectValue(value);
+    if (object) {
+      const nested = skillNameValue(object.name, object.skill, object.skill_name, object.skillName, object.id);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+function redactedSource(file: string): string {
+  return "transcript:" + path.basename(file, ".jsonl");
+}
+
+function skillRecord(
+  sessionId: string,
+  skillName: string | null,
+  state: SkillUseRecord["state"],
+  evidenceType: SkillUseRecord["evidenceType"],
+  callId: string | null,
+  timestamp: string | null,
+  sourceLocation: string,
+  provenance: SkillUseRecord["provenance"],
+): SkillUseRecord {
+  return { sessionId, skillName, state, evidenceType, turnId: null, callId, timestamp, sourceLocation, provenance };
+}
+
+function listedSkillNames(...values: unknown[]): string[] {
+  const names: string[] = [];
+  for (const value of values) {
+    const items = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value];
+    for (const item of items) {
+      const name = skillNameValue(item);
+      if (name) names.push(name);
+    }
+  }
+  return [...new Set(names)].sort();
+}
+
+function explicitSkillName(...values: unknown[]): string | null {
+  for (const value of values) {
+    const object = objectValue(value);
+    const name = object
+      ? skillNameValue(object.skill_name, object.skillName, object.skill, object.name)
+      : skillNameValue(value);
+    if (name) return name;
+  }
+  return null;
+}
+
 function createSession(sessionId: string): PendingSession {
   return {
     session: {
@@ -94,6 +155,8 @@ function createSession(sessionId: string): PendingSession {
     modelCalls: [],
     tools: [],
     lifecycle: [],
+    skillEvidence: [],
+    sessionCosts: [],
     unsupported: false,
     missingTimestamp: false,
   };
@@ -122,16 +185,38 @@ function usageCall(
   const inputTokens = numberValue(usage.input_tokens, usage.inputTokens);
   const cachedInputTokens = numberValue(usage.cache_read_input_tokens, usage.cacheReadInputTokens);
   const cacheWriteTokens = numberValue(usage.cache_creation_input_tokens, usage.cacheCreationInputTokens);
+  const cacheCreation = objectValue(usage.cache_creation) ?? objectValue(usage.cacheCreation);
+  const cacheWrite5mTokens = numberValue(
+    cacheCreation?.ephemeral_5m_input_tokens,
+    cacheCreation?.ephemeral5mInputTokens,
+    usage.cache_creation_5m_input_tokens,
+    usage.cacheCreation5mInputTokens,
+  );
+  const cacheWrite1hTokens = numberValue(
+    cacheCreation?.ephemeral_1h_input_tokens,
+    cacheCreation?.ephemeral1hInputTokens,
+    usage.cache_creation_1h_input_tokens,
+    usage.cacheCreation1hInputTokens,
+  );
   const outputTokens = numberValue(usage.output_tokens, usage.outputTokens);
   const reasoningTokens = numberValue(usage.reasoning_tokens, usage.reasoningTokens);
   const reportedTotal = numberValue(usage.total_tokens, usage.totalTokens);
   if ([inputTokens, cachedInputTokens, cacheWriteTokens, outputTokens, reasoningTokens, reportedTotal].every((value) => value === null)) return null;
   const totalTokens = reportedTotal ?? (
     inputTokens !== null && cachedInputTokens !== null && cacheWriteTokens !== null
-      && outputTokens !== null && reasoningTokens !== null
-      ? inputTokens + cachedInputTokens + cacheWriteTokens + outputTokens + reasoningTokens
+      && outputTokens !== null
+      ? inputTokens + cachedInputTokens + cacheWriteTokens + outputTokens
       : null
   );
+  const cacheWriteTtl = cacheWriteTokens === null || cacheWriteTokens === 0
+    ? null
+    : cacheWrite5mTokens !== null && cacheWrite1hTokens !== null && cacheWrite5mTokens + cacheWrite1hTokens === cacheWriteTokens
+      ? cacheWrite5mTokens > 0 && cacheWrite1hTokens > 0 ? "mixed" as const : cacheWrite5mTokens > 0 ? "5m" as const : "1h" as const
+      : cacheWrite5mTokens !== null && cacheWrite5mTokens === cacheWriteTokens
+        ? "5m" as const
+        : cacheWrite1hTokens !== null && cacheWrite1hTokens === cacheWriteTokens
+          ? "1h" as const
+          : null;
   return {
     sessionId,
     callId,
@@ -147,6 +232,9 @@ function usageCall(
     reportedCost: null,
     status,
     tokenProvenance: reportedTotal !== null ? "reported" : totalTokens === null ? "unavailable" : "derived",
+    cacheWrite5mTokens,
+    cacheWrite1hTokens,
+    cacheWriteTtl,
   };
 }
 
@@ -188,8 +276,8 @@ function selected(pending: PendingSession, scope: ReadScope): boolean {
 }
 
 const knownClaudeTypes = new Set([
-  "user", "assistant", "system", "summary", "progress", "queue-operation", "file-history-snapshot",
-  "last-prompt", "result", "tool_result", "tool-result",
+  "user", "assistant", "system", "summary", "progress", "queue-operation", "file-history-snapshot", "cost-state",
+  "last-prompt", "result", "tool_result", "tool-result", "skill", "skill-listing", "skill_listing",
 ]);
 
 function accountingSensitiveClaudeType(type: string): boolean {
@@ -246,6 +334,11 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
       if (sourceVersion) pending.session.sourceVersion = sourceVersion;
       const parentSessionId = stringValue(record.parent_session_id, record.parentSessionId);
       if (parentSessionId) pending.session.parentSessionId = parentSessionId;
+      if (typeof record.isSidechain === "boolean" || typeof record.is_sidechain === "boolean") {
+        pending.session.isSubagent = record.isSidechain === true || record.is_sidechain === true;
+      } else if (parentSessionId) {
+        pending.session.isSubagent = true;
+      }
 
       const type = stringValue(record.type, record.kind)?.toLowerCase() ?? "";
       const role = stringValue(message?.role)?.toLowerCase();
@@ -257,6 +350,23 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
         }
         continue;
       }
+      const sourceLocation = redactedSource(file);
+      const listingNames = listedSkillNames(
+        record.available_skills,
+        record.availableSkills,
+        record.skill_listing,
+        record.skillListing,
+        message?.available_skills,
+        message?.availableSkills,
+        message?.skill_listing,
+        message?.skillListing,
+      );
+      for (const skillName of listingNames) pending.skillEvidence.push(skillRecord(sessionId, skillName, "available", "listing", null, timestamp, sourceLocation, "reported"));
+      if (type === "cost-state") {
+        const costState = objectValue(record.cost) ?? objectValue(record.costState) ?? record;
+        const totalCost = numberValue(record.totalCostUSD, record.total_cost_usd, costState?.totalCostUSD, costState?.total_cost_usd);
+        if (totalCost !== null && totalCost >= 0) pending.sessionCosts.push({ sessionId, totalCost, timestamp, provenance: "reported" });
+      }
       if (type === "assistant" || message?.role === "assistant") {
         const usage = message?.usage ?? record.usage;
         const stopReason = stringValue(message?.stop_reason, message?.stopReason) ?? "";
@@ -264,6 +374,8 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
         const status: ModelCallRecord["status"] = errorMarker || /error|abort|cancel/i.test(stopReason) ? "error" : "ok";
         const callId = stringValue(message?.id, record.requestId, record.request_id, record.id) ?? `assistant-${lineIndex}`;
         const call = usageCall(sessionId, callId, timestamp, stringValue(message?.model, record.model), stringValue(record.provider, record.model_provider), usage, status);
+        const attribution = explicitSkillName(record.attributionSkill, record.attribution_skill, message?.attributionSkill, message?.attribution_skill);
+        if (attribution) pending.skillEvidence.push(skillRecord(sessionId, attribution, "attributed", "versioned-attribution", callId, timestamp, sourceLocation, "reported"));
         if (call) {
           if (!call.timestamp) pending.missingTimestamp = true;
           const index = pending.modelCalls.findIndex((candidate) => candidate.callId === call.callId);
@@ -288,6 +400,11 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
               resultChars: null,
               isError: null,
               });
+            }
+            if (/^(skill|load[_-]?skill|use[_-]?skill)$/i.test(stringValue(block.name) ?? "")) {
+              const input = objectValue(block.input) ?? objectValue(block.arguments) ?? block.input ?? block.arguments;
+              const invokedSkill = explicitSkillName(input);
+              pending.skillEvidence.push(skillRecord(sessionId, invokedSkill, "invoked", "explicit-input", toolId, timestamp, sourceLocation, "reported"));
             }
           }
         }
@@ -334,6 +451,8 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
   const modelCalls: ModelCallRecord[] = [];
   const toolCalls: ToolCallRecord[] = [];
   const lifecycle: LifecycleRecord[] = [];
+  const skillEvidence: SkillUseRecord[] = [];
+  const sessionCosts: SessionCostRecord[] = [];
   for (const pending of pendingById.values()) {
     if (!selected(pending, scope)) {
       if (pending.missingTimestamp && (scope.allProjects || sameCwd(pending.session.projectCwd, scope.cwd))) {
@@ -355,7 +474,10 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
     for (const call of pending.modelCalls) if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);
     toolCalls.push(...pending.tools.filter((tool) => tool.timestamp && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
     lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
+    skillEvidence.push(...pending.skillEvidence.filter((record) => record.timestamp && !Number.isNaN(Date.parse(record.timestamp)) && Date.parse(record.timestamp) >= scope.since.getTime()));
+    const finalCost = [...pending.sessionCosts].reverse().find((record) => record.timestamp && !Number.isNaN(Date.parse(record.timestamp)) && Date.parse(record.timestamp) >= scope.since.getTime());
+    if (finalCost) sessionCosts.push(finalCost);
   }
   if (files.length === 0) coverage.warnings.push("No Claude Code transcript history was found for the selected scope.");
-  return { sessions, modelCalls, toolCalls, lifecycle, coverage };
+  return { sessions, modelCalls, toolCalls, lifecycle, skillEvidence, sessionCosts, coverage };
 }

@@ -2,9 +2,22 @@ export type Harness = "claude" | "codex";
 
 export type Provenance = "reported" | "derived" | "estimated" | "unavailable";
 
+export type CacheWriteTtl = "5m" | "1h" | "mixed";
+
 export type AuditView = "full" | "usage" | "window" | "report" | "tools" | "week" | "share" | "question";
 
 export type ReportLocale = "zh-CN" | "en-US";
+
+export type ApiPricingSourceKind = "litellm";
+
+export interface ApiPricingSource {
+  kind: ApiPricingSourceKind;
+  version: string;
+  retrievedAt: string | null;
+  effectiveDate: string | null;
+  currency: "USD";
+  unit: "USD per 1M tokens";
+}
 
 export interface SessionRecord {
   harness: Harness;
@@ -37,6 +50,12 @@ export interface ModelCallRecord {
   reportedCost: number | null;
   status: "ok" | "error" | "interrupted" | "unknown";
   tokenProvenance: Provenance;
+  /** Source-proven turn boundary used for conservative Skill attribution. */
+  turnId?: string | null;
+  /** Optional Claude cache-write detail needed for exact cache pricing. */
+  cacheWrite5mTokens?: number | null;
+  cacheWrite1hTokens?: number | null;
+  cacheWriteTtl?: CacheWriteTtl | null;
   /** Optional branch marker retained for output compatibility; false means outside the active context. */
   activeBranch?: boolean;
 }
@@ -82,6 +101,39 @@ export interface ReadResult {
   toolCalls: ToolCallRecord[];
   lifecycle: LifecycleRecord[];
   coverage: Coverage;
+  /** Optional until a Harness exposes verifiable Skill history. */
+  skillEvidence?: SkillUseRecord[];
+  /** Final per-Session client cost snapshots, when a Harness reports them. */
+  sessionCosts?: SessionCostRecord[];
+}
+
+export type SkillEvidenceState = "available" | "invoked" | "attributed" | "unavailable";
+
+export type SkillEvidenceType =
+  | "listing"
+  | "versioned-attribution"
+  | "explicit-input"
+  | "resource-read"
+  | "script-execution";
+
+export interface SkillUseRecord {
+  sessionId: string;
+  skillName: string | null;
+  state: SkillEvidenceState;
+  evidenceType: SkillEvidenceType;
+  turnId: string | null;
+  callId: string | null;
+  timestamp: string | null;
+  /** Redacted structural location; never an absolute path or content. */
+  sourceLocation: string | null;
+  provenance: Provenance;
+}
+
+export interface SessionCostRecord {
+  sessionId: string;
+  totalCost: number | null;
+  timestamp: string | null;
+  provenance: "reported" | "unavailable";
 }
 
 export interface EvidenceValue {
@@ -166,17 +218,85 @@ export interface ToolAnalysisEntry {
 
 export interface ApiEquivalentCost {
   total: EvidenceValue;
+  allUncachedTotal: EvidenceValue;
+  difference: EvidenceValue;
+  differencePercent: EvidenceValue;
   pricedTokens: EvidenceValue;
   relevantTokens: EvidenceValue;
   coveragePercent: EvidenceValue;
   unpricedModels: string[];
   limitations: string[];
-  source: {
-    version: string;
-    retrievedAt: string;
-    currency: "USD";
-    unit: "USD per 1M tokens";
-  };
+  source: ApiPricingSource;
+}
+
+export interface CacheEconomics {
+  totalInputTokens: EvidenceValue;
+  inputTokens: EvidenceValue;
+  cachedInputTokens: EvidenceValue;
+  cacheWriteTokens: EvidenceValue;
+  cacheReadRatePercent: EvidenceValue;
+  cacheWriteRatePercent: EvidenceValue;
+  coveragePercent: EvidenceValue;
+  observedApiEquivalentCost: EvidenceValue;
+  allUncachedApiEquivalentCost: EvidenceValue;
+  cacheSavings: EvidenceValue;
+  cacheSavingsPercent: EvidenceValue;
+  pricedUsageCoveragePercent: EvidenceValue;
+  limitations: string[];
+}
+
+export interface FirstRequestGroup {
+  sessionCount: EvidenceValue;
+  medianTokens: EvidenceValue;
+  totalTokens: EvidenceValue;
+  sharePercent: EvidenceValue;
+  compositionCoveragePercent: EvidenceValue;
+  inputTokens: EvidenceValue;
+  cachedInputTokens: EvidenceValue;
+  cacheWriteTokens: EvidenceValue;
+  outputTokens: EvidenceValue;
+  cacheReadRatePercent: EvidenceValue;
+  coldSessionCount: EvidenceValue;
+  coldSessionRatePercent: EvidenceValue;
+}
+
+export interface FirstRequestBurden {
+  sessionCount: EvidenceValue;
+  validFirstRequestCount: EvidenceValue;
+  coveragePercent: EvidenceValue;
+  medianTokens: EvidenceValue;
+  totalTokens: EvidenceValue;
+  sharePercent: EvidenceValue;
+  compositionCoveragePercent: EvidenceValue;
+  inputTokens: EvidenceValue;
+  cachedInputTokens: EvidenceValue;
+  cacheWriteTokens: EvidenceValue;
+  outputTokens: EvidenceValue;
+  cacheReadRatePercent: EvidenceValue;
+  coldSessionCount: EvidenceValue;
+  coldSessionRatePercent: EvidenceValue;
+  topLevel: FirstRequestGroup | null;
+  subagent: FirstRequestGroup | null;
+  identityCoveragePercent: EvidenceValue;
+  limitations: string[];
+}
+
+export interface SkillAnalysisEntry {
+  name: string;
+  state: SkillEvidenceState;
+  availableSessions: EvidenceValue;
+  invocationCount: EvidenceValue;
+  sessionCount: EvidenceValue;
+  firstObservedAt: EvidenceValue;
+  lastObservedAt: EvidenceValue;
+  attributedTokens: EvidenceValue;
+  attributedApiEquivalentCost: EvidenceValue;
+  evidenceCoveragePercent: EvidenceValue;
+  directResourceFootprint: EvidenceValue;
+  observedAssociation: EvidenceValue;
+  causalImpact: EvidenceValue;
+  evidenceTypes: string[];
+  sourceLocations: string[];
 }
 
 export interface ReportData {
@@ -187,6 +307,9 @@ export interface ReportData {
   tools: ToolAnalysisEntry[];
   totalToolAmplifiedTokens: EvidenceValue;
   apiEquivalentCost: ApiEquivalentCost;
+  cacheEconomics: CacheEconomics;
+  firstRequestBurden: FirstRequestBurden;
+  skills: SkillAnalysisEntry[];
 }
 
 export type AutomatedCheckId = "long_session" | "tool_amplification" | "extra_calls" | "model_concentration" | "data_quality";

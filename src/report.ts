@@ -93,6 +93,36 @@ interface Labels {
   change: string;
   noComparison: string;
   redactedShare: string;
+  cacheEconomics: string;
+  cacheReadRate: string;
+  cacheWriteRate: string;
+  cacheCoverage: string;
+  cacheSavings: string;
+  cacheSavingsPercent: string;
+  observedApiCost: string;
+  allUncachedApiCost: string;
+  priceCoverage: string;
+  firstRequestBurden: string;
+  firstRequestMedian: string;
+  firstRequestShare: string;
+  firstRequestCoverage: string;
+  firstRequestCompositionCoverage: string;
+  coldFirstRequestRate: string;
+  identityCoverage: string;
+  skillEvidence: string;
+  skillState: string;
+  availableSessions: string;
+  invocationCount: string;
+  skillSessions: string;
+  observedFrom: string;
+  observedTo: string;
+  attributedTokens: string;
+  attributedCost: string;
+  evidenceCoverage: string;
+  directResourceFootprint: string;
+  observedAssociation: string;
+  causalImpact: string;
+  noSkillEvidence: string;
 }
 
 const ZH: Labels = {
@@ -123,7 +153,7 @@ const ZH: Labels = {
   toolImpactNote: "注入估算是工具结果加入上下文的大小；延续估算（未封顶）是它在同一活跃上下文的后续调用中可能携带的上下文暴露量。延续估算不是账单、真实新增 Token，也不能与总 Token 相加。",
   sessionsByUsage: "高用量 Session",
   limitations: "限制与缺失",
-  provenance: "Provenance",
+  provenance: "证据来源",
   privacy: "隐私与口径",
   unavailable: "不可用",
   exact: "精确值",
@@ -160,10 +190,10 @@ const ZH: Labels = {
   noTimestampData: "没有足够的可用时间戳，小时与滚动活动不可用。",
   noToolData: "没有可配对的工具结果，工具影响不可用。",
   noQuota: "没有来自该 Harness 的第一方额度数据。",
-  checksNote: "这些是自动发现；Host Agent 会结合你的问题和完整 Evidence 在对话中给出综合判断。",
+  checksNote: "这些是自动发现；Host Agent 会结合你的问题和完整证据在对话中给出综合判断。",
   diagnosticSignals: "发现",
   privacyNote: "报告只保留安全元数据、大小、哈希、聚合和计算方法；不包含 prompt、源代码、回复、工具结果、参数、凭据或绝对路径。",
-  methodNote: "估算值不是账单 Token；缺失值保持不可用。",
+  methodNote: "估算值仅作参考，不代表实际账单；“—”表示数据不可用。",
   usageView: "用量概览",
   windowView: "滚动窗口",
   toolsView: "工具分析",
@@ -174,6 +204,36 @@ const ZH: Labels = {
   change: "变化",
   noComparison: "没有足够的完整数据进行周对比。",
   redactedShare: "脱敏分享稿",
+  cacheEconomics: "缓存经济性",
+  cacheReadRate: "缓存读取率",
+  cacheWriteRate: "缓存写入率",
+  cacheCoverage: "缓存组成覆盖率",
+  cacheSavings: "缓存估算节省",
+  cacheSavingsPercent: "缓存估算节省比例",
+  observedApiCost: "观察到的 API 等价成本",
+  allUncachedApiCost: "全未缓存反事实成本",
+  priceCoverage: "定价 Usage 覆盖率",
+  firstRequestBurden: "首次请求负担",
+  firstRequestMedian: "首次请求中位数（Token）",
+  firstRequestShare: "首次请求 Usage 占比",
+  firstRequestCoverage: "首次请求覆盖率",
+  firstRequestCompositionCoverage: "首次请求组成覆盖率",
+  coldFirstRequestRate: "冷首次请求率",
+  identityCoverage: "Session 身份覆盖率",
+  skillEvidence: "Skill 使用证据",
+  skillState: "状态",
+  availableSessions: "可用 Session",
+  invocationCount: "调用次数",
+  skillSessions: "调用 Session",
+  observedFrom: "首次观察",
+  observedTo: "最近观察",
+  attributedTokens: "归因 Token",
+  attributedCost: "归因 API 成本",
+  evidenceCoverage: "证据覆盖率",
+  directResourceFootprint: "直接资源证据",
+  observedAssociation: "关联模型调用",
+  causalImpact: "因果影响",
+  noSkillEvidence: "所选历史没有可核验的 Skill 列表、调用或资源使用证据。",
 };
 
 const EN: Labels = {
@@ -244,7 +304,7 @@ const EN: Labels = {
   checksNote: "These are automated findings; the Host Agent provides a synthesis for your question in conversation.",
   diagnosticSignals: "Findings",
   privacyNote: "The report keeps safe metadata, sizes, hashes, aggregates, and methods; it excludes prompts, source, responses, tool results, arguments, credentials, and absolute paths.",
-  methodNote: "Estimated values are not billed tokens; missing values remain unavailable.",
+  methodNote: "Estimated values are for reference only and do not represent an actual bill; “—” means data is unavailable.",
   usageView: "Usage overview",
   windowView: "Rolling window",
   toolsView: "Tool analysis",
@@ -255,6 +315,36 @@ const EN: Labels = {
   change: "change",
   noComparison: "There is not enough complete data for a week comparison.",
   redactedShare: "Redacted share",
+  cacheEconomics: "Cache economics",
+  cacheReadRate: "cache-read rate",
+  cacheWriteRate: "cache-write rate",
+  cacheCoverage: "cache composition coverage",
+  cacheSavings: "estimated cache savings",
+  cacheSavingsPercent: "estimated cache savings percentage",
+  observedApiCost: "observed API-equivalent cost",
+  allUncachedApiCost: "all-uncached counterfactual cost",
+  priceCoverage: "priced Usage coverage",
+  firstRequestBurden: "First-request burden",
+  firstRequestMedian: "median first request (Tokens)",
+  firstRequestShare: "first-request Usage share",
+  firstRequestCoverage: "first-request coverage",
+  firstRequestCompositionCoverage: "first-request composition coverage",
+  coldFirstRequestRate: "cold first-request rate",
+  identityCoverage: "Session identity coverage",
+  skillEvidence: "Skill evidence",
+  skillState: "state",
+  availableSessions: "available Sessions",
+  invocationCount: "invocations",
+  skillSessions: "invocation Sessions",
+  observedFrom: "first observed",
+  observedTo: "last observed",
+  attributedTokens: "attributed tokens",
+  attributedCost: "attributed API cost",
+  evidenceCoverage: "Evidence coverage",
+  directResourceFootprint: "direct resource evidence",
+  observedAssociation: "associated ModelCalls",
+  causalImpact: "causal impact",
+  noSkillEvidence: "The selected history has no verifiable Skill listing, invocation, or resource-use evidence.",
 };
 
 export interface ReportProjection {
@@ -306,30 +396,38 @@ function formatExact(value: number | string | null, locale: ReportLocale): strin
   return typeof value === "number" ? new Intl.NumberFormat(locale, { maximumFractionDigits: 20 }).format(value) : String(value);
 }
 
-function formatDateKey(value: string, locale: ReportLocale): string {
+function formatDateKey(value: string, _locale: ReportLocale, includeYear = true): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return value;
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
-  return new Intl.DateTimeFormat(locale, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  return (includeYear ? match[1] + "." : "") + match[2] + "." + match[3];
 }
 
 function formatDateTime(value: string, locale: ReportLocale): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale, {
+  const parts = new Intl.DateTimeFormat(locale === "zh-CN" ? "zh-CN-u-nu-latn" : "en-US-u-nu-latn", {
     year: "numeric",
-    month: "short",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZoneName: "short",
-  }).format(date);
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes): string => parts.find((item) => item.type === type)?.value ?? "";
+  const hour = part("hour") === "24" ? "00" : part("hour");
+  return part("year") + "." + part("month") + "." + part("day") + " " + hour + ":" + part("minute");
+}
+
+function dateEvidence(value: EvidenceValue, locale: ReportLocale): EvidenceValue {
+  return typeof value.value === "string" ? { ...value, value: formatDateTime(value.value, locale) } : value;
+}
+
+function usdText(value: string): string {
+  return value.startsWith("-") ? "-$" + value.slice(1) : "$" + value;
+}
+
+function provenancePrefix(provenance: EvidenceValue["provenance"], locale: ReportLocale): string {
+  return provenance === "estimated" ? (locale === "zh-CN" ? "约 " : "about ") : "";
 }
 
 function provenanceLabel(provenance: EvidenceValue["provenance"], locale: ReportLocale): string {
@@ -343,42 +441,56 @@ function provenanceLabel(provenance: EvidenceValue["provenance"], locale: Report
         : labels.unavailableProvenance;
 }
 
+function provenanceTitle(value: EvidenceValue, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  return labels.provenance + (locale === "zh-CN" ? "：" : ": ") + provenanceLabel(value.provenance, locale);
+}
+
+function provenanceSeparator(locale: ReportLocale): string {
+  return locale === "zh-CN" ? "；" : "; ";
+}
+
 function evidencePlain(value: EvidenceValue, locale: ReportLocale, compact = true): string {
-  if (value.value === null) return labelsFor(locale).unavailable;
+  if (value.value === null) return "—";
   const raw = typeof value.value === "number"
     ? compact ? formatCompact(value.value, locale) : formatExact(value.value, locale)
     : String(value.value);
-  return (value.provenance === "estimated" ? "≈ " : "") + raw + " (" + provenanceLabel(value.provenance, locale) + ")";
+  return provenancePrefix(value.provenance, locale) + raw;
 }
 
 function percentagePlain(value: EvidenceValue, locale: ReportLocale): string {
-  if (value.value === null) return labelsFor(locale).unavailable;
+  if (value.value === null) return "—";
   const raw = typeof value.value === "number" ? formatExact(value.value, locale) : String(value.value);
-  return (value.provenance === "estimated" ? "≈ " : "") + raw + "% (" + provenanceLabel(value.provenance, locale) + ")";
+  return provenancePrefix(value.provenance, locale) + raw + "%";
 }
 
 function metricPlain(value: EvidenceValue, locale: ReportLocale, compact = true): string {
-  if (value.value === null) return labelsFor(locale).unavailable;
+  if (value.value === null) return "—";
   const raw = typeof value.value === "number"
     ? compact ? formatCompact(value.value, locale) : formatExact(value.value, locale)
     : String(value.value);
-  return (value.provenance === "estimated" ? "≈ " : "") + raw;
+  return provenancePrefix(value.provenance, locale) + raw;
 }
 
-function evidenceHtml(value: EvidenceValue, locale: ReportLocale, compact = true): string {
+function evidenceHtml(value: EvidenceValue, locale: ReportLocale, compact = true, currency = false): string {
   const labels = labelsFor(locale);
   if (value.value === null) {
-    return "<span class=\"metric-stack\" data-provenance=\"unavailable\"><span class=\"unavailable\">" + escapeHtml(labels.unavailable) + "</span></span>";
+    const title = provenanceTitle(value, locale);
+    return "<span class=\"metric-stack\" data-provenance=\"unavailable\" aria-label=\"" + escapeHtml(title) + "\"><span class=\"unavailable\" title=\"" + escapeHtml(title) + "\">—</span></span>";
   }
   const compactValue = typeof value.value === "number" && compact ? formatCompact(value.value, locale) : formatExact(value.value, locale);
   const exactValue = formatExact(value.value, locale);
-  const prefix = value.provenance === "estimated" ? "≈ " : "";
-  const estimate = value.provenance === "estimated"
-    ? "<small class=\"estimate\">" + escapeHtml(labels.estimated) + "</small>"
-    : "";
-  return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + (typeof value.value === "number" ? String(value.value) : "") + "\"><span class=\"metric-main\" title=\"" +
-    escapeHtml(labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue) + "\">" +
-    escapeHtml(prefix + compactValue) + "</span>" + estimate + "</span>";
+  const title = labels.exact + (locale === "zh-CN" ? "：" : ": ") + (currency ? usdText(exactValue) : exactValue) + provenanceSeparator(locale) + provenanceTitle(value, locale);
+  return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + (typeof value.value === "number" ? String(value.value) : "") + "\" aria-label=\"" + escapeHtml(title) + "\"><span class=\"metric-main\" title=\"" +
+    escapeHtml(title) + "\">" + escapeHtml(provenancePrefix(value.provenance, locale) + (currency ? usdText(compactValue) : compactValue)) + "</span></span>";
+}
+
+function currencyPlain(value: EvidenceValue, locale: ReportLocale, compact = true): string {
+  if (value.value === null) return "—";
+  const raw = typeof value.value === "number"
+    ? compact ? formatCompact(value.value, locale) : formatExact(value.value, locale)
+    : String(value.value);
+  return provenancePrefix(value.provenance, locale) + usdText(raw);
 }
 
 function findingEvidenceHtml(value: EvidenceValue, locale: ReportLocale, kind: "metric" | "percentage", compact = true): string {
@@ -388,11 +500,11 @@ function findingEvidenceHtml(value: EvidenceValue, locale: ReportLocale, kind: "
     ? formatExact(value.value, locale) + "%"
     : typeof value.value === "number" && compact ? formatCompact(value.value, locale) : formatExact(value.value, locale);
   const exactValue = formatExact(value.value, locale) + (kind === "percentage" ? "%" : "");
-  const prefix = value.provenance === "estimated" ? "≈ " : "";
+  const title = labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue + provenanceSeparator(locale) + provenanceTitle(value, locale);
   return "<span class=\"finding-evidence\" data-provenance=\"" + escapeHtml(value.provenance) + "\" data-sort=\"" +
-    (typeof value.value === "number" ? String(value.value) : "") + "\"><span class=\"finding-value\" title=\"" +
-    escapeHtml(labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue) + "\">" + escapeHtml(prefix + compactValue) +
-    "</span><small class=\"provenance\">" + escapeHtml(provenanceLabel(value.provenance, locale)) + "</small></span>";
+    (typeof value.value === "number" ? String(value.value) : "") + "\" aria-label=\"" + escapeHtml(title) + "\"><span class=\"finding-value\" title=\"" +
+    escapeHtml(title) + "\">" + escapeHtml(provenancePrefix(value.provenance, locale) + compactValue) +
+    "</span></span>";
 }
 
 function findingMetricHtml(value: EvidenceValue, locale: ReportLocale, compact = true): string {
@@ -406,12 +518,10 @@ function findingPercentageHtml(value: EvidenceValue, locale: ReportLocale): stri
 function percentageHtml(value: EvidenceValue, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (value.value === null) return evidenceHtml(value, locale, false);
-  const prefix = value.provenance === "estimated" ? "≈ " : "";
-  const estimate = value.provenance === "estimated"
-    ? "<small class=\"estimate\">" + escapeHtml(labels.estimated) + "</small>"
-    : "";
-  return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + String(value.value) + "\"><span class=\"percentage\">" +
-    escapeHtml(prefix + formatExact(value.value, locale) + "%") + "</span>" + estimate + "</span>";
+  const exactValue = formatExact(value.value, locale) + "%";
+  const title = labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue + provenanceSeparator(locale) + provenanceTitle(value, locale);
+  return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + String(value.value) + "\" aria-label=\"" + escapeHtml(title) + "\"><span class=\"percentage\" title=\"" +
+    escapeHtml(title) + "\">" + escapeHtml(provenancePrefix(value.provenance, locale) + exactValue) + "</span></span>";
 }
 
 function publicLabel(value: string, fallback: string): string {
@@ -443,6 +553,81 @@ function localizeWarning(warning: string, locale: ReportLocale): string {
   return warning;
 }
 
+function localizeLimitation(limitation: string, locale: ReportLocale): string {
+  if (locale !== "zh-CN") return limitation;
+  const exactPrice = /^LiteLLM returned no exact price entry for (.+)$/.exec(limitation);
+  if (exactPrice) return "LiteLLM 没有找到 " + exactPrice[1] + " 的精确价格条目";
+  const failedPrice = /^LiteLLM price lookup failed for (.+)$/.exec(limitation);
+  if (failedPrice) return "LiteLLM 查询 " + failedPrice[1] + " 的价格失败";
+  const resolvedPrice = /^no resolved price entry for (.+)$/.exec(limitation);
+  if (resolvedPrice) return "未解析到 " + resolvedPrice[1] + " 的价格条目";
+  const derivedProvider = /^Provider was derived from the selected Harness for pricing: (.+)$/.exec(limitation);
+  if (derivedProvider) return "定价时根据所选 Harness 推导 Provider：" + derivedProvider[1];
+  const conflictingProvider = /^Provider did not match the selected Harness: (.+)$/.exec(limitation);
+  if (conflictingProvider) return "Provider 与所选 Harness 不匹配：" + conflictingProvider[1];
+  if (limitation === "LiteLLM price lookup was not performed") return "尚未执行 LiteLLM 价格查询";
+  if (limitation === "cost estimate covers only priced Usage; unpriced or incompatible Usage is excluded") return "成本估算仅覆盖已定价 Usage；未定价或不兼容 Usage 已排除";
+  if (limitation === "missing compatible price dimension or mutually exclusive Token composition") return "缺少兼容的价格维度，或 Token 组成不是互斥可计价组成";
+  if (limitation === "missing compatible price dimension for a non-zero Token bucket") return "非零 Token 分桶缺少兼容的价格维度";
+  if (limitation === "cache-write TTL or cache-write price dimension was unavailable") return "缓存写入 TTL 或缓存写入价格维度不可用";
+  if (limitation === "missing exact model identifier") return "缺少精确模型标识";
+  if (limitation === "missing Token total") return "缺少 Token 总量";
+  if (limitation === "calls with missing or inconsistent Token composition were excluded from cache ratios") return "缺少或不一致 Token 组成的调用已从缓存比例中排除";
+  if (limitation === "cache Token ratios are unavailable because no selected call has compatible composition") return "没有调用具备兼容组成，因此缓存 Token 比例不可用";
+  if (limitation === "selected Token total was incomplete for cache composition coverage") return "所选 Token 总量不完整，因此缓存组成覆盖率不可用";
+  if (limitation === "no ModelCall had a complete mutually exclusive Token composition for cache coverage") return "没有 ModelCall 具备完整互斥 Token 组成，因此缓存覆盖率不可用";
+  if (limitation === "no selected Token total was available for price coverage") return "没有可用的所选 Token 总量来计算定价覆盖率";
+  if (limitation === "no Token total was available for price coverage") return "没有可用的 Token 总量来计算定价覆盖率";
+  if (limitation === "the all-uncached comparison requires at least one selected ModelCall with compatible exact pricing") return "全未缓存比较至少需要一个具备兼容精确定价的所选 ModelCall";
+  if (limitation === "currency requires at least one selected ModelCall with an exact Provider/model match and compatible non-zero price dimensions") return "金额至少需要一个 Provider、模型和非零价格维度均精确兼容的所选 ModelCall";
+  if (limitation === "cache savings requires at least one priced Usage with complete compatible cost dimensions") return "缓存节省至少需要一个具备完整兼容成本维度的已定价 Usage";
+  if (limitation === "cache savings percentage requires at least one priced Usage with complete compatible cost dimensions") return "缓存节省比例至少需要一个具备完整兼容成本维度的已定价 Usage";
+  if (limitation === "cost difference requires at least one priced Usage with complete compatible cost dimensions") return "成本差额至少需要一个具备完整兼容成本维度的已定价 Usage";
+  if (limitation === "cost difference percentage requires at least one priced Usage with complete compatible cost dimensions") return "成本差额比例至少需要一个具备完整兼容成本维度的已定价 Usage";
+  if (limitation === "首次请求负担 is an observed earliest request size, not an exact removable startup tax") return "首次请求负担是观测到的最早请求大小，不是可精确移除的启动税";
+  if (limitation === "Sessions without a timestamped valid ModelCall are excluded from first-request coverage") return "没有带时间戳有效 ModelCall 的 Session 已排除在首次请求覆盖率之外";
+  if (limitation === "first-request cache composition is partial because some earliest calls are missing compatible Token fields") return "部分最早请求缺少兼容 Token 字段，因此首次请求缓存组成不完整";
+  if (limitation === "first-request coverage has no selected Session denominator") return "首次请求覆盖率没有所选 Session 分母";
+  if (limitation === "top-level versus Subagent first-request groups require source-proven identity for every selected Session") return "顶层与子 Agent 首次请求分组要求每个所选 Session 都有来源证明的身份";
+  if (limitation === "no selected Sessions were available for top-level or Subagent identity coverage") return "没有可用于顶层或子 Agent 身份覆盖率的所选 Session";
+  if (limitation === "causal Skill impact requires a valid comparison or counterfactual, which local history does not provide") return "Skill 因果影响需要有效对照或反事实，而本地历史没有提供";
+  const missingSkillAssociation = /^no source-proven ModelCall association was available for (.+)$/.exec(limitation);
+  if (missingSkillAssociation) return "没有可用的来源证明 ModelCall 关联：" + missingSkillAssociation[1];
+  if (limitation === "no source-proven ModelCall association was available") return "没有可用的来源证明 ModelCall 关联";
+  if (limitation === "no Skill evidence was available") return "没有可用的 Skill 证据";
+  return "存在一项未满足的诊断条件";
+}
+
+function localizeMethod(method: string | undefined, locale: ReportLocale): string {
+  if (!method) return labelsFor(locale).unavailable;
+  if (locale !== "zh-CN") return method;
+  const exact: Record<string, string> = {
+    "cache-read Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals": "缓存读取 Token 总量除以分母，换算为百分比并四舍五入到两位小数",
+    "cache-write Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals": "缓存写入 Token 总量除以分母，换算为百分比并四舍五入到两位小数",
+    "median of earliest valid ModelCall Token totals in selected": "取所选 Session 中每个最早有效 ModelCall 的 Token 总量中位数",
+    "largest paired tool-result estimate is greater than zero": "最大配对工具结果暴露估算大于零",
+    "count of observed retry, interruption, and subagent lifecycle records is greater than zero": "观测到的重试、中断和子 Agent 生命周期记录数量大于零",
+    "largest complete Session share is at least 40% with at least two ModelCall records": "至少有两个 ModelCall 记录时，最大完整 Session 占比至少为 40%",
+    "largest complete model contribution share is at least 60% when more than one model is observed": "观测到多个模型时，最大完整模型贡献占比至少为 60%",
+    "coverage reports skipped records, partial Sessions, or warnings": "覆盖情况报告了跳过记录、不完整 Session 或警告",
+    "coverage reports at least one record with no skipped records, partial Sessions, or warnings": "覆盖情况报告至少一条记录，且没有跳过记录、不完整 Session 或警告",
+  };
+  if (exact[method]) return exact[method];
+  if (method.includes("Provider and model match against the LiteLLM model catalog")) {
+    return method.startsWith("partial")
+      ? "基于 LiteLLM 模型目录和所选 Harness 到 Provider 的映射，对已定价 Usage 做部分 API 等价估算；未定价或不兼容 Usage 已排除；互斥的普通输入、缓存读取、缓存写入和输出分桶分别计价"
+      : "基于 LiteLLM 模型目录和所选 Harness 到 Provider 的映射精确匹配 Provider 与模型；互斥的普通输入、缓存读取、缓存写入和输出分桶分别计价";
+  }
+  if (method.startsWith("partial all-uncached counterfactual")) return "按已定价 Usage 子集计算全未缓存反事实：普通输入、缓存读取和缓存写入按普通输入价格计价，输出保持不变；未定价 Usage 已排除";
+  if (method.startsWith("all-uncached counterfactual")) return "全未缓存反事实把普通输入、缓存读取和缓存写入按普通输入价格计价，输出保持不变";
+  if (method.startsWith("all-uncached API-equivalent estimate minus observed API-equivalent estimate")) return "全未缓存 API 等价估算减去观察到的 API 等价估算；正值表示缓存降低了估算成本";
+  if (method.startsWith("cache savings divided by all-uncached API-equivalent cost")) return "缓存节省除以全未缓存 API 等价成本，换算为百分比并四舍五入到两位小数";
+  if (method.startsWith("cost difference divided by all-uncached API-equivalent estimate")) return "成本差额除以全未缓存 API 等价估算，换算为百分比并四舍五入到两位小数";
+  if (method.startsWith("sum of compatible ")) return method.replace(/^sum of compatible (.+) Token buckets$/, "兼容的 $1 Token 分桶求和");
+  if (method.startsWith("median of earliest valid ModelCall Token totals in ")) return method.replace(/^median of earliest valid ModelCall Token totals in (.+)$/, "取 $1 中每个最早有效 ModelCall 的 Token 总量中位数");
+  return "按所选历史记录和支持字段计算";
+}
+
 function renderWarningList(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (result.coverage.warnings.length === 0) return emptyState(labels);
@@ -465,18 +650,19 @@ function coverageSummaryEvidence(result: AuditResult, key: string, method: strin
 }
 
 function coveragePercentageText(value: EvidenceValue, locale: ReportLocale): string {
-  if (value.value === null) return labelsFor(locale).unavailable;
+  if (value.value === null) return "—";
   const raw = typeof value.value === "number" ? formatExact(value.value, locale) : String(value.value);
-  return raw + "%, " + provenanceLabel(value.provenance, locale);
+  return provenancePrefix(value.provenance, locale) + raw + "%";
 }
 
 function coveragePercentageHtml(value: EvidenceValue, locale: ReportLocale): string {
   if (value.value === null) return evidenceHtml(value, locale, false);
   const labels = labelsFor(locale);
   const exactValue = formatExact(value.value, locale) + "%";
+  const title = labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue + provenanceSeparator(locale) + provenanceTitle(value, locale);
   return "<span class=\"coverage-percentage\" data-provenance=\"" + escapeHtml(value.provenance) + "\" data-sort=\"" +
-    String(value.value) + "\"><span title=\"" + escapeHtml(labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue) + "\">" +
-    escapeHtml(exactValue) + "</span><small class=\"provenance\">, " + escapeHtml(provenanceLabel(value.provenance, locale)) + "</small></span>";
+    String(value.value) + "\" aria-label=\"" + escapeHtml(title) + "\"><span title=\"" + escapeHtml(title) + "\">" +
+    escapeHtml(provenancePrefix(value.provenance, locale) + exactValue) + "</span></span>";
 }
 
 function coverageMetricHtml(value: EvidenceValue, locale: ReportLocale): string {
@@ -574,18 +760,18 @@ function renderScope(result: AuditResult, locale: ReportLocale): string {
 function renderKpis(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const sessionBreakdown = result.summary.topLevelSessionCount.value !== null && result.summary.subagentSessionCount.value !== null
-    ? [[labels.topLevelSessions, result.summary.topLevelSessionCount], [labels.subagentSessions, result.summary.subagentSessionCount]] as Array<[string, EvidenceValue]>
+    ? [[labels.topLevelSessions, result.summary.topLevelSessionCount, false], [labels.subagentSessions, result.summary.subagentSessionCount, false]] as Array<[string, EvidenceValue, boolean]>
     : [];
-  const items: Array<[string, EvidenceValue]> = [
-    [labels.totalTokens, result.summary.totalTokens],
-    [labels.sessions, result.summary.sessionCount],
-    [labels.modelCalls, result.summary.modelCallCount],
+  const items: Array<[string, EvidenceValue, boolean]> = [
+    [labels.totalTokens, result.summary.totalTokens, false],
+    [labels.sessions, result.summary.sessionCount, false],
+    [labels.modelCalls, result.summary.modelCallCount, false],
     ...sessionBreakdown,
-    ...(result.summary.reportedCost.value === null ? [] : [[labels.reportedCost, result.summary.reportedCost] as [string, EvidenceValue]]),
-    ...(typeof result.report.apiEquivalentCost.coveragePercent.value === "number" && result.report.apiEquivalentCost.coveragePercent.value >= 80 && result.report.apiEquivalentCost.total.value !== null ? [[locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)", result.report.apiEquivalentCost.total] as [string, EvidenceValue]] : []),
+    ...(result.summary.reportedCost.value === null ? [] : [[labels.reportedCost, result.summary.reportedCost, true] as [string, EvidenceValue, boolean]]),
+    ...(typeof result.report.apiEquivalentCost.total.value === "number" ? [[locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)", result.report.apiEquivalentCost.total, true] as [string, EvidenceValue, boolean]] : []),
   ];
-  return "<div class=\"kpis\">" + items.map(([label, value]) =>
-    "<div class=\"kpi\"><span>" + escapeHtml(label) + "</span><strong>" + evidenceHtml(value, locale) + "</strong></div>",
+  return "<div class=\"kpis\">" + items.map(([label, value, currency]) =>
+    "<div class=\"kpi\"><span>" + escapeHtml(label) + "</span><strong>" + evidenceHtml(value, locale, true, currency) + "</strong></div>",
   ).join("") + "</div>";
 }
 
@@ -612,15 +798,15 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     detail: chinese ? evidence(1) + " 次模型调用；" + evidence(0) + " 个已观测 Token。" : evidence(1) + " ModelCall records; " + evidence(0) + " observed tokens.",
     headlineHtml: (chinese ? "一个 Session 占已观测 Token 的 " : "One Session accounts for ") + percentageHtmlValue(2) + (chinese ? "" : " of observed tokens"),
     detailHtml: (chinese ? metricHtml(1) + " 次模型调用；" + metricHtml(0) + " 个已观测 Token。" : metricHtml(1) + " ModelCall records; " + metricHtml(0) + " observed tokens."),
-    method: check.method,
+    method: localizeMethod(check.method, locale),
   };
   if (check.id === "tool_amplification") return {
     marker,
-    headline: chinese ? "一个工具结果可能在后续上下文中延续；暴露估算 " + evidence(2) : "One tool result may be carried forward; exposure estimate " + evidence(2),
+      headline: chinese ? "一个工具结果可能在后续上下文中延续；暴露估算" + evidence(2) : "One tool result may be carried forward; exposure estimate " + evidence(2),
     detail: chinese ? "配对结果 " + evidence(0) + " " + labels.characters + "；其后有 " + evidence(1) + " 次模型调用。" : "Paired result: " + evidence(0) + " " + labels.characters + "; later ModelCall records: " + evidence(1) + ".",
-    headlineHtml: (chinese ? "一个工具结果可能在后续上下文中延续；暴露估算 " : "One tool result may be carried forward; exposure estimate ") + metricHtml(2),
+      headlineHtml: (chinese ? "一个工具结果可能在后续上下文中延续；暴露估算" : "One tool result may be carried forward; exposure estimate ") + metricHtml(2),
     detailHtml: (chinese ? "配对结果 " + metricHtml(0) + " " + escapeHtml(labels.characters) + "；其后有 " + metricHtml(1) + " 次模型调用。" : "Paired result: " + metricHtml(0) + " " + escapeHtml(labels.characters) + "; later ModelCall records: " + metricHtml(1) + "."),
-    method: check.method,
+    method: localizeMethod(check.method, locale),
   };
   if (check.id === "extra_calls") return {
     marker,
@@ -628,7 +814,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     detail: chinese ? "该检查只计数已观察到的生命周期记录。" : "This check counts only observed lifecycle records.",
     headlineHtml: (chinese ? "观察到 " : "") + metricHtml(0) + (chinese ? " 条重试、中断或子 Agent 生命周期记录" : " retry, interruption, or subagent lifecycle records observed"),
     detailHtml: chinese ? "该检查只计数已观察到的生命周期记录。" : "This check counts only observed lifecycle records.",
-    method: check.method,
+    method: localizeMethod(check.method, locale),
   };
   if (check.id === "model_concentration") return {
     marker,
@@ -636,7 +822,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     detail: chinese ? evidence(2) + " 次模型调用。" : evidence(2) + " ModelCall records.",
     headlineHtml: metricHtml(0) + (chinese ? " 占已观测 Token 的 " : " accounts for ") + percentageHtmlValue(1) + (chinese ? "" : " of observed tokens"),
     detailHtml: metricHtml(2) + (chinese ? " 次模型调用。" : " ModelCall records."),
-    method: check.method,
+    method: localizeMethod(check.method, locale),
   };
   if (check.outcome === "pass") return {
     marker,
@@ -644,7 +830,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     detail: chinese ? evidence(1) + " 条记录来自 " + evidence(0) + " 个文件；没有跳过或不完整 Session。" : evidence(1) + " records from " + evidence(0) + " files; no skipped or partial Sessions.",
     headlineHtml: chinese ? "历史记录未报告覆盖警告" : "History parsed without coverage warnings",
     detailHtml: chinese ? metricHtml(1) + " 条记录来自 " + metricHtml(0) + " 个文件；没有跳过或不完整 Session。" : metricHtml(1) + " records from " + metricHtml(0) + " files; no skipped or partial Sessions.",
-    method: check.method,
+    method: localizeMethod(check.method, locale),
   };
   return {
     marker,
@@ -652,7 +838,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     detail: chinese ? evidence(2) + " 条跳过记录；" + evidence(3) + " 个不完整 Session；" + evidence(4) + " 条覆盖警告。" : evidence(2) + " skipped records; " + evidence(3) + " partial Sessions; " + evidence(4) + " coverage warnings.",
     headlineHtml: chinese ? "覆盖范围报告存在跳过、不完整或警告记录" : "Coverage reports skipped, partial, or warning records",
     detailHtml: chinese ? metricHtml(2) + " 条跳过记录；" + metricHtml(3) + " 个不完整 Session；" + metricHtml(4) + " 条覆盖警告。" : metricHtml(2) + " skipped records; " + metricHtml(3) + " partial Sessions; " + metricHtml(4) + " coverage warnings.",
-    method: check.method,
+    method: localizeMethod(check.method, locale),
   };
 }
 
@@ -729,6 +915,117 @@ function renderTools(result: AuditResult, locale: ReportLocale): string {
     "</tbody></table>";
 }
 
+function methodText(value: EvidenceValue, locale: ReportLocale): string {
+  return localizeMethod(value.method, locale);
+}
+
+function skillStateLabel(state: AuditResult["report"]["skills"][number]["state"], locale: ReportLocale): string {
+  if (locale === "zh-CN") {
+    return state === "available" ? "可用" : state === "invoked" ? "已调用" : state === "attributed" ? "已归因" : "不可用";
+  }
+  return state;
+}
+
+function skillLabel(name: string, locale: ReportLocale): string {
+  if (name === "<unknown-skill>") return locale === "zh-CN" ? "未知 Skill" : "Unknown Skill";
+  return publicLabel(name, labelsFor(locale).unavailable);
+}
+
+function renderCacheText(result: AuditResult, locale: ReportLocale): string[] {
+  const labels = labelsFor(locale);
+  const cache = result.report.cacheEconomics;
+  const lines = [
+    labels.cacheEconomics,
+    labels.cacheReadRate + ": " + percentagePlain(cache.cacheReadRatePercent, locale) + "; " + labels.cacheWriteRate + ": " + percentagePlain(cache.cacheWriteRatePercent, locale) + "; " + labels.cacheCoverage + ": " + percentagePlain(cache.coveragePercent, locale) + ".",
+    labels.observedApiCost + ": " + currencyPlain(cache.observedApiEquivalentCost, locale, false) + "; " + labels.allUncachedApiCost + ": " + currencyPlain(cache.allUncachedApiEquivalentCost, locale, false) + "; " + labels.cacheSavings + ": " + currencyPlain(cache.cacheSavings, locale, false) + " (" + percentagePlain(cache.cacheSavingsPercent, locale) + "); " + labels.priceCoverage + ": " + percentagePlain(cache.pricedUsageCoveragePercent, locale) + ".",
+    (locale === "zh-CN" ? "方法：" : "Method: ") + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale),
+  ];
+  if (cache.limitations.length > 0) lines.push((locale === "zh-CN" ? "限制：" : "Limitations: ") + cache.limitations.map((limitation) => localizeLimitation(limitation, locale)).join("; "));
+  return lines;
+}
+
+function renderFirstRequestText(result: AuditResult, locale: ReportLocale): string[] {
+  const labels = labelsFor(locale);
+  const first = result.report.firstRequestBurden;
+  const lines = [
+    labels.firstRequestBurden,
+    labels.firstRequestMedian + ": " + evidencePlain(first.medianTokens, locale, false) + "; " + labels.firstRequestShare + ": " + percentagePlain(first.sharePercent, locale) + "; " + labels.firstRequestCoverage + ": " + percentagePlain(first.coveragePercent, locale) + ".",
+    (locale === "zh-CN" ? "缓存组成：普通输入 " : "Cache composition: ordinary input ") + evidencePlain(first.inputTokens, locale, false) + "; " + labels.cachedInput + " " + evidencePlain(first.cachedInputTokens, locale, false) + "; " + labels.cacheWrite + " " + evidencePlain(first.cacheWriteTokens, locale, false) + "; " + labels.output + " " + evidencePlain(first.outputTokens, locale, false) + ".",
+    labels.firstRequestCompositionCoverage + ": " + percentagePlain(first.compositionCoveragePercent, locale) + "; " + labels.coldFirstRequestRate + ": " + percentagePlain(first.coldSessionRatePercent, locale) + ".",
+    (locale === "zh-CN" ? "方法：" : "Method: ") + methodText(first.medianTokens, locale) + "; " + (locale === "zh-CN" ? "该指标是观测到的最早请求大小，不能精确拆分系统、Skill 或用户输入开销。" : "This is the observed earliest request size; it cannot precisely decompose system, Skill, or user-input overhead."),
+  ];
+  if (first.topLevel) lines.push((locale === "zh-CN" ? "顶层：" : "Top-level: ") + evidencePlain(first.topLevel.medianTokens, locale, false) + "; " + labels.firstRequestCoverage + " " + percentagePlain(first.topLevel.compositionCoveragePercent, locale) + ".");
+  if (first.subagent) lines.push((locale === "zh-CN" ? "子 Agent：" : "Subagent: ") + evidencePlain(first.subagent.medianTokens, locale, false) + "; " + labels.firstRequestCoverage + " " + percentagePlain(first.subagent.compositionCoveragePercent, locale) + ".");
+  lines.push((locale === "zh-CN" ? "身份覆盖：" : "Identity coverage: ") + percentagePlain(first.identityCoveragePercent, locale) + ".");
+  if (first.limitations.length > 0) lines.push((locale === "zh-CN" ? "限制：" : "Limitations: ") + first.limitations.map((limitation) => localizeLimitation(limitation, locale)).join("; "));
+  return lines;
+}
+
+function renderSkillsText(result: AuditResult, locale: ReportLocale): string[] {
+  const labels = labelsFor(locale);
+  if (result.report.skills.length === 0) return [labels.skillEvidence, labels.noSkillEvidence];
+  const lines = [labels.skillEvidence];
+  for (const skill of result.report.skills) {
+    lines.push(
+      skillLabel(skill.name, locale) + " [" + skillStateLabel(skill.state, locale) + "]" +
+      ": " + labels.invocationCount + " " + evidencePlain(skill.invocationCount, locale, false) + "; " + labels.skillSessions + " " + evidencePlain(skill.sessionCount, locale, false) +
+      "; " + labels.attributedTokens + " " + evidencePlain(skill.attributedTokens, locale, false) + "; " + labels.attributedCost + " " + currencyPlain(skill.attributedApiEquivalentCost, locale, false) +
+      "; " + labels.evidenceCoverage + " " + percentagePlain(skill.evidenceCoveragePercent, locale) + "; " + labels.observedFrom + " " + evidencePlain(dateEvidence(skill.firstObservedAt, locale), locale, false) + "; " + labels.observedTo + " " + evidencePlain(dateEvidence(skill.lastObservedAt, locale), locale, false) + ".",
+    );
+    lines.push(
+      (locale === "zh-CN" ? "影响证据：直接资源 " : "Impact evidence: direct resources ") + evidencePlain(skill.directResourceFootprint, locale, false) + "; " + labels.observedAssociation + " " + evidencePlain(skill.observedAssociation, locale, false) + "; " + labels.causalImpact + " " + evidencePlain(skill.causalImpact, locale, false) + ".",
+    );
+  }
+  return lines;
+}
+
+function renderCacheHtml(result: AuditResult, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  const cache = result.report.cacheEconomics;
+  const metrics: Array<[string, EvidenceValue, "metric" | "currency" | "percentage"]> = [
+    [labels.cacheReadRate, cache.cacheReadRatePercent, "percentage"],
+    [labels.cacheWriteRate, cache.cacheWriteRatePercent, "percentage"],
+    [labels.cacheCoverage, cache.coveragePercent, "percentage"],
+    [labels.observedApiCost, cache.observedApiEquivalentCost, "currency"],
+    [labels.allUncachedApiCost, cache.allUncachedApiEquivalentCost, "currency"],
+    [labels.cacheSavings, cache.cacheSavings, "currency"],
+    [labels.cacheSavingsPercent, cache.cacheSavingsPercent, "percentage"],
+    [labels.priceCoverage, cache.pricedUsageCoveragePercent, "percentage"],
+  ];
+  const metricHtml = metrics.map(([label, value, kind]) => "<div><span>" + escapeHtml(label) + "</span><strong>" + (kind === "percentage" ? percentageHtml(value, locale) : evidenceHtml(value, locale, true, kind === "currency")) + "</strong></div>").join("");
+  const limitations = cache.limitations.length > 0 ? "<ul class=\"warning-list\">" + cache.limitations.map((limitation) => "<li>" + escapeHtml(localizeLimitation(limitation, locale)) + "</li>").join("") + "</ul>" : "";
+  return "<section class=\"cache-economics\"><h2>" + escapeHtml(labels.cacheEconomics) + "</h2><div class=\"scope-grid\">" + metricHtml + "</div><p class=\"coverage-note\">" + escapeHtml((locale === "zh-CN" ? "缓存比例先汇总互斥 Token 再相除；金额是 API 等价估算，不是订阅账单。方法：" : "Cache ratios sum mutually exclusive Token buckets before division; currency is an API-equivalent estimate, not a subscription bill. Method: ") + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale)) + "</p>" + limitations + "</section>";
+}
+
+function renderFirstGroupHtml(group: AuditResult["report"]["firstRequestBurden"]["topLevel"], label: string, locale: ReportLocale): string {
+  if (!group) return "";
+  const labels = labelsFor(locale);
+  return "<h3>" + escapeHtml(label) + "</h3><div class=\"scope-grid\"><div><span>" + escapeHtml(labels.firstRequestMedian) + "</span><strong>" + evidenceHtml(group.medianTokens, locale, false) + "</strong></div><div><span>" + escapeHtml(labels.firstRequestCompositionCoverage) + "</span><strong>" + percentageHtml(group.compositionCoveragePercent, locale) + "</strong></div><div><span>" + escapeHtml(labels.coldFirstRequestRate) + "</span><strong>" + percentageHtml(group.coldSessionRatePercent, locale) + "</strong></div></div>";
+}
+
+function renderFirstRequestHtml(result: AuditResult, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  const first = result.report.firstRequestBurden;
+  const metrics: Array<[string, EvidenceValue, "metric" | "percentage"]> = [
+    [labels.firstRequestMedian, first.medianTokens, "metric"],
+    [labels.firstRequestShare, first.sharePercent, "percentage"],
+    [labels.firstRequestCoverage, first.coveragePercent, "percentage"],
+    [labels.firstRequestCompositionCoverage, first.compositionCoveragePercent, "percentage"],
+    [labels.coldFirstRequestRate, first.coldSessionRatePercent, "percentage"],
+    [labels.identityCoverage, first.identityCoveragePercent, "percentage"],
+  ];
+  const metricHtml = metrics.map(([label, value, kind]) => "<div><span>" + escapeHtml(label) + "</span><strong>" + (kind === "percentage" ? percentageHtml(value, locale) : evidenceHtml(value, locale)) + "</strong></div>").join("");
+  const limitations = first.limitations.length > 0 ? "<ul class=\"warning-list\">" + first.limitations.map((limitation) => "<li>" + escapeHtml(localizeLimitation(limitation, locale)) + "</li>").join("") + "</ul>" : "";
+  return "<section class=\"first-request\"><h2>" + escapeHtml(labels.firstRequestBurden) + "</h2><div class=\"scope-grid\">" + metricHtml + "</div><p class=\"coverage-note\">" + escapeHtml(locale === "zh-CN" ? "这是每个 Session 最早有效请求的观测负担（Token），不是可精确拆出的启动税。" : "This is the observed burden in Tokens of each Session's earliest valid request, not an exact decomposable startup tax.") + "</p>" + renderFirstGroupHtml(first.topLevel, labels.topLevelSessions, locale) + renderFirstGroupHtml(first.subagent, labels.subagentSessions, locale) + limitations + "</section>";
+}
+
+function renderSkillsHtml(result: AuditResult, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  if (result.report.skills.length === 0) return "<section><h2>" + escapeHtml(labels.skillEvidence) + "</h2>" + emptyState(labels, labels.noSkillEvidence) + "</section>";
+  const rows = result.report.skills.map((skill) => "<tr><th scope=\"row\">" + escapeHtml(skillLabel(skill.name, locale)) + "</th><td>" + escapeHtml(skillStateLabel(skill.state, locale)) + "</td><td>" + evidenceHtml(skill.availableSessions, locale, false) + "</td><td>" + evidenceHtml(skill.invocationCount, locale, false) + "</td><td>" + evidenceHtml(skill.sessionCount, locale, false) + "</td><td>" + evidenceHtml(skill.attributedTokens, locale) + "</td><td>" + evidenceHtml(skill.attributedApiEquivalentCost, locale, false, true) + "</td><td>" + percentageHtml(skill.evidenceCoveragePercent, locale) + "</td><td>" + evidenceHtml(dateEvidence(skill.firstObservedAt, locale), locale, false) + " → " + evidenceHtml(dateEvidence(skill.lastObservedAt, locale), locale, false) + "</td><td>" + evidenceHtml(skill.directResourceFootprint, locale, false) + " / " + evidenceHtml(skill.observedAssociation, locale, false) + " / " + evidenceHtml(skill.causalImpact, locale, false) + "</td></tr>").join("");
+  return "<section class=\"skill-evidence\"><h2>" + escapeHtml(labels.skillEvidence) + "</h2><p class=\"coverage-note\">" + escapeHtml(locale === "zh-CN" ? "列表只表示可用；已调用和已归因必须有明确边界。直接资源 / 观察关联 / 因果影响分开，因果影响没有反事实时保持不可用。" : "A listing means available only; invoked and attributed require explicit boundaries. Direct resource / observed association / causal impact stay separate, with causal impact unavailable without a counterfactual.") + "</p><table class=\"sortable\"><thead><tr><th scope=\"col\">Skill</th><th scope=\"col\">" + escapeHtml(labels.skillState) + "</th><th scope=\"col\">" + escapeHtml(labels.availableSessions) + "</th><th scope=\"col\">" + escapeHtml(labels.invocationCount) + "</th><th scope=\"col\">" + escapeHtml(labels.skillSessions) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedTokens) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedCost) + "</th><th scope=\"col\">" + escapeHtml(labels.evidenceCoverage) + "</th><th scope=\"col\">" + escapeHtml(labels.observedFrom + " → " + labels.observedTo) + "</th><th scope=\"col\">" + escapeHtml(labels.directResourceFootprint + " / " + labels.observedAssociation + " / " + labels.causalImpact) + "</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
+}
+
 function numericValue(value: EvidenceValue): number | null {
   return typeof value.value === "number" && Number.isFinite(value.value) ? value.value : null;
 }
@@ -785,7 +1082,7 @@ function renderDailyComposition(result: AuditResult, locale: ReportLocale): stri
     const y = index * rowHeight + 10;
     const total = numericValue(row.totalTokens) ?? 0;
     const totalWidth = Math.max(1, Math.round((total / max) * barMax));
-    const dateLabel = formatDateKey(row.key, locale);
+    const dateLabel = formatDateKey(row.key, locale, false);
     parts.push("<text x=\"145\" y=\"" + (y + 15) + "\" text-anchor=\"end\" class=\"chart-label\">" + escapeHtml(dateLabel) + "</text>");
     parts.push("<rect x=\"" + barX + "\" y=\"" + y + "\" width=\"" + totalWidth + "\" height=\"18\" rx=\"4\" class=\"chart-track\"><title>" + escapeHtml(dateLabel + ": " + metricPlain(row.totalTokens, locale)) + "</title></rect>");
     let segmentX = barX;
@@ -826,7 +1123,7 @@ function localHour(value: string, locale: ReportLocale): { dateKey: string; date
   const dateKey = part("year") + "-" + part("month") + "-" + part("day");
   return {
     dateKey,
-    dateLabel: formatDateKey(dateKey, locale),
+    dateLabel: formatDateKey(dateKey, locale, false),
     hour,
     timeLabel: formatDateTime(value, locale),
   };
@@ -931,12 +1228,12 @@ function chartRuntime(): string {
 function renderInteractiveCharts(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.report.dailyUsage.map((row) => ({
-    time: formatDateKey(row.key, locale), total: numericValue(row.totalTokens), input: numericValue(row.inputTokens), cached: numericValue(row.cachedInputTokens), cacheWrite: numericValue(row.cacheWriteTokens), output: numericValue(row.outputTokens), unclassified: numericValue(row.unclassifiedTokens), cost: numericValue(row.apiEquivalentCost),
+    time: formatDateKey(row.key, locale, false), total: numericValue(row.totalTokens), input: numericValue(row.inputTokens), cached: numericValue(row.cachedInputTokens), cacheWrite: numericValue(row.cacheWriteTokens), output: numericValue(row.outputTokens), unclassified: numericValue(row.unclassifiedTokens), cost: numericValue(row.apiEquivalentCost),
   }));
   const models = result.rankings.models.map((row) => ({ name: modelLabel(row.key, locale), value: numericValue(row.value) }));
   const tools = result.report.tools.map((row) => ({ name: publicLabel(row.key, labels.unavailable), value: numericValue(row.injectedTokens) }));
   const cost = result.report.apiEquivalentCost;
-  const costVisible = typeof cost.coveragePercent.value === "number" && cost.coveragePercent.value >= 80 && typeof cost.total.value === "number";
+  const costVisible = typeof cost.total.value === "number";
   const data = JSON.stringify({ rows, models, tools, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: locale === "zh-CN" ? "未分类余量" : "unclassified remainder", cost: locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)" }, costVisible }).replaceAll("<", "\\u003c");
   const runtime = chartRuntime();
   if (!runtime || rows.length === 0) return "";
@@ -947,9 +1244,10 @@ function renderInteractiveCharts(result: AuditResult, locale: ReportLocale): str
     "addEventListener('DOMContentLoaded',()=>{const d=", data, ";const p=", JSON.stringify(chartPalette), ";const compact=new Intl.NumberFormat(d.locale,{notation:'compact',maximumFractionDigits:2});",
     "const axis={axisLine:{lineStyle:{color:'#e8e6dc'}},axisLabel:{color:p.stone}};",
     "const make=(id,option)=>{const el=document.getElementById(id);if(!el||!window.echarts)return;const c=echarts.init(el,null,{renderer:'svg'});c.setOption({textStyle:{fontFamily:'Charter, Georgia, Palatino, serif',color:p.olive},...option});addEventListener('resize',()=>c.resize())};",
+    "const tooltip=params=>params.map(item=>item.value==null?item.seriesName+': '+" + unavailableLabel + ":item.seriesName===d.labels.cost?item.seriesName+': $'+compact.format(item.value):item.seriesName+': '+compact.format(item.value)).join('<br>');",
     "const series=[['input',d.labels.input,p.brand,'solid','circle',true],['cached',d.labels.cached,p.stone,'dashed','rect',false],['cacheWrite',d.labels.cacheWrite,p.olive,'dotted','diamond',false],['output',d.labels.output,p.chartMidBlue,'solid','triangle',false],['unclassified',d.labels.unclassified,p.lightStone,'dashed','none',false]].map(([key,name,color,lineType,symbol,focus])=>({name,type:'line',smooth:false,symbol,showSymbol:d.rows.length<=14,symbolSize:5,lineStyle:{color,width:focus?2.5:2,opacity:focus?1:.92,type:lineType},itemStyle:{color},...(focus?{areaStyle:{color,opacity:.1}}:{}),emphasis:{focus:'series',lineStyle:{color,width:3,opacity:1},...(focus?{areaStyle:{color,opacity:.12}}:{})},data:d.rows.map(r=>r[key])}));",
     "if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'diamond',showSymbol:d.rows.length<=14,symbolSize:5,connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:p.darkWarm,width:2,type:'dashed'},itemStyle:{color:p.darkWarm},emphasis:{focus:'series',lineStyle:{color:p.darkWarm,width:3,opacity:1}}});",
-    "make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',valueFormatter:v=>v==null?", unavailableLabel, ":compact.format(v)},legend:{type:'scroll',textStyle:{color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
+    "make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',formatter:tooltip},legend:{type:'scroll',textStyle:{color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
     "make('model-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按模型的 Token 分布；下方表格提供等价数据。" : "Token distribution by model; the table below provides equivalent data."), "},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand,borderRadius:[3,3,0,0]}}]});",
     "make('tool-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按工具的估算工具结果注入大小；下方表格提供等价数据。" : "Estimated tool-result injection by tool; the table below provides equivalent data."), "},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.chartMidBlue,borderRadius:[0,3,3,0]}}]});",
     "document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent;const b=document.createElement('button');b.type='button';b.textContent=label+' ↕';b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})});</script>"
@@ -964,13 +1262,13 @@ html[lang="zh-CN"]{--serif:"Source Han Serif SC","Source Han Serif CN","Noto Ser
 *{box-sizing:border-box}html,body{margin:0;padding:0}body{background:var(--parchment);color:var(--near-black);font-family:var(--serif);font-size:15px;font-weight:400;line-height:1.55;letter-spacing:0;font-synthesis:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}html[lang="zh-CN"] body{letter-spacing:.3px}
 main{max-width:1120px;margin:0 auto;padding:88px 64px 120px}header{padding-bottom:32px;border-bottom:1px solid var(--border-soft);margin-bottom:48px}.eyebrow{font-family:var(--sans);font-size:12px;font-weight:500;line-height:1.35;letter-spacing:1px;text-transform:uppercase;color:var(--stone);margin:0 0 16px}h1,h2,h3{font-family:var(--serif);font-weight:500;color:var(--near-black)}h1{font-size:38px;line-height:1.1;letter-spacing:-.4px;margin:0 0 12px}header p{font-family:var(--serif);font-size:16px;line-height:1.55;color:var(--olive);max-width:720px;margin:0}h2{font-size:24px;line-height:1.2;margin:0 0 20px}h3{font-size:18px;line-height:1.3;margin:32px 0 12px}section{margin:0 0 56px;padding:0;background:transparent;border:0;border-radius:0}section>h2{margin-top:0}
 .scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{display:grid;gap:24px}.scope-grid{grid-template-columns:repeat(3,1fr);margin:0 0 32px}.scope-grid div{padding:0 16px 16px 0;border-bottom:1px solid var(--border-soft)}.scope-grid dt{color:var(--stone);font-size:12px;line-height:1.35}.scope-grid dd{margin:6px 0 0;font-weight:500;line-height:1.45;overflow-wrap:anywhere}.coverage-grid{grid-template-columns:repeat(5,1fr);margin:0 0 12px}.coverage-grid div,.window-grid div{padding:0 16px 16px 0;border-bottom:1px solid var(--border-soft)}.coverage-grid strong,.coverage-grid span,.window-grid strong,.window-grid span{display:block}.coverage-grid strong{font-family:var(--serif);font-size:24px;line-height:1.1;font-weight:500;color:var(--brand)}.coverage-grid span,.window-grid span{color:var(--stone);font-size:12px;line-height:1.4}.coverage-note,.empty{color:var(--olive);font-size:13px;line-height:1.5}.warning-list{margin:12px 0 0;padding-left:20px}.ok{color:var(--olive)}
-.kpis{grid-template-columns:repeat(4,1fr);gap:32px;margin:0 0 56px}.kpi{padding:0 0 20px;border:0;border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent}.kpi>span{display:block;color:var(--stone);font-size:13px;line-height:1.4}.kpi strong{display:block;margin-top:8px;font-family:var(--serif);font-size:36px;font-weight:500;line-height:1.05;color:var(--brand);font-variant-numeric:lining-nums tabular-nums}.metric-stack{display:inline-flex;flex-direction:column;align-items:flex-start;gap:3px;font-variant-numeric:lining-nums tabular-nums}.metric-main{display:block}.estimate{display:block;color:var(--stone);font-family:var(--sans);font-size:12px;font-weight:400;line-height:1.35}.percentage{display:block;white-space:nowrap}.unavailable{color:var(--stone);font-style:normal}
+.kpis{grid-template-columns:repeat(4,1fr);gap:32px;margin:0 0 56px}.kpi{padding:0 0 20px;border:0;border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent}.kpi>span{display:block;color:var(--stone);font-size:13px;line-height:1.4}.kpi strong{display:block;margin-top:8px;font-family:var(--serif);font-size:36px;font-weight:500;line-height:1.05;color:var(--brand);font-variant-numeric:lining-nums tabular-nums}.metric-stack{display:inline-flex;flex-direction:column;align-items:flex-start;gap:3px;font-variant-numeric:lining-nums tabular-nums}.metric-main{display:block}.percentage{display:block;white-space:nowrap}.unavailable{color:var(--stone);font-style:normal}
 .finding{padding:24px;background:var(--ivory);border:0;border-radius:8px}.finding.neutral{padding:0;background:transparent}.finding h2{font-size:24px;line-height:1.2;max-width:800px}.finding p{max-width:820px}.evidence{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:20px 0}.evidence li{background:var(--tag-bg);border-radius:2px;padding:4px 8px;color:var(--brand);font-size:12px;line-height:1.35}.recommendation{border-top:1px solid var(--border-soft);padding-top:16px}.recommendation strong{color:var(--brand);font-weight:500}.recommendation p{margin:6px 0 0;font-weight:500}.supporting-findings ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 32px;list-style:none;margin:0;padding:0;border-top:1px solid var(--border-soft)}.supporting-finding{padding:16px 0;border:0;border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent}.supporting-finding strong,.supporting-finding span,.supporting-finding small{display:block}.supporting-finding strong{font-size:15px;font-weight:500;line-height:1.4}.supporting-finding>div>span,.supporting-finding small{margin-top:6px;color:var(--olive);font-size:12px;line-height:1.45}.check-marker{display:inline!important;margin:0!important;color:var(--brand);font-size:14px!important}.finding-source{display:inline!important;margin:0 5px 0 0!important;border:0;border-radius:2px;padding:2px 6px;background:var(--tag-quiet);color:var(--brand);font-size:11px!important;font-weight:500}
 table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;line-height:1.5;font-variant-numeric:lining-nums tabular-nums}th,td{text-align:left;border-bottom:.5px solid var(--border-soft);padding:8px 8px;vertical-align:top}thead th{color:var(--dark-warm);font-size:12px;font-weight:500;line-height:1.35;border-bottom:1px solid var(--border)}tbody th{font-weight:500}tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}.sortable button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-weight:500;padding:0;cursor:pointer;text-align:left}.sortable button:focus-visible,summary:focus-visible{outline:2px solid var(--brand);outline-offset:3px}.empty{margin:8px 0}.echart{width:100%;height:300px;margin:0 0 12px;background:var(--ivory);border-radius:8px}.chart-summary{color:var(--olive);font-size:12px;line-height:1.45}.chart{display:block;width:100%;height:auto;margin:0 0 20px;background:var(--ivory);border-radius:4px;padding:12px;overflow:visible}.chart-label,.chart-value,.heat-hour{font-family:var(--serif);font-size:12px;fill:var(--stone)}.chart-value{font-variant-numeric:lining-nums tabular-nums;fill:var(--near-black)}.chart-bar{fill:var(--brand)}.chart-track{fill:var(--border)}.segment-input{fill:var(--brand)}.segment-cached{fill:var(--stone)}.segment-cache-write{fill:var(--olive)}.segment-output{fill:var(--chart-mid-blue)}.segment-reasoning{fill:var(--chart-muted)}.heat-0{fill:var(--parchment)}.heat-1{fill:var(--tag-quiet)}.heat-2{fill:var(--tag-bg)}.heat-3{fill:var(--stone)}.heat-4{fill:var(--brand)}details{border-top:1px solid var(--border-soft);padding-top:16px}summary{cursor:pointer;color:var(--brand);font-weight:500;line-height:1.4;margin-bottom:12px}.window-note{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;background:var(--ivory);border-radius:4px;padding:16px;margin-bottom:16px}.window-note span,.week-ranges span{color:var(--stone);font-size:12px;line-height:1.4}.window-grid{grid-template-columns:repeat(5,1fr)}.window-grid strong{margin-top:8px;font-family:var(--serif);font-size:20px;font-weight:500;color:var(--brand)}.week-ranges{grid-template-columns:repeat(2,1fr);margin-bottom:24px}.week-ranges div{background:var(--ivory);border-radius:4px;padding:16px}.week-ranges strong,.week-ranges span{display:block}footer{color:var(--stone);font-size:12px;line-height:1.45;border-top:1px solid var(--border-soft);margin-top:24px;padding-top:24px}footer p{margin:6px 0 16px}
 @media print{ @page{size:A4;margin:14mm 16mm;background:#f5f4ed} body{background:#f5f4ed;-webkit-print-color-adjust:exact;print-color-adjust:exact}main{max-width:none;padding:0}section{break-inside:auto;margin-bottom:36px}.finding,.supporting-finding,.window-note,.week-ranges div,table,.echart{break-inside:avoid}.sortable button{color:inherit} }
 @media(max-width:880px){main{padding:64px 32px 88px}.scope-grid,.coverage-grid,.kpis,.window-grid{grid-template-columns:repeat(2,1fr)}.week-ranges{grid-template-columns:1fr}h1{font-size:40px}.supporting-findings ul{grid-template-columns:1fr}}
 @media(max-width:480px){main{padding:40px 20px 64px}header{margin-bottom:40px;padding-bottom:24px}h1{font-size:30px;letter-spacing:0}header p{font-size:14px}h2{font-size:22px}h3{font-size:16px;margin-top:24px}section{margin-bottom:40px}.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{grid-template-columns:1fr;gap:16px}.kpis{margin-bottom:40px}.kpi{padding-bottom:16px}.kpi strong{font-size:30px}.supporting-findings ul{grid-template-columns:1fr}.echart{height:260px}table{display:block;overflow-x:auto;white-space:nowrap}}
-.finding-evidence{display:inline-flex!important;vertical-align:baseline;flex-direction:column;align-items:flex-start;gap:1px;margin:0 2px!important;color:var(--near-black)!important;font-size:inherit!important;line-height:1.2!important}.finding-value{display:inline!important;margin:0!important;color:inherit!important;font-size:inherit!important}.finding-evidence .provenance{display:inline!important;margin:0!important;color:var(--stone)!important;font-family:var(--sans);font-size:10px!important;font-weight:400;line-height:1.2!important}.finding-evidence[data-provenance="estimated"] .finding-value{color:var(--stone)!important;font-weight:400}.coverage-alert{color:var(--near-black);background:var(--tag-quiet);border-left:3px solid var(--brand);padding:10px 12px;margin:12px 0 0;font-size:13px;line-height:1.5}.coverage-alert .finding-evidence{vertical-align:middle}.coverage-percentage{display:inline-flex;align-items:baseline;gap:2px;font-variant-numeric:lining-nums tabular-nums}.coverage-percentage .provenance{color:var(--stone);font-family:var(--sans);font-size:10px;font-weight:400}.tool-impact .metric-stack[data-provenance="estimated"] .metric-main{color:var(--stone);font-weight:400}.tool-impact .metric-stack[data-provenance="estimated"] .estimate{color:var(--chart-muted);font-weight:400}.tool-impact .coverage-note{color:var(--stone)}
+.finding-evidence{display:inline-flex!important;vertical-align:baseline;flex-direction:column;align-items:flex-start;gap:1px;margin:0 2px!important;color:var(--near-black)!important;font-size:inherit!important;line-height:1.2!important}.finding-value{display:inline!important;margin:0!important;color:inherit!important;font-size:inherit!important}.coverage-alert{color:var(--near-black);background:var(--tag-quiet);border-left:3px solid var(--brand);padding:10px 12px;margin:12px 0 0;font-size:13px;line-height:1.5}.coverage-alert .finding-evidence{vertical-align:middle}.coverage-percentage{display:inline-flex;align-items:baseline;gap:2px;font-variant-numeric:lining-nums tabular-nums}.tool-impact .coverage-note{color:var(--stone)}
 </style>`;
 }
 
@@ -984,6 +1282,9 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US"):
     "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "</section>",
     renderKpis(result, locale),
     renderChecks(result, locale),
+    renderCacheHtml(result, locale),
+    renderFirstRequestHtml(result, locale),
+    renderSkillsHtml(result, locale),
     result.weekComparison ? "<section><h2>" + escapeHtml(labels.weekView) + "</h2>" + renderWeek(result, locale) + "</section>" : "",
     "<section><h2>" + escapeHtml(labels.time) + "</h2><h3>" + escapeHtml(labels.dailyUsage) + "</h3>" +
       renderInteractiveCharts(result, locale) + renderDaily(result, locale) +
@@ -992,10 +1293,9 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US"):
     "<section><h2>" + escapeHtml(labels.models) + "</h2><div id=\"model-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.models) + "\"></div>" + renderModels(result, locale) + "</section>",
     "<section class=\"tool-impact\"><h2>" + escapeHtml(labels.tools) + "</h2><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "按工具的估算工具结果注入大小" : "Estimated tool-result injection by tool") + "\"></div>" + renderTools(result, locale) + "</section>",
     "<section><h2>" + escapeHtml(labels.sessionsByUsage) + "</h2>" + renderSessions(result, locale) + "</section>",
-    "<section><h2>" + escapeHtml(labels.limitations) + "</h2><p>" + escapeHtml(labels.methodNote) + "</p>" +
+    "<section><h2>" + escapeHtml(labels.limitations) + "</h2>" +
       renderWarningList(result, locale) + "</section>",
-    "<footer><strong>" + escapeHtml(labels.provenance) + "</strong><p>" + escapeHtml(labels.reported + " = source value; " + labels.derived + " = calculated from records; " + labels.estimated + " = approximation; " + labels.unavailableProvenance + " = missing source data.") + "</p>" +
-      "<strong>" + escapeHtml(labels.privacy) + "</strong><p>" + escapeHtml(labels.privacyNote) + "</p></footer>",
+    "<footer><strong>" + escapeHtml(labels.privacy) + "</strong><p>" + escapeHtml(labels.privacyNote) + "</p></footer>",
     "</main></body></html>",
   ];
   return parts.join("");
@@ -1007,20 +1307,20 @@ function renderTopLine(result: AuditResult, locale: ReportLocale): string[] {
     ? "; " + labels.topLevelSessions + ": " + evidencePlain(result.summary.topLevelSessionCount, locale, false) + "; " + labels.subagentSessions + ": " + evidencePlain(result.summary.subagentSessionCount, locale, false)
     : "";
   return [
-    "Audit: " + result.scope.harness + "; " + (result.scope.allProjects ? labels.allProjects : labels.currentProject) + "; " + labels.since + " " + formatDateTime(result.scope.since, locale),
+    (locale === "zh-CN" ? "审计：" : "Audit: ") + result.scope.harness + "; " + (result.scope.allProjects ? labels.allProjects : labels.currentProject) + "; " + labels.since + " " + formatDateTime(result.scope.since, locale),
     labels.coverage + ": " + coverageLineText(result, locale),
     labels.totalTokens + ": " + evidencePlain(result.summary.totalTokens, locale) + "; " + labels.sessions + ": " + evidencePlain(result.summary.sessionCount, locale, false) + sessionBreakdown + "; " + labels.modelCalls + ": " + evidencePlain(result.summary.modelCallCount, locale, false) + ".",
   ];
 }
 function percentageText(value: EvidenceValue, locale: ReportLocale): string {
-  return value.value === null ? labelsFor(locale).unavailable : formatExact(value.value, locale) + "%";
+  return value.value === null ? "—" : provenancePrefix(value.provenance, locale) + formatExact(value.value, locale) + "%";
 }
 
 export function renderText(result: AuditResult, locale: ReportLocale = "en-US", view: AuditView = "full"): string {
   const labels = labelsFor(locale);
   if (view === "window") {
     const rolling = result.report.rollingWindow;
-    const lines = [labels.windowView + " — " + (rolling ? labels.localOnly : labels.noTimestampData)];
+    const lines = [labels.methodNote, labels.windowView + " — " + (rolling ? labels.localOnly : labels.noTimestampData)];
     if (rolling) {
       lines.push(labels.calls + ": " + evidencePlain(rolling.observedModelCallCount, locale, false) + "; " + labels.latestWindowTokens + ": " + evidencePlain(rolling.observedTokens, locale) + "; " + labels.historicalPeakTokens + ": " + evidencePlain(rolling.historicalPeakObservedTokens, locale) + ".");
       lines.push(labels.providerQuota + ": " + evidencePlain(rolling.providerQuota, locale) + "; " + labels.resetTime + ": " + evidencePlain(rolling.resetAt, locale) + ".");
@@ -1028,7 +1328,7 @@ export function renderText(result: AuditResult, locale: ReportLocale = "en-US", 
     return lines.join("\n") + "\n";
   }
   if (view === "tools") {
-    const lines = [labels.toolsView];
+    const lines = [labels.methodNote, labels.toolsView];
     if (result.report.tools.length === 0) lines.push(labels.noToolData);
     for (const tool of result.report.tools.slice(0, 10)) {
       lines.push(publicLabel(tool.key, labels.unavailable) + ": " + labels.calls + " " + evidencePlain(tool.calls, locale, false) +
@@ -1037,15 +1337,16 @@ export function renderText(result: AuditResult, locale: ReportLocale = "en-US", 
     return lines.join("\n") + "\n";
   }
   if (view === "usage") {
-    const lines = [labels.usageView, ...renderTopLine(result, locale)];
+    const lines = [labels.methodNote, labels.usageView, ...renderTopLine(result, locale), ...renderCacheText(result, locale), ...renderFirstRequestText(result, locale), ...renderSkillsText(result, locale)];
     const model = result.rankings.models.slice(0, 5).map((entry) => modelLabel(entry.key, locale) + " " + evidencePlain(entry.value, locale) + " / " + percentageText(entry.sharePercent, locale)).join(", ");
     if (model) lines.push(labels.models + ": " + model + ".");
     const session = result.rankings.sessions[0];
     if (session) lines.push(labels.sessionsByUsage + ": " + sessionLabel(session, locale) + " — " + evidencePlain(session.value, locale) + ".");
     return lines.join("\n") + "\n";
   }
-  const lines = renderTopLine(result, locale);
+  const lines = [labels.methodNote, ...renderTopLine(result, locale)];
   if (result.checks.length > 0) lines.push(labels.diagnosticSignals + ":", ...result.checks.map((check) => checkLine(check, locale)));
+  lines.push(...renderCacheText(result, locale), ...renderFirstRequestText(result, locale), ...renderSkillsText(result, locale));
   const topSession = result.rankings.sessions[0];
   if (topSession) {
     lines.push(
@@ -1071,6 +1372,7 @@ export function renderWeekText(comparison: WeekComparison, locale: ReportLocale 
   const previous = snapshotResult(comparison.previous);
   return [
     labels.weekView,
+    labels.methodNote,
     labels.currentWeek + ": " + formatDateTime(comparison.currentFrom, locale) + " → " + formatDateTime(comparison.currentTo, locale),
     labels.previousWeek + ": " + formatDateTime(comparison.previousFrom, locale) + " → " + formatDateTime(comparison.previousTo, locale),
     labels.totalTokens + ": " + evidencePlain(current.summary.totalTokens, locale) + " vs " + evidencePlain(previous.summary.totalTokens, locale) + "; " + labels.change + ": " + evidencePlain(comparison.changes.totalTokens, locale) + ".",
@@ -1087,6 +1389,8 @@ export function renderShare(result: AuditResult, locale: ReportLocale = "en-US")
   const lines = [
     "# " + labels.redactedShare,
     "",
+    labels.methodNote,
+    "",
     "- " + labels.harness + ": " + result.scope.harness,
     "- " + labels.scope + ": " + (result.scope.allProjects ? labels.allProjects : labels.currentProject),
     "- " + labels.since + ": " + formatDateTime(result.scope.since, locale),
@@ -1094,6 +1398,15 @@ export function renderShare(result: AuditResult, locale: ReportLocale = "en-US")
     "- " + labels.sessions + ": " + evidencePlain(result.summary.sessionCount, locale, false),
     "- " + labels.modelCalls + ": " + evidencePlain(result.summary.modelCallCount, locale, false),
     "- " + labels.coverage + ": " + coverageLineText(result, locale),
+    "- " + labels.cacheReadRate + ": " + percentagePlain(result.report.cacheEconomics.cacheReadRatePercent, locale),
+    "- " + labels.cacheWriteRate + ": " + percentagePlain(result.report.cacheEconomics.cacheWriteRatePercent, locale),
+    "- " + labels.cacheCoverage + ": " + percentagePlain(result.report.cacheEconomics.coveragePercent, locale),
+    "- " + labels.observedApiCost + ": " + currencyPlain(result.report.cacheEconomics.observedApiEquivalentCost, locale, false),
+    "- " + labels.allUncachedApiCost + ": " + currencyPlain(result.report.cacheEconomics.allUncachedApiEquivalentCost, locale, false),
+    "- " + labels.cacheSavings + ": " + currencyPlain(result.report.cacheEconomics.cacheSavings, locale, false),
+    "- " + labels.cacheSavingsPercent + ": " + percentagePlain(result.report.cacheEconomics.cacheSavingsPercent, locale),
+    "- " + labels.priceCoverage + ": " + percentagePlain(result.report.cacheEconomics.pricedUsageCoveragePercent, locale),
+    "- " + labels.firstRequestBurden + ": " + labels.firstRequestMedian + " " + evidencePlain(result.report.firstRequestBurden.medianTokens, locale, false) + "; " + labels.firstRequestShare + " " + percentagePlain(result.report.firstRequestBurden.sharePercent, locale) + "; " + labels.firstRequestCoverage + " " + percentagePlain(result.report.firstRequestBurden.coveragePercent, locale),
     "",
     "## " + labels.models,
     "",
@@ -1105,8 +1418,19 @@ export function renderShare(result: AuditResult, locale: ReportLocale = "en-US")
   for (const row of result.report.dailyUsage) lines.push("| " + formatDateKey(row.key, locale) + " | " + evidencePlain(row.totalTokens, locale, false) + " | " + percentageText(row.sharePercent, locale) + " |");
   lines.push("", "## " + labels.tools, "", "| Tool category | " + labels.calls + " | " + labels.amplified + " | " + labels.share + " |", "| --- | ---: | ---: |");
   for (const row of result.report.tools) lines.push("| " + publicLabel(row.key, "other-tool") + " | " + evidencePlain(row.calls, locale, false) + " | " + evidencePlain(row.amplifiedTokens, locale, false) + " | " + percentageText(row.sharePercent, locale) + " |");
+  lines.push("", "## " + labels.skillEvidence, "");
+  if (result.report.skills.length === 0) {
+    lines.push(labels.noSkillEvidence);
+  } else {
+    lines.push("| Skill | " + labels.skillState + " | " + labels.availableSessions + " | " + labels.invocationCount + " | " + labels.skillSessions + " | " + labels.attributedTokens + " | " + labels.attributedCost + " | " + labels.evidenceCoverage + " | " + labels.observedFrom + " → " + labels.observedTo + " |", "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
+    for (const skill of result.report.skills) lines.push("| " + skillLabel(skill.name, locale) + " | " + skillStateLabel(skill.state, locale) + " | " + evidencePlain(skill.availableSessions, locale, false) + " | " + evidencePlain(skill.invocationCount, locale, false) + " | " + evidencePlain(skill.sessionCount, locale, false) + " | " + evidencePlain(skill.attributedTokens, locale, false) + " | " + currencyPlain(skill.attributedApiEquivalentCost, locale, false) + " | " + percentagePlain(skill.evidenceCoveragePercent, locale) + " | " + evidencePlain(dateEvidence(skill.firstObservedAt, locale), locale, false) + " → " + evidencePlain(dateEvidence(skill.lastObservedAt, locale), locale, false) + " |");
+  }
+  lines.push((locale === "zh-CN" ? "缓存方法：" : "Cache method: ") + methodText(result.report.cacheEconomics.cacheReadRatePercent, locale) + "; " + methodText(result.report.cacheEconomics.observedApiEquivalentCost, locale));
+  lines.push((locale === "zh-CN" ? "首次请求方法：" : "First-request method: ") + methodText(result.report.firstRequestBurden.medianTokens, locale));
+  if (result.report.cacheEconomics.limitations.length > 0) lines.push((locale === "zh-CN" ? "缓存限制：" : "Cache limitations: ") + result.report.cacheEconomics.limitations.map((limitation) => localizeLimitation(limitation, locale)).join("; "));
+  if (result.report.firstRequestBurden.limitations.length > 0) lines.push((locale === "zh-CN" ? "首次请求限制：" : "First-request limitations: ") + result.report.firstRequestBurden.limitations.map((limitation) => localizeLimitation(limitation, locale)).join("; "));
   lines.push("", "## " + labels.diagnosticSignals);
   for (const check of result.checks) lines.push("- " + checkLine(check, locale));
-  lines.push("", labels.methodNote, labels.privacyNote);
+  lines.push("", labels.privacyNote);
   return lines.join("\n") + "\n";
 }

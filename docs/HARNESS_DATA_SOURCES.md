@@ -1,6 +1,6 @@
 # where-tokens-went MVP：Claude Code 与 Codex 的历史数据源与 Reader 约定
 
-> 调研快照：2026-09-07。当前实现仅支持 Claude Code 和 OpenAI Codex。Pi（`earendil-works/pi`）与 DeepSeek Harness 的 Reader 暂停支持；下方对应章节保留为未来恢复参考，不代表当前 CLI、Skill 或安装脚本仍支持它们。目标是：工具由哪个 Harness 调用，就只读取该 Harness、当前项目的既有本地历史；不默认扫描其他 Harness，也不把实时采集放进 MVP。
+> 调研快照：2026-09-10。当前实现仅支持 Claude Code 和 OpenAI Codex。Pi（`earendil-works/pi`）与 DeepSeek Harness 的 Reader 暂停支持；下方对应章节保留为未来恢复参考，不代表当前 CLI、Skill 或安装脚本仍支持它们。目标是：工具由哪个 Harness 调用，就只读取该 Harness、当前项目的既有本地历史；不默认扫描其他 Harness，也不把实时采集放进 MVP。
 
 ## 结论先行
 
@@ -63,7 +63,10 @@ Lifecycle
 
 - session/cwd/timestamp，以及消息的 `uuid` / `parentUuid` 关系；
 - assistant 的 model、`message.id` / request id 和 `message.usage`；usage 常见字段为 `input_tokens`、`output_tokens`、`cache_creation_input_tokens`、`cache_read_input_tokens`；
+- 新版 usage 还可能按 `cache_creation.ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens` 区分 cache-write TTL；只有读到 TTL 细节时才对 cache-write 做精确成本匹配；
 - assistant 内容中的 `tool_use`，以及 user/tool-result 内容和错误信息；
+- 某些版本的 assistant 行可观察到 `attributionSkill`，可作为版本化 Skill 归因；显式 Skill tool 记录只能作为较弱的调用证据；
+- `cost-state` 可能携带会话累计 `totalCostUSD`；Reader 只保留选定 Session 的最终有效快照，不把它与每条响应成本相加；
 - compaction 边界或摘要类 metadata；
 - session 目录下的子 Agent transcript、tool-result sidecar 与 meta 文件。
 
@@ -75,7 +78,7 @@ Lifecycle
 |---|---|
 | session / project / timestamp | 有；路径与基础 transcript 由官方文档保证，逐行字段需容错 |
 | model / token / cache | 当前可从 assistant usage 读取；字段 schema 非正式契约 |
-| cost | 不应假定存在；MVP 返回 `unavailable` |
+| cost | 可能有 `cost-state` 的会话累计快照；保持 `reported`，但 API 等价成本仍需精确价格表；缺失则 `unavailable` |
 | tool call / result / error | 有；内容可能非常敏感、非常大 |
 | retry | 没有稳定的独立历史事件契约；只能基于重复 request、错误行谨慎派生 |
 | compaction | 可观察，但记录形状未形成公开稳定 schema |
@@ -112,6 +115,7 @@ Codex 有两个可用面：
 - 新版事件还定义了 `RawResponseCompleted`，表示“一次上游 Responses API 完成事件的精确 usage，非累计、非估算、非 replay”；存在时应优先使用它并按 `response_id` 去重。[当前 `RawResponseCompletedEvent`](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs#L1786-L1793)
 - Codex 的本地 `session_index.jsonl` 维护 Session 的 `id`、`thread_name` 和更新时间；Reader 可用同一 `id` 的最新 `thread_name` 作为可读标题，但标题缺失时必须回退到 ID，不从 rollout 内容猜测。[当前 Session index 实现](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/session_index.rs)
 - compaction、stream error/断线、too-many-attempts 等均可观察；`SessionMeta.parent_thread_id` 和 subagent source 提供父子关系。[当前错误与 lineage 定义](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs#L1720-L1778)
+- `turn_context` 提供可用于保守 Skill 边界匹配的 turn id；结构化 Skill 输入是最强的调用证据。对 `skills/<name>/SKILL.md` 的资源读取或该 Skill `scripts/` 下的脚本执行，只有在同一 turn/调用关系可验证时才记录为 `invoked`；普通文字、目录列表或未知字段不升级状态。[Codex Skill invocation source](https://github.com/openai/codex/blob/main/codex-rs/core/src/skills.rs)
 
 官方 OTel 文档证明 Codex 内部有更精确的 attempt 级信息：`codex.api_request` 有 attempt/status/error，`codex.sse_event` 在 `response.completed` 带 token，另有 tool decision/result。但它默认关闭且不是既有历史，因此不进 MVP；只作为未来发现 rollout 不足时的选项。[Codex observability](https://learn.chatgpt.com/docs/config-file/config-advanced#observability-and-telemetry)
 
@@ -122,7 +126,7 @@ Codex 有两个可用面：
 | session / project / timestamp | 有；`session_meta` / `turn_context` |
 | model / provider | 有，但 model 可能按 turn 变化，应读 turn context，而非只看 session meta |
 | token / cache / reasoning | 有；优先单响应 `RawResponseCompleted`，其次 `last_token_usage` |
-| cost | rollout 未定义通用 reported cost；返回 `unavailable` |
+| cost | rollout 未定义通用 reported cost；Codex API 等价成本默认查询 LiteLLM 精确目录项；有可计价 Usage 时按已定价子集给出 `estimated` 金额并暴露覆盖率，没有任何可计价 Usage 时才返回 `unavailable` |
 | tool call / result / error | 有；不同工具有不同 item/event 类型 |
 | retry | stream error 可见；精确 attempt 数在 OTel 更明确，纯历史需保守推断 |
 | compaction | 有显式事件/记录 |
@@ -136,6 +140,14 @@ Codex 有两个可用面：
 4. usage 优先级：`raw_response_completed(response_id)` > 每次 `token_count.info.last_token_usage` > 最终 `total_token_usage`。选定一种来源后不要混加。
 5. 工具统一从 item lifecycle 的 started/completed 配对；输出大小从 completed item 的 stdout/stderr/content 计算。只保留摘要，不回显正文。
 6. 若未来格式变化导致 rollout 解析失败，切换到与本机版本匹配的 app-server schema，而不是永久兼容所有内部 variant。
+
+### 缓存、首次请求与 Skill 证据边界
+
+Codex 的 `input` 可能已经包含 cache-read/cache-write 子集，不能把三个桶再次相加；Reader 保留源字段，shared analysis 负责拆出 ordinary input 并在不一致时返回 `unavailable`。Claude Code 的四个 usage 桶按互斥组成计算总量。两个 Reader 都只返回元数据和计数，不返回 Skill body、Prompt、回复、源码或工具结果。价格默认且仅按需 GET LiteLLM 模型目录，只提交 Provider/model 标识；若源记录缺少 Provider，则按 Codex→`openai`、Claude Code→`anthropic` 的 Harness 映射查询，显式冲突的 Provider 不强行转换。保留目录来源和查询时间，金额标为 `estimated`；只要有可计价 Usage，就按已定价子集显示部分估算并暴露覆盖率，未定价或不兼容 Usage 明确排除。只有没有任何精确匹配、网络失败或可用价格维度的 Usage 时金额才为 `unavailable`，不抹掉 Token 结果。
+
+首次请求是每个选定 Session 最早有效 ModelCall 的观测负担。Skill 证据状态分为 `available`、`invoked`、`attributed`、`unavailable`；listing 只说明可用，不能推断已调用。直接资源足迹、观测关联和因果影响分别报告，当前没有足以证明因果影响的反事实，因此后者保持 `unavailable`。
+
+后续沟通提取、AI 返修分类和返修率不属于本轮 Reader 或分析边界；本轮不输出这些指标，也不增加对应基础设施。
 
 ## 暂停支持：Pi（earendil-works/pi）
 

@@ -14,16 +14,20 @@ The invoking Harness is fixed to Codex. Do not inspect any other Harness in resp
 Translate the user's natural-language scope into one explicit local command. Resolve the directory containing this `SKILL.md` as `<skill-directory>` and run the bundled `scripts/where-tokens-went.js` with Node; do not call a global `where-tokens-went` command. Use Current Project by default; when the user asks for a Global Audit, widen only the project selector with `--all-projects`:
 
 ```text
-node <skill-directory>/scripts/where-tokens-went.js inspect --harness codex --cwd <absolute-current-project-path> --since <duration> --format json
+node <skill-directory>/scripts/where-tokens-went.js inspect --harness codex --cwd <absolute-current-project-path> --since <duration> --format json --pricing litellm
 ```
 
 ```text
-node <skill-directory>/scripts/where-tokens-went.js inspect --harness codex --all-projects --since <duration> --format json
+node <skill-directory>/scripts/where-tokens-went.js inspect --harness codex --all-projects --since <duration> --format json --pricing litellm
 ```
 
 Use `7d` when no period is requested. Global Audit still remains inside Codex; never substitute another Harness.
 
-The local tool is authoritative. Do not recalculate totals, infer missing values as zero, or expose raw history content.
+The local tool is authoritative. Do not recalculate totals, infer missing values as zero, or expose raw history content. With `--pricing litellm`, it makes read-only catalog requests containing only the expected Provider and model identifiers; when some Usage is priced, the report shows an estimated partial amount with priced-Usage coverage and excludes the remainder. Only a selection with no priced Usage leaves currency unavailable while the rest of the audit remains usable.
+
+The JSON result also contains shared cache economics when composition and the selected price source permit it: mutually exclusive Token buckets, cache-read/cache-write rates, composition and price coverage, observed API-equivalent cost, an all-uncached counterfactual, and savings. Currency is always an `estimated` API-equivalent reference, not a subscription bill. The tool requires exact Provider/model identity and every non-zero price dimension; LiteLLM catalog values carry their retrieval source, and unpriced Usage is excluded rather than converted to zero.
+
+It contains `firstRequestBurden`, the earliest valid deduplicated ModelCall per selected Session. Present it as observed first-request burden, with coverage and cache composition; never call it an exact startup tax. It contains Skill evidence only when the local rollout proves a listing, explicit invocation, or verifiable Skill resource/script relation. Preserve `available`, `invoked`, `attributed`, and `unavailable`; a listing does not prove invocation, and causal impact remains unavailable without a counterfactual.
 
 ## HTML report visual contract
 
@@ -53,5 +57,7 @@ Pass the user's language as --locale zh-CN or --locale en-US. For full and repor
 The bundled local tool produces authoritative metrics, rankings, coverage, limitations, Evidence, Provenance, and neutral automated checks. It does not diagnose the user’s cause. The Host Agent forms the Finding for the user’s actual question: choose, ignore, or combine checks with rankings, trends, coverage, and limitations; a relevant pattern may be used even when no check fires.
 
 Structure the response as Finding, Evidence, mechanism, action when justified, and material uncertainty without fixed wording. Preserve Scope and every returned value and Provenance. Do not recalculate totals, turn unavailable into zero, infer Provider quota, actual billing, model identity, working time, or causes not supported by Evidence. If the data is proportionate or insufficient, say so rather than manufacture a verdict.
+
+When cache, first-request, or Skill evidence is relevant, carry its Provenance, coverage, exact pricing limitation, and evidence boundary into the Finding. Keep direct Skill resource footprint, observed association, and causal impact separate; do not infer a cause from a Skill listing.
 
 For a report request, the delivery is complete only after both steps occur in the same conversation turn: generate and open the deterministic local HTML, then give one explicit Host Agent Finding with Evidence, mechanism, action when justified, and uncertainty in conversation. The HTML is deterministic evidence and diagnostic signals, not the Finding itself. Do not end the turn after returning a report path or opening the HTML, and do not return a diagnosis without the requested report. Never include prompts, source code, model responses, command arguments, shell output, tool results, credentials, or base64 payloads.

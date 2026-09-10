@@ -21,21 +21,31 @@ function sharePercentEvidence(tokens, totalTokens, label, source, denominatorLab
         ...(source ? { source } : {}),
     };
 }
-function callTokens(call) {
-    return call.totalTokens;
-}
-function sessionTotal(sessionId, calls) {
-    const ownCalls = calls.filter((call) => call.sessionId === sessionId);
-    if (ownCalls.length === 0 || ownCalls.some((call) => callTokens(call) === null))
+function derivedTotal(call, harness) {
+    if (harness === "claude") {
+        if ([call.inputTokens, call.cachedInputTokens, call.cacheWriteTokens, call.outputTokens].some((value) => value === null))
+            return null;
+        return call.inputTokens + call.cachedInputTokens + call.cacheWriteTokens + call.outputTokens;
+    }
+    if ([call.inputTokens, call.outputTokens, call.reasoningTokens].some((value) => value === null))
         return null;
-    return ownCalls.reduce((total, call) => total + callTokens(call), 0);
+    return call.inputTokens + call.outputTokens + call.reasoningTokens;
 }
-function sumTokens(calls) {
-    if (calls.length === 0 || calls.some((call) => callTokens(call) === null)) {
+function callTokens(call, harness) {
+    return call.totalTokens ?? derivedTotal(call, harness);
+}
+function sessionTotal(sessionId, calls, harness) {
+    const ownCalls = calls.filter((call) => call.sessionId === sessionId);
+    if (ownCalls.length === 0 || ownCalls.some((call) => callTokens(call, harness) === null))
+        return null;
+    return ownCalls.reduce((total, call) => total + callTokens(call, harness), 0);
+}
+function sumTokens(calls, harness) {
+    if (calls.length === 0 || calls.some((call) => callTokens(call, harness) === null)) {
         return { value: null, provenance: "unavailable" };
     }
-    const value = calls.reduce((total, call) => total + callTokens(call), 0);
-    const allReported = calls.every((call) => call.tokenProvenance === "reported");
+    const value = calls.reduce((total, call) => total + callTokens(call, harness), 0);
+    const allReported = calls.every((call) => call.totalTokens !== null && call.tokenProvenance === "reported");
     return { value, provenance: allReported ? "reported" : "derived" };
 }
 function sumReportedCost(calls) {
@@ -43,19 +53,33 @@ function sumReportedCost(calls) {
         return null;
     return calls.reduce((total, call) => total + call.reportedCost, 0);
 }
-function rankContributions(calls, keyOf, label, totalTokens, displayNameOf) {
+function reportedCostForRead(read) {
+    const snapshots = read.sessionCosts ?? [];
+    if (snapshots.length > 0) {
+        const selectedSessionIds = new Set(read.sessions.map((session) => session.sessionId));
+        const latest = (sessionId) => snapshots
+            .filter((snapshot) => snapshot.sessionId === sessionId && snapshot.totalCost !== null)
+            .sort((left, right) => (right.timestamp ?? "").localeCompare(left.timestamp ?? ""))[0];
+        if (selectedSessionIds.size === 0 || [...selectedSessionIds].some((sessionId) => !latest(sessionId)))
+            return null;
+        return [...selectedSessionIds].reduce((total, sessionId) => total + latest(sessionId).totalCost, 0);
+    }
+    return sumReportedCost(read.modelCalls);
+}
+function rankContributions(calls, keyOf, label, totalTokens, harness, displayNameOf) {
     const groups = new Map();
     for (const call of calls) {
         const key = keyOf(call);
         const existing = groups.get(key) ?? { tokens: 0, complete: true, reported: true, count: 0 };
         existing.count += 1;
-        if (call.totalTokens === null) {
+        const total = callTokens(call, harness);
+        if (total === null) {
             existing.complete = false;
         }
         else {
-            existing.tokens += call.totalTokens;
+            existing.tokens += total;
         }
-        existing.reported = existing.reported && call.tokenProvenance === "reported";
+        existing.reported = existing.reported && call.totalTokens !== null && call.tokenProvenance === "reported";
         groups.set(key, existing);
     }
     return [...groups.entries()]
@@ -82,74 +106,423 @@ function timeBucket(timestamp) {
     const parsed = new Date(timestamp);
     return Number.isNaN(parsed.getTime()) ? "<unknown-time>" : parsed.toISOString().slice(0, 10);
 }
-function totalTokenEvidence(calls, label) {
-    const total = sumTokens(calls);
+function totalTokenEvidence(calls, label, harness) {
+    const total = sumTokens(calls, harness);
     if (total.value === null)
         return unavailable(label + " was not reported for every selected ModelCall");
-    return { value: total.value, provenance: total.provenance, method: "sum of non-cumulative ModelCall token totals for " + label };
+    return { value: total.value, provenance: total.provenance, method: "sum of non-cumulative ModelCall token totals or complete Harness composition for " + label };
 }
 function composition(call, harness) {
-    const { totalTokens: total, inputTokens: input, cachedInputTokens: cached, cacheWriteTokens: cacheWrite, outputTokens: output } = call;
+    const total = callTokens(call, harness);
+    const { inputTokens: input, cachedInputTokens: cached, cacheWriteTokens: cacheWrite, outputTokens: output } = call;
     if ([total, input, cached, cacheWrite, output].some((value) => value === null))
+        return null;
+    if ([total, input, cached, cacheWrite, output].some((value) => value < 0))
         return null;
     if (harness === "codex") {
         const ordinaryInput = input - cached - cacheWrite;
         const unclassified = total - input - output;
         return ordinaryInput >= 0 && unclassified >= 0
-            ? { input: ordinaryInput, cached: cached, cacheWrite: cacheWrite, output: output, unclassified }
+            ? { input: ordinaryInput, cached: cached, cacheWrite: cacheWrite, output: output, unclassified, total: total }
             : null;
     }
-    if (call.reasoningTokens === null || input + cached + cacheWrite + output + call.reasoningTokens !== total)
+    if (input + cached + cacheWrite + output !== total)
         return null;
-    return { input: input, cached: cached, cacheWrite: cacheWrite, output: output, unclassified: call.reasoningTokens };
+    return { input: input, cached: cached, cacheWrite: cacheWrite, output: output, unclassified: 0, total: total };
 }
 function tokenBreakdown(calls, label, harness) {
     const parts = calls.map((call) => composition(call, harness));
-    const totalTokens = totalTokenEvidence(calls, label);
+    const totalTokens = totalTokenEvidence(calls, label, harness);
     if (calls.length === 0 || parts.some((part) => part === null)) {
         const missing = unavailable(label + " lacks a source-proven mutually exclusive Token composition");
         return { inputTokens: missing, cachedInputTokens: missing, cacheWriteTokens: missing, outputTokens: missing, unclassifiedTokens: missing, reasoningTokens: unavailable(label + " reasoning tokens were retained only as raw evidence"), totalTokens };
     }
     const sum = (field, method) => ({ value: parts.reduce((total, part) => total + part[field], 0), provenance: "derived", method });
+    const reasoning = calls.every((call) => call.reasoningTokens !== null)
+        ? { value: calls.reduce((total, call) => total + call.reasoningTokens, 0), provenance: "derived", method: label + " sum of source-reported reasoning Token fields; reasoning is not added to output" }
+        : unavailable(label + " reasoning was not reported for every selected ModelCall");
     return {
         inputTokens: sum("input", label + " ordinary input is source-proven non-cache input"),
         cachedInputTokens: sum("cached", label + " cache-hit input is mutually exclusive"),
         cacheWriteTokens: sum("cacheWrite", label + " cache-build input is mutually exclusive"),
         outputTokens: sum("output", label + " output is mutually exclusive"),
         unclassifiedTokens: sum("unclassified", label + " residual closes the reported Token total without reclassifying source fields"),
-        reasoningTokens: unavailable(label + " reasoning is not stacked because output inclusion is Harness-specific"),
+        reasoningTokens: reasoning,
         totalTokens,
     };
 }
-function apiCost(calls, harness) {
-    let total = 0;
+function cacheWritePrice(call, part, harness, rate) {
+    if (part.cacheWrite === 0)
+        return 0;
+    if (harness !== "claude") {
+        return rate.cacheWrite5mPerMillion === null ? null : part.cacheWrite * rate.cacheWrite5mPerMillion;
+    }
+    const five = call.cacheWrite5mTokens;
+    const one = call.cacheWrite1hTokens;
+    if (call.cacheWriteTtl === "5m" && (five === null || five === undefined || five === part.cacheWrite) && (one === null || one === undefined || one === 0)) {
+        return rate.cacheWrite5mPerMillion === null ? null : part.cacheWrite * rate.cacheWrite5mPerMillion;
+    }
+    if (call.cacheWriteTtl === "1h" && (one === null || one === undefined || one === part.cacheWrite) && (five === null || five === undefined || five === 0)) {
+        return rate.cacheWrite1hPerMillion === null ? null : part.cacheWrite * rate.cacheWrite1hPerMillion;
+    }
+    if (typeof five !== "number" || typeof one !== "number" || five < 0 || one < 0 || five + one !== part.cacheWrite)
+        return null;
+    if (five > 0 && rate.cacheWrite5mPerMillion === null)
+        return null;
+    if (one > 0 && rate.cacheWrite1hPerMillion === null)
+        return null;
+    return five * (rate.cacheWrite5mPerMillion ?? 0) + one * (rate.cacheWrite1hPerMillion ?? 0);
+}
+function roundCurrency(value) {
+    return Math.round(value * 1_000_000_000_000) / 1_000_000_000_000;
+}
+function pricingSourceLabel(pricing) {
+    return "the LiteLLM model catalog with the selected Harness-to-Provider mapping";
+}
+function apiCost(calls, harness, pricing) {
+    let observed = 0;
+    let allUncached = 0;
     let pricedTokens = 0;
     let relevantTokens = 0;
     const unpricedModels = new Set();
-    const limitations = new Set();
+    const limitations = new Set(pricing.limitations);
+    const expectedProvider = (0, rates_1.pricingProviderForHarness)(harness);
     for (const call of calls) {
-        if (typeof call.totalTokens !== "number") {
+        const total = callTokens(call, harness);
+        if (total === null) {
             limitations.add("missing Token total");
             continue;
         }
-        relevantTokens += call.totalTokens;
-        const rate = rates_1.API_RATES.find((candidate) => candidate.model === call.model);
+        relevantTokens += total;
+        const provider = call.provider ?? expectedProvider;
+        const baseRate = call.model && provider === expectedProvider
+            ? pricing.rates.find((candidate) => candidate.provider === provider && candidate.model === call.model)
+            : undefined;
         const part = composition(call, harness);
-        if (!rate) {
+        if (!call.provider)
+            limitations.add("Provider was derived from the selected Harness for pricing: " + expectedProvider);
+        if (call.provider && call.provider !== expectedProvider)
+            limitations.add("Provider did not match the selected Harness: " + call.provider);
+        if (!call.model)
+            limitations.add("missing exact model identifier");
+        if (!baseRate) {
             unpricedModels.add(call.model ?? "<unknown-model>");
+            limitations.add("no resolved price entry for " + provider + "/" + (call.model ?? "<unknown-model>"));
             continue;
         }
-        if (!part || part.cacheWrite !== 0 || part.unclassified !== 0 || rate.cachedInputPerMillion === null) {
-            limitations.add("missing compatible price dimension");
+        if (!part || part.unclassified !== 0) {
+            limitations.add("missing compatible price dimension or mutually exclusive Token composition");
             continue;
         }
-        total += (part.input * rate.inputPerMillion + part.cached * rate.cachedInputPerMillion + part.output * rate.outputPerMillion) / 1_000_000;
-        pricedTokens += call.totalTokens;
+        const rate = (0, rates_1.rateForInput)(baseRate, part.input + part.cached + part.cacheWrite);
+        const inputPrice = rate.inputPerMillion;
+        const cachedPrice = rate.cachedInputPerMillion;
+        const outputPrice = rate.outputPerMillion;
+        const writePrice = cacheWritePrice(call, part, harness, rate);
+        const needsInputPrice = part.input + part.cached + part.cacheWrite > 0;
+        if ((needsInputPrice && inputPrice === null) || (part.cached > 0 && cachedPrice === null) || (part.output > 0 && outputPrice === null) || writePrice === null) {
+            limitations.add(writePrice === null && part.cacheWrite > 0
+                ? "cache-write TTL or cache-write price dimension was unavailable"
+                : "missing compatible price dimension for a non-zero Token bucket");
+            continue;
+        }
+        observed += part.input * (inputPrice ?? 0) + part.cached * (cachedPrice ?? 0) + (writePrice ?? 0) + part.output * (outputPrice ?? 0);
+        allUncached += (part.input + part.cached + part.cacheWrite) * (inputPrice ?? 0) + part.output * (outputPrice ?? 0);
+        pricedTokens += total;
+    }
+    const hasPricedUsage = pricedTokens > 0;
+    const exact = hasPricedUsage && pricedTokens === relevantTokens;
+    const partialScope = exact
+        ? ""
+        : "; partial estimate covers priced Usage only; unpriced or incompatible Usage is excluded";
+    const observedEvidence = hasPricedUsage
+        ? { value: roundCurrency(observed / 1_000_000), provenance: "estimated", method: (exact ? "exact" : "partial") + " Provider and model match against " + pricingSourceLabel(pricing) + partialScope + "; mutually exclusive input, cache-read, cache-write and output buckets are priced separately" }
+        : unavailable("currency requires at least one selected ModelCall with an exact Provider/model match and compatible non-zero price dimensions");
+    const allUncachedEvidence = hasPricedUsage
+        ? { value: roundCurrency(allUncached / 1_000_000), provenance: "estimated", method: (exact ? "all-uncached counterfactual" : "partial all-uncached counterfactual") + " prices ordinary input, cache-read and cache-write tokens at the resolved base input rate and leaves output unchanged" + partialScope }
+        : unavailable("the all-uncached comparison requires at least one selected ModelCall with compatible exact pricing");
+    if (hasPricedUsage && !exact)
+        limitations.add("cost estimate covers only priced Usage; unpriced or incompatible Usage is excluded");
+    return {
+        cost: observedEvidence,
+        allUncachedCost: allUncachedEvidence,
+        pricedTokens,
+        relevantTokens,
+        unpricedModels: [...unpricedModels].sort(),
+        limitations: [...limitations].sort(),
+    };
+}
+function percentageEvidence(numerator, denominator, label) {
+    if (denominator <= 0)
+        return unavailable("the " + label + " denominator was zero or unavailable");
+    return {
+        value: Math.round((numerator / denominator) * 10000) / 100,
+        provenance: "derived",
+        method: label + " numerator divided by denominator, expressed as percentage points and rounded to two decimals",
+    };
+}
+function composedCalls(calls, harness) {
+    return calls
+        .map((call) => ({ call, part: composition(call, harness) }))
+        .filter((entry) => entry.part !== null);
+}
+function cacheEconomics(calls, harness, cost) {
+    const composed = composedCalls(calls, harness);
+    const limitations = new Set(cost.limitations);
+    if (composed.length !== calls.length)
+        limitations.add("calls with missing or inconsistent Token composition were excluded from cache ratios");
+    const totalInput = composed.reduce((sum, entry) => sum + entry.part.input + entry.part.cached + entry.part.cacheWrite, 0);
+    const input = composed.reduce((sum, entry) => sum + entry.part.input, 0);
+    const cached = composed.reduce((sum, entry) => sum + entry.part.cached, 0);
+    const cacheWrite = composed.reduce((sum, entry) => sum + entry.part.cacheWrite, 0);
+    const supportedTokens = composed.reduce((sum, entry) => sum + entry.part.total, 0);
+    const selectedTotal = calls.map((call) => callTokens(call, harness));
+    const hasCompleteSelectedTotal = selectedTotal.length > 0 && selectedTotal.every((value) => value !== null);
+    const coverage = composed.length === 0
+        ? unavailable("no ModelCall had a complete mutually exclusive Token composition for cache coverage")
+        : hasCompleteSelectedTotal
+            ? percentageEvidence(supportedTokens, selectedTotal.reduce((sum, value) => sum + value, 0), "cache composition coverage")
+            : unavailable("selected Token total was incomplete for cache composition coverage");
+    const amount = (value, label) => ({ value, provenance: "derived", method: "sum of compatible " + label + " Token buckets" });
+    const readRate = totalInput > 0
+        ? percentageEvidence(cached, totalInput, "cache-read Token count")
+        : unavailable("cache-read rate requires a non-zero ordinary-input plus cache-read plus cache-write denominator");
+    const writeRate = totalInput > 0
+        ? percentageEvidence(cacheWrite, totalInput, "cache-write Token count")
+        : unavailable("cache-write rate requires a non-zero ordinary-input plus cache-read plus cache-write denominator");
+    const partialScope = cost.pricedTokens > 0 && cost.pricedTokens < cost.relevantTokens
+        ? " over the priced Usage subset; unpriced or incompatible Usage is excluded"
+        : "";
+    const savings = typeof cost.cost.value === "number" && typeof cost.allUncachedCost.value === "number"
+        ? { value: roundCurrency(cost.allUncachedCost.value - cost.cost.value), provenance: "estimated", method: "all-uncached API-equivalent estimate minus observed API-equivalent estimate" + partialScope + "; positive means caching lowered the estimate" }
+        : unavailable("cache savings requires at least one priced Usage with complete compatible cost dimensions");
+    const savingsPercent = typeof savings.value === "number" && typeof cost.allUncachedCost.value === "number"
+        ? { value: cost.allUncachedCost.value === 0 ? null : Math.round((savings.value / cost.allUncachedCost.value) * 10000) / 100, provenance: cost.allUncachedCost.value === 0 ? "unavailable" : "estimated", method: cost.allUncachedCost.value === 0 ? "all-uncached API-equivalent cost was zero" : "cache savings divided by all-uncached API-equivalent cost" + partialScope + ", expressed as percentage points and rounded to two decimals" }
+        : unavailable("cache savings percentage requires at least one priced Usage with complete compatible cost dimensions");
+    if (composed.length === 0 && calls.length > 0)
+        limitations.add("cache Token ratios are unavailable because no selected call has compatible composition");
+    return {
+        totalInputTokens: composed.length > 0 ? amount(totalInput, "request input") : unavailable("no compatible request input Token was available"),
+        inputTokens: composed.length > 0 ? amount(input, "ordinary input") : unavailable("no compatible ordinary input Token was available"),
+        cachedInputTokens: composed.length > 0 ? amount(cached, "cache-read input") : unavailable("no compatible cache-read input Token was available"),
+        cacheWriteTokens: composed.length > 0 ? amount(cacheWrite, "cache-write input") : unavailable("no compatible cache-write input Token was available"),
+        cacheReadRatePercent: readRate,
+        cacheWriteRatePercent: writeRate,
+        coveragePercent: coverage,
+        observedApiEquivalentCost: cost.cost,
+        allUncachedApiEquivalentCost: cost.allUncachedCost,
+        cacheSavings: savings,
+        cacheSavingsPercent: savingsPercent,
+        pricedUsageCoveragePercent: cost.relevantTokens > 0
+            ? percentageEvidence(cost.pricedTokens, cost.relevantTokens, "priced Usage")
+            : unavailable("no selected Token total was available for price coverage"),
+        limitations: [...limitations].sort(),
+    };
+}
+function apiEquivalentCost(calls, harness, pricing) {
+    const cost = apiCost(calls, harness, pricing);
+    const partialScope = cost.pricedTokens > 0 && cost.pricedTokens < cost.relevantTokens
+        ? " over the priced Usage subset; unpriced or incompatible Usage is excluded"
+        : "";
+    const difference = typeof cost.allUncachedCost.value === "number" && typeof cost.cost.value === "number"
+        ? { value: roundCurrency(cost.allUncachedCost.value - cost.cost.value), provenance: "estimated", method: "all-uncached API-equivalent estimate minus observed API-equivalent estimate" + partialScope }
+        : unavailable("cost difference requires at least one priced Usage with complete compatible cost dimensions");
+    const differencePercent = typeof difference.value === "number" && typeof cost.allUncachedCost.value === "number"
+        ? cost.allUncachedCost.value === 0
+            ? unavailable("cost difference percentage requires a non-zero all-uncached estimate")
+            : { value: Math.round((difference.value / cost.allUncachedCost.value) * 10000) / 100, provenance: "estimated", method: "cost difference divided by all-uncached API-equivalent estimate" + partialScope + ", expressed as percentage points and rounded to two decimals" }
+        : unavailable("cost difference percentage requires at least one priced Usage with complete compatible cost dimensions");
+    return {
+        total: cost.cost,
+        allUncachedTotal: cost.allUncachedCost,
+        difference,
+        differencePercent,
+        pricedTokens: { value: cost.pricedTokens, provenance: "derived", method: "Token total of ModelCalls with exact compatible resolved API pricing" },
+        relevantTokens: { value: cost.relevantTokens, provenance: "derived", method: "selected ModelCall Token total considered for API-equivalent pricing" },
+        coveragePercent: cost.relevantTokens > 0
+            ? percentageEvidence(cost.pricedTokens, cost.relevantTokens, "priced Token total")
+            : unavailable("no Token total was available for price coverage"),
+        unpricedModels: cost.unpricedModels,
+        limitations: cost.limitations,
+        source: pricing.source,
+    };
+}
+function callQuality(call) {
+    return [call.inputTokens, call.cachedInputTokens, call.cacheWriteTokens, call.outputTokens, call.reasoningTokens, call.totalTokens]
+        .filter((value) => value !== null).length;
+}
+function dedupeModelCalls(calls) {
+    const byIdentity = new Map();
+    for (const call of calls) {
+        const identity = call.callId
+            ? call.sessionId + "|call|" + call.callId
+            : call.sessionId + "|shape|" + [call.timestamp, call.provider, call.model, call.inputTokens, call.cachedInputTokens, call.cacheWriteTokens, call.outputTokens, call.reasoningTokens, call.totalTokens].join("|");
+        const existing = byIdentity.get(identity);
+        if (!existing || callQuality(call) > callQuality(existing))
+            byIdentity.set(identity, call);
+    }
+    return [...byIdentity.values()];
+}
+function median(values) {
+    if (values.length === 0)
+        return null;
+    const sorted = [...values].sort((left, right) => left - right);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+function firstRequestGroup(calls, totalTokens, label, harness) {
+    const tokens = calls.map((call) => callTokens(call, harness)).filter((value) => value !== null);
+    const composed = composedCalls(calls, harness);
+    const total = tokens.reduce((sum, value) => sum + value, 0);
+    const requestInput = composed.reduce((sum, entry) => sum + entry.part.input + entry.part.cached + entry.part.cacheWrite, 0);
+    const cached = composed.reduce((sum, entry) => sum + entry.part.cached, 0);
+    const cacheWrite = composed.reduce((sum, entry) => sum + entry.part.cacheWrite, 0);
+    const input = composed.reduce((sum, entry) => sum + entry.part.input, 0);
+    const output = composed.reduce((sum, entry) => sum + entry.part.output, 0);
+    const medianValue = median(tokens);
+    const compositionCoverage = composed.length === 0
+        ? unavailable(label + " has no compatible Token composition")
+        : percentageEvidence(composed.reduce((sum, entry) => sum + entry.part.total, 0), tokens.length > 0 ? total : 0, label + " compatible Token composition");
+    const cold = composed.filter((entry) => entry.part.cached === 0).length;
+    return {
+        sessionCount: { value: calls.length, provenance: "derived", method: "count of selected Sessions with one earliest valid ModelCall in " + label },
+        medianTokens: medianValue === null ? unavailable("no valid first-request Token totals were available for " + label) : { value: medianValue, provenance: "derived", method: "median of earliest valid ModelCall Token totals in " + label },
+        totalTokens: tokens.length === calls.length && calls.length > 0
+            ? { value: total, provenance: "derived", method: "sum of one earliest valid ModelCall Token total per Session in " + label }
+            : unavailable("a complete first-request Token total was unavailable for " + label),
+        sharePercent: sharePercentEvidence(total, totalTokens, label + " first-request Token total", undefined, "complete selected Token total"),
+        compositionCoveragePercent: compositionCoverage,
+        inputTokens: composed.length > 0 ? { value: input, provenance: "derived", method: "sum of compatible ordinary input in " + label } : unavailable("ordinary input composition was unavailable for " + label),
+        cachedInputTokens: composed.length > 0 ? { value: cached, provenance: "derived", method: "sum of compatible cache-read input in " + label } : unavailable("cache-read composition was unavailable for " + label),
+        cacheWriteTokens: composed.length > 0 ? { value: cacheWrite, provenance: "derived", method: "sum of compatible cache-write input in " + label } : unavailable("cache-write composition was unavailable for " + label),
+        outputTokens: composed.length > 0 ? { value: output, provenance: "derived", method: "sum of compatible output in " + label } : unavailable("output composition was unavailable for " + label),
+        cacheReadRatePercent: requestInput > 0 ? percentageEvidence(cached, requestInput, label + " cache-read Token count") : unavailable(label + " cache-read rate has a zero request-input denominator"),
+        coldSessionCount: composed.length > 0 ? { value: cold, provenance: "derived", method: "count of first requests with zero cache-read input in " + label } : unavailable("cold first-request count was unavailable for " + label),
+        coldSessionRatePercent: composed.length > 0 ? percentageEvidence(cold, composed.length, label + " cold first-request count") : unavailable("cold first-request rate was unavailable for " + label),
+    };
+}
+function firstRequestBurden(read, harness) {
+    const deduped = dedupeModelCalls(read.modelCalls);
+    const firstBySession = new Map();
+    for (const call of deduped) {
+        if (callTokens(call, harness) === null || timestampMs(call.timestamp) === null)
+            continue;
+        const current = firstBySession.get(call.sessionId);
+        const currentTime = current ? timestampMs(current.timestamp) : null;
+        const time = timestampMs(call.timestamp);
+        if (!current || time < currentTime || (time === currentTime && (call.callId ?? "").localeCompare(current.callId ?? "") < 0))
+            firstBySession.set(call.sessionId, call);
+    }
+    const firstCalls = [...firstBySession.values()].sort((left, right) => (timestampMs(left.timestamp) - timestampMs(right.timestamp)) || (left.sessionId.localeCompare(right.sessionId)));
+    const selectedTotal = sumTokens(read.modelCalls, harness);
+    const group = firstRequestGroup(firstCalls, selectedTotal.value, "selected", harness);
+    const limitations = new Set(["首次请求负担 is an observed earliest request size, not an exact removable startup tax"]);
+    if (firstCalls.length < read.sessions.length)
+        limitations.add("Sessions without a timestamped valid ModelCall are excluded from first-request coverage");
+    const composed = composedCalls(firstCalls, harness);
+    if (composed.length < firstCalls.length)
+        limitations.add("first-request cache composition is partial because some earliest calls are missing compatible Token fields");
+    const knownIdentity = read.sessions.filter((session) => typeof session.isSubagent === "boolean").length;
+    const identityCoverage = read.sessions.length > 0
+        ? percentageEvidence(knownIdentity, read.sessions.length, "source-proven Session identity")
+        : unavailable("no selected Sessions were available for top-level or Subagent identity coverage");
+    let topLevel = null;
+    let subagent = null;
+    if (read.sessions.length > 0 && knownIdentity === read.sessions.length) {
+        const identityBySession = new Map(read.sessions.map((session) => [session.sessionId, session.isSubagent]));
+        topLevel = firstRequestGroup(firstCalls.filter((call) => identityBySession.get(call.sessionId) === false), selectedTotal.value, "top-level", harness);
+        subagent = firstRequestGroup(firstCalls.filter((call) => identityBySession.get(call.sessionId) === true), selectedTotal.value, "Subagent", harness);
+    }
+    else {
+        limitations.add("top-level versus Subagent first-request groups require source-proven identity for every selected Session");
     }
     return {
-        cost: pricedTokens === 0 ? unavailable("no selected ModelCall exactly matched a local public API rate with compatible Token dimensions") : { value: total, provenance: "estimated", method: "exact model match against local API rate table " + rates_1.API_RATE_SOURCE.version },
-        pricedTokens, relevantTokens, unpricedModels: [...unpricedModels].sort(), limitations: [...limitations].sort(),
+        sessionCount: { value: read.sessions.length, provenance: "derived", method: "count of selected Sessions in the Audit Scope" },
+        validFirstRequestCount: { value: firstCalls.length, provenance: "derived", method: "count of Sessions with one earliest valid, deduplicated and timestamped ModelCall" },
+        coveragePercent: read.sessions.length > 0 ? percentageEvidence(firstCalls.length, read.sessions.length, "valid first-request Session") : unavailable("first-request coverage has no selected Session denominator"),
+        medianTokens: group.medianTokens,
+        totalTokens: group.totalTokens,
+        sharePercent: group.sharePercent,
+        compositionCoveragePercent: group.compositionCoveragePercent,
+        inputTokens: group.inputTokens,
+        cachedInputTokens: group.cachedInputTokens,
+        cacheWriteTokens: group.cacheWriteTokens,
+        outputTokens: group.outputTokens,
+        cacheReadRatePercent: group.cacheReadRatePercent,
+        coldSessionCount: group.coldSessionCount,
+        coldSessionRatePercent: group.coldSessionRatePercent,
+        topLevel,
+        subagent,
+        identityCoveragePercent: identityCoverage,
+        limitations: [...limitations].sort(),
     };
+}
+function skillEvidenceKey(record) {
+    if (record.evidenceType === "listing")
+        return [record.sessionId, record.skillName, record.evidenceType].join("|");
+    return [record.sessionId, record.skillName, record.evidenceType, record.turnId, record.callId, record.timestamp, record.sourceLocation].join("|");
+}
+function dedupeSkillEvidence(records) {
+    const byKey = new Map();
+    for (const record of records) {
+        const key = skillEvidenceKey(record);
+        const existing = byKey.get(key);
+        if (!existing || (record.state === "attributed" && existing.state !== "attributed"))
+            byKey.set(key, record);
+    }
+    return [...byKey.values()];
+}
+function skillAnalysis(read, harness, pricing) {
+    const records = dedupeSkillEvidence(read.skillEvidence ?? []);
+    if (records.length === 0)
+        return [];
+    const names = [...new Set(records.map((record) => record.skillName ?? "<unknown-skill>"))].sort();
+    const calls = dedupeModelCalls(read.modelCalls);
+    const strongAttributionBoundaries = new Set(records
+        .filter((record) => record.evidenceType === "versioned-attribution")
+        .map((record) => [record.sessionId, record.timestamp, record.skillName].join("|")));
+    return names.map((name) => {
+        const own = records.filter((record) => (record.skillName ?? "<unknown-skill>") === name);
+        const invocationRecords = own.filter((record) => record.evidenceType !== "listing" && (record.state === "invoked" || record.state === "attributed") && (record.evidenceType === "versioned-attribution" || !strongAttributionBoundaries.has([record.sessionId, record.timestamp, record.skillName].join("|"))));
+        const matchedCalls = calls.filter((call) => invocationRecords.some((record) => record.sessionId === call.sessionId && ((record.callId !== null && record.callId === call.callId && record.evidenceType === "versioned-attribution") || (record.turnId !== null && record.turnId === call.turnId))));
+        const state = matchedCalls.length > 0 || own.some((record) => record.state === "attributed")
+            ? "attributed"
+            : invocationRecords.length > 0
+                ? "invoked"
+                : own.some((record) => record.state === "available")
+                    ? "available"
+                    : "unavailable";
+        const boundaries = new Set(invocationRecords.map((record) => [record.sessionId, record.turnId, record.callId, record.timestamp].join("|")));
+        const associatedTokens = matchedCalls.length === 0 || matchedCalls.some((call) => callTokens(call, harness) === null)
+            ? unavailable("no complete source-proven ModelCall Token total was associated with " + name)
+            : { value: matchedCalls.reduce((sum, call) => sum + callTokens(call, harness), 0), provenance: "derived", method: "sum of ModelCall Token totals matched by the Skill's source-proven call or turn boundary" };
+        const associatedCost = matchedCalls.length === 0
+            ? unavailable("no source-proven ModelCall was associated with " + name)
+            : apiCost(matchedCalls, harness, pricing).cost;
+        const timeValues = own.map((record) => record.timestamp).filter((value) => value !== null && !Number.isNaN(Date.parse(value))).sort();
+        const hasListing = own.some((record) => record.evidenceType === "listing");
+        const directResources = invocationRecords.filter((record) => record.evidenceType === "resource-read" || record.evidenceType === "script-execution").length;
+        const evidenceWithBoundary = own.filter((record) => record.timestamp !== null && (record.evidenceType === "listing" || record.callId !== null || record.turnId !== null)).length;
+        return {
+            name,
+            state,
+            availableSessions: hasListing
+                ? { value: new Set(own.filter((record) => record.evidenceType === "listing").map((record) => record.sessionId)).size, provenance: "derived", method: "count of selected Sessions with an explicit Skill listing record" }
+                : unavailable("Skill availability listing was not present in the selected history"),
+            invocationCount: { value: boundaries.size, provenance: "derived", method: "count of deduplicated Skill invocation boundaries" },
+            sessionCount: { value: new Set(invocationRecords.map((record) => record.sessionId)).size, provenance: "derived", method: "count of Sessions with a deduplicated Skill invocation boundary" },
+            firstObservedAt: timeValues.length > 0 ? { value: timeValues[0], provenance: "reported", method: "earliest timestamp on the Skill evidence record" } : unavailable("Skill evidence had no usable timestamp"),
+            lastObservedAt: timeValues.length > 0 ? { value: timeValues[timeValues.length - 1], provenance: "reported", method: "latest timestamp on the Skill evidence record" } : unavailable("Skill evidence had no usable timestamp"),
+            attributedTokens: associatedTokens,
+            attributedApiEquivalentCost: associatedCost,
+            evidenceCoveragePercent: own.length > 0 ? percentageEvidence(evidenceWithBoundary, own.length, "usable " + name + " Skill evidence") : unavailable("no Skill evidence was available"),
+            directResourceFootprint: { value: directResources, provenance: "derived", method: "count of directly evidenced Skill resource-read or Skill-owned script records; resource content is omitted" },
+            observedAssociation: matchedCalls.length > 0 ? { value: matchedCalls.length, provenance: "derived", method: "count of ModelCalls associated with the Skill by a source-proven call or turn boundary" } : unavailable("no source-proven ModelCall association was available for " + name),
+            causalImpact: unavailable("causal Skill impact requires a valid comparison or counterfactual, which local history does not provide"),
+            evidenceTypes: [...new Set(own.map((record) => record.evidenceType))].sort(),
+            sourceLocations: [...new Set(own.map((record) => record.sourceLocation).filter((value) => value !== null))].sort(),
+        };
+    });
 }
 function hourBucket(timestamp) {
     if (!timestamp)
@@ -157,7 +530,7 @@ function hourBucket(timestamp) {
     const parsed = new Date(timestamp);
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 13) + ":00Z";
 }
-function buildDailyUsage(calls, totalTokens, harness) {
+function buildDailyUsage(calls, totalTokens, harness, pricing) {
     const groups = new Map();
     for (const call of calls) {
         const key = timeBucket(call.timestamp);
@@ -167,7 +540,7 @@ function buildDailyUsage(calls, totalTokens, harness) {
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, group]) => {
         const breakdown = tokenBreakdown(group, "day " + key, harness);
-        const cost = apiCost(group, harness).cost;
+        const cost = apiCost(group, harness, pricing).cost;
         return {
             key,
             ...breakdown,
@@ -179,7 +552,7 @@ function buildDailyUsage(calls, totalTokens, harness) {
         };
     });
 }
-function buildHourlyActivity(calls, totalTokens) {
+function buildHourlyActivity(calls, totalTokens, harness) {
     const groups = new Map();
     for (const call of calls) {
         const key = hourBucket(call.timestamp);
@@ -189,7 +562,7 @@ function buildHourlyActivity(calls, totalTokens) {
     return [...groups.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, group]) => {
-        const total = totalTokenEvidence(group, "hour " + key);
+        const total = totalTokenEvidence(group, "hour " + key, harness);
         return {
             key,
             modelCallCount: countEvidence(group.length, "count of ModelCall records in hour " + key),
@@ -274,13 +647,13 @@ function timestampMs(timestamp) {
     const value = Date.parse(timestamp);
     return Number.isNaN(value) ? null : value;
 }
-function observedTokenEvidence(calls, label) {
+function observedTokenEvidence(calls, label, harness) {
     if (calls.length === 0) {
         return { value: 0, provenance: "derived", method: "no timestamped ModelCall records were observed in the " + label };
     }
-    return totalTokenEvidence(calls, label);
+    return totalTokenEvidence(calls, label, harness);
 }
-function historicalPeakTokens(calls, windowMilliseconds) {
+function historicalPeakTokens(calls, windowMilliseconds, harness) {
     const timed = calls
         .map((call) => ({ call, time: timestampMs(call.timestamp) }))
         .filter((entry) => entry.time !== null)
@@ -292,9 +665,9 @@ function historicalPeakTokens(calls, windowMilliseconds) {
     for (let start = 0; start < timed.length; start += 1) {
         const end = timed[start].time + windowMilliseconds;
         const window = timed.filter((entry) => entry.time >= timed[start].time && entry.time <= end).map((entry) => entry.call);
-        if (window.some((call) => call.totalTokens === null))
+        if (window.some((call) => callTokens(call, harness) === null))
             continue;
-        const total = window.reduce((sum, call) => sum + call.totalTokens, 0);
+        const total = window.reduce((sum, call) => sum + callTokens(call, harness), 0);
         if (peak === null || total > peak)
             peak = total;
     }
@@ -306,7 +679,7 @@ function historicalPeakTokens(calls, windowMilliseconds) {
             method: "maximum sum of complete ModelCall token totals in any five-hour timestamp window",
         };
 }
-function buildRollingWindow(calls) {
+function buildRollingWindow(calls, harness) {
     const end = Date.now();
     const start = end - 5 * 60 * 60 * 1000;
     const timed = calls.filter((call) => timestampMs(call.timestamp) !== null);
@@ -318,27 +691,28 @@ function buildRollingWindow(calls) {
         startAt: new Date(start).toISOString(),
         endAt: new Date(end).toISOString(),
         observedModelCallCount: countEvidence(observed.length, "count of timestamped ModelCall records observed in the latest five-hour window"),
-        observedTokens: observedTokenEvidence(observed, "latest five-hour observed activity"),
-        historicalPeakObservedTokens: historicalPeakTokens(timed, 5 * 60 * 60 * 1000),
+        observedTokens: observedTokenEvidence(observed, "latest five-hour observed activity", harness),
+        historicalPeakObservedTokens: historicalPeakTokens(timed, 5 * 60 * 60 * 1000, harness),
         providerQuota: unavailable("no first-party Provider quota data is available from the selected Harness"),
         remainingProviderQuota: unavailable("remaining Provider quota is unavailable without first-party allowance data"),
         resetAt: unavailable("Provider reset time is unavailable without first-party allowance data"),
     };
 }
-function buildReportData(read, totalTokens, harness) {
+function buildReportData(read, totalTokens, harness, pricing) {
     const tools = buildToolAnalysis(read);
+    const apiEquivalent = apiEquivalentCost(read.modelCalls, harness, pricing);
+    const cost = apiCost(read.modelCalls, harness, pricing);
     return {
-        dailyUsage: buildDailyUsage(read.modelCalls, totalTokens, harness),
-        hourlyActivity: buildHourlyActivity(read.modelCalls, totalTokens),
+        dailyUsage: buildDailyUsage(read.modelCalls, totalTokens, harness, pricing),
+        hourlyActivity: buildHourlyActivity(read.modelCalls, totalTokens, harness),
         hourlySupported: read.modelCalls.some((call) => timestampMs(call.timestamp) !== null),
-        rollingWindow: buildRollingWindow(read.modelCalls),
+        rollingWindow: buildRollingWindow(read.modelCalls, harness),
         tools: tools.entries,
         totalToolAmplifiedTokens: tools.total,
-        apiEquivalentCost: (() => {
-            const cost = apiCost(read.modelCalls, harness);
-            const coverage = cost.relevantTokens > 0 ? Math.round(cost.pricedTokens / cost.relevantTokens * 10000) / 100 : null;
-            return { total: cost.cost, pricedTokens: countEvidence(cost.pricedTokens, "Token total with exact compatible local API rate"), relevantTokens: countEvidence(cost.relevantTokens, "selected Token total considered for API-equivalent pricing"), coveragePercent: coverage === null ? unavailable("no Token total was available for price coverage") : { value: coverage, provenance: "derived", method: "priced Token total divided by relevant Token total" }, unpricedModels: cost.unpricedModels, limitations: cost.limitations, source: { version: rates_1.API_RATE_SOURCE.version, retrievedAt: rates_1.API_RATE_SOURCE.retrievedAt, currency: rates_1.API_RATE_SOURCE.currency, unit: rates_1.API_RATE_SOURCE.unit } };
-        })(),
+        apiEquivalentCost: apiEquivalent,
+        cacheEconomics: cacheEconomics(read.modelCalls, harness, cost),
+        firstRequestBurden: firstRequestBurden(read, harness),
+        skills: skillAnalysis(read, harness, pricing),
     };
 }
 function projectKey(cwd, scope) {
@@ -348,9 +722,9 @@ function projectKey(cwd, scope) {
         return "<current-project>";
     return `project-${(0, node_crypto_1.createHash)("sha256").update(cwd).digest("hex").slice(0, 12)}`;
 }
-function topSession(sessions, calls) {
+function topSession(sessions, calls, harness) {
     const candidates = sessions
-        .map((session) => ({ session, tokens: sessionTotal(session.sessionId, calls), calls: calls.filter((call) => call.sessionId === session.sessionId).length }))
+        .map((session) => ({ session, tokens: sessionTotal(session.sessionId, calls, harness), calls: calls.filter((call) => call.sessionId === session.sessionId).length }))
         .filter((candidate) => candidate.tokens !== null && candidate.calls > 0)
         .sort((left, right) => right.tokens - left.tokens || left.session.sessionId.localeCompare(right.session.sessionId));
     return candidates[0] ? { session: candidates[0].session, tokens: candidates[0].tokens } : null;
@@ -471,10 +845,10 @@ function automatedChecks(largest, largestCalls, tokenTotal, amplification, extra
     }
     return checks;
 }
-function analyseAudit(scope, read, harness) {
-    const tokenTotal = sumTokens(read.modelCalls);
-    const reportedCost = sumReportedCost(read.modelCalls);
-    const largest = topSession(read.sessions, read.modelCalls);
+function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICING) {
+    const tokenTotal = sumTokens(read.modelCalls, harness);
+    const reportedCost = reportedCostForRead(read);
+    const largest = topSession(read.sessions, read.modelCalls, harness);
     const largestCalls = largest ? read.modelCalls.filter((call) => call.sessionId === largest.session.sessionId) : [];
     const amplification = toolAmplification(read);
     const extraLifecycle = read.lifecycle.filter((event) => event.kind !== "compaction");
@@ -482,13 +856,13 @@ function analyseAudit(scope, read, harness) {
     const sessionProjects = new Map(read.sessions.map((session) => [session.sessionId, session.projectCwd]));
     const sessionById = new Map(read.sessions.map((session) => [session.sessionId, session]));
     const rankings = {
-        sessions: rankContributions(read.modelCalls, (call) => call.sessionId, "Session", tokenTotal.value, (key) => {
+        sessions: rankContributions(read.modelCalls, (call) => call.sessionId, "Session", tokenTotal.value, harness, (key) => {
             const session = sessionById.get(key);
             return session ? sessionDisplayName(session) : undefined;
         }),
-        projects: rankContributions(read.modelCalls, (call) => projectKey(sessionProjects.get(call.sessionId) ?? null, scope), "project", tokenTotal.value),
-        models: rankContributions(read.modelCalls, (call) => call.model ?? "<unknown-model>", "model", tokenTotal.value),
-        timeBuckets: rankContributions(read.modelCalls, (call) => timeBucket(call.timestamp), "time bucket", tokenTotal.value),
+        projects: rankContributions(read.modelCalls, (call) => projectKey(sessionProjects.get(call.sessionId) ?? null, scope), "project", tokenTotal.value, harness),
+        models: rankContributions(read.modelCalls, (call) => call.model ?? "<unknown-model>", "model", tokenTotal.value, harness),
+        timeBuckets: rankContributions(read.modelCalls, (call) => timeBucket(call.timestamp), "time bucket", tokenTotal.value, harness),
     };
     const shareFraction = largest && tokenTotal.value !== null && tokenTotal.value > 0
         ? largest.tokens / tokenTotal.value
@@ -503,7 +877,7 @@ function analyseAudit(scope, read, harness) {
         modelCallCount: countEvidence(read.modelCalls.length, "count of selected ModelCall records"),
         activeBranchModelCallCount: countEvidence(read.modelCalls.filter((call) => call.activeBranch !== false).length, "count of selected ModelCall records in the active context; calls without a branch marker are treated as active"),
         activeBranchTokens: (() => {
-            const active = sumTokens(read.modelCalls.filter((call) => call.activeBranch !== false));
+            const active = sumTokens(read.modelCalls.filter((call) => call.activeBranch !== false), harness);
             return active.value === null
                 ? unavailable("a complete active-context token total was not reported for every selected model call")
                 : { value: active.value, provenance: active.provenance, method: "sum of selected active-context ModelCall token totals" };
@@ -559,7 +933,7 @@ function analyseAudit(scope, read, harness) {
         coverage: read.coverage,
         summary,
         rankings,
-        report: buildReportData(read, tokenTotal.value, harness),
+        report: buildReportData(read, tokenTotal.value, harness, pricing),
         checks,
     };
 }

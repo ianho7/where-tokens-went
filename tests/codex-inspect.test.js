@@ -5,10 +5,14 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const { analyseAudit } = require('../dist/src/analysis.js');
+const { resolveApiPricing } = require('../dist/src/rates.js');
+const { renderHtml, renderText } = require('../dist/src/report.js');
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 const bundledCodexPath = path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js');
+const { parseArgs } = require('../dist/src/cli.js');
 
 function isoHoursAgo(hours) {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
@@ -31,6 +35,12 @@ async function runBundledCodex(args, env) {
     maxBuffer: 1024 * 1024,
   });
 }
+
+test('CLI uses LiteLLM pricing by default and accepts the explicit pricing flag', () => {
+  assert.equal(parseArgs(['inspect', '--harness', 'codex', '--cwd', 'D:\\project']).pricing, 'litellm');
+  assert.equal(parseArgs(['inspect', '--harness', 'codex', '--cwd', 'D:\\project', '--pricing', 'litellm']).pricing, 'litellm');
+  assert.throws(() => parseArgs(['inspect', '--harness', 'codex', '--cwd', 'D:\\project', '--pricing', 'local']), /must be litellm/);
+});
 
 test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', async () => {
   const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'SKILL.md'), 'utf8');
@@ -110,6 +120,58 @@ test('each copied Skill runs its bundled deterministic tool without the source c
       assert.equal(result.scope.harness, harness);
       assert.equal(result.summary.sessionCount.value, 0);
       assert.equal(result.summary.totalTokens.value, null);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('packaged Codex and Claude runtimes preserve new evidence facts outside the checkout', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-packaged-evidence-'));
+  const project = path.join(root, 'project');
+  const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
+  const codexHome = path.join(root, 'codex-home');
+  const claudeHome = path.join(root, 'claude-home');
+  const timestamp = isoHoursAgo(1);
+  await mkdir(project, { recursive: true });
+  await mkdir(path.join(codexHome, 'sessions', '2026', '09', '10'), { recursive: true });
+  await mkdir(path.join(claudeHome, 'projects', 'project'), { recursive: true });
+  await writeFile(path.join(codexHome, 'sessions', '2026', '09', '10', 'rollout-packaged.jsonl'), [
+    { timestamp, type: 'session_meta', payload: { id: 'packaged-codex', cwd: project, source: 'user' } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'packaged-turn', cwd: project, model: 'gpt-4.1', model_provider: 'openai' } },
+    { timestamp, type: 'event_msg', payload: { type: 'skill_listing', skills: [{ name: 'packaged-skill' }] } },
+    { timestamp, type: 'event_msg', payload: { type: 'skill_input', id: 'packaged-skill-input', skill_name: 'packaged-skill' } },
+    { timestamp, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'packaged-response', usage: { input_tokens: 100, cached_input_tokens: 20, cache_write_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 } } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  await writeFile(path.join(claudeHome, 'projects', 'project', 'packaged-claude.jsonl'), [
+    { type: 'user', session_id: 'packaged-claude', cwd: project, timestamp },
+    { type: 'system', session_id: 'packaged-claude', cwd: project, timestamp, available_skills: ['packaged-skill'] },
+    { type: 'assistant', session_id: 'packaged-claude', cwd: project, provider: 'anthropic', attributionSkill: 'packaged-skill', timestamp, message: { id: 'packaged-claude-call', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 20, cache_read_input_tokens: 10, cache_creation_input_tokens: 5, cache_creation: { ephemeral_5m_input_tokens: 5 }, output_tokens: 5, total_tokens: 40 } } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  try {
+    await execFileAsync(process.execPath, [installer, root]);
+    const installed = {
+      codex: path.join(root, '.agents', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js'),
+      claude: path.join(root, '.claude', 'skills', 'where-tokens-went-claude', 'scripts', 'where-tokens-went.js'),
+    };
+    const cases = [
+      ['codex', { CODEX_HOME: codexHome }],
+      ['claude', { CLAUDE_CONFIG_DIR: claudeHome }],
+    ];
+    for (const [harness, env] of cases) {
+      const args = ['inspect', '--harness', harness, '--cwd', project, '--since', '7d', '--format', 'json'];
+      const [{ stdout: sourceOutput }, { stdout: packagedOutput }] = await Promise.all([
+        runAudit(args, env),
+        execFileAsync(process.execPath, [installed[harness], ...args], { env: { ...process.env, ...env }, maxBuffer: 1024 * 1024 }),
+      ]);
+      const source = JSON.parse(sourceOutput);
+      const packaged = JSON.parse(packagedOutput);
+      assert.deepEqual(packaged.summary, source.summary);
+      assert.deepEqual(packaged.coverage, source.coverage);
+      assert.deepEqual(packaged.report.dailyUsage, source.report.dailyUsage);
+      assert.deepEqual(packaged.report.cacheEconomics, source.report.cacheEconomics);
+      assert.deepEqual(packaged.report.firstRequestBurden, source.report.firstRequestBurden);
+      assert.deepEqual(packaged.report.skills, source.report.skills);
     }
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -362,7 +424,7 @@ test('Codex reports source-proven top-level and subagent Session counts separate
       response('child-response', 50),
     ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
     const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'], { CODEX_HOME: codexHome });
-    assert.match(stdout, /Sessions: 2 \(derived\); top-level tasks: 1 \(derived\); subagent Sessions: 1 \(derived\)/);
+    assert.match(stdout, /Sessions: 2; top-level tasks: 1; subagent Sessions: 1/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -649,7 +711,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.equal(result.report.rollingWindow.observedTokens.value, 126000000);
     assert.match(html, /where-tokens-went 诊断报告/);
     assert.match(html, /class="metric-main"[^>]*>1\.26亿</);
-    assert.match(html, /title="精确值：126,000,000"/);
+    assert.match(html, /title="精确值：126,000,000；证据来源：已报告"/);
     assert.match(html, /id="token-trend" class="echart"/);
     assert.match(html, /renderer:'svg'/);
     assert.match(html, /table class="sortable"/);
@@ -661,7 +723,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.match(html, /未命名 Session · tare-untitled/);
     assert.match(html, /class="percentage"[^>]*>100%</);
     assert.equal(/2026-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z/.test(html), false);
-    assert.equal((html.match(/已报告/g) ?? []).length <= 1, true);
+    assert.doesNotMatch(html, /证据标识|Evidence markers/);
     assert.match(html, /一个工具结果可能在后续上下文中延续；暴露估算/);
     assert.match(html, /方法：/);
     assert.equal(html.includes('long_session'), false);
@@ -710,7 +772,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
       { CODEX_HOME: codexHome },
     );
     assert.match(windowText, /Provider 额度/);
-    assert.match(windowText, /不可用/);
+    assert.match(windowText, /—/);
     assert.match(windowText, /不是 Provider 额度/);
 
     const { stdout: toolsText } = await runAudit(
@@ -868,6 +930,436 @@ test('every supported Harness emits the same safe empty-result contract', async 
       assert.match(textOutput, new RegExp(`Audit: ${harness}`));
       assert.match(textOutput, /unavailable/);
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('shared Token composition derives Claude totals without reasoning and splits Codex inclusive input', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-composition-'));
+  const project = path.join(root, 'project');
+  const claudeHome = path.join(root, 'claude-home');
+  const codexHome = path.join(root, 'codex-home');
+  await mkdir(project, { recursive: true });
+  await mkdir(path.join(claudeHome, 'projects', 'project'), { recursive: true });
+  await mkdir(path.join(codexHome, 'sessions', '2026', '09', '10'), { recursive: true });
+  const timestamp = isoHoursAgo(1);
+  await writeFile(path.join(claudeHome, 'projects', 'project', 'session.jsonl'), [
+    { type: 'user', session_id: 'claude-composition', cwd: project, timestamp },
+    { type: 'assistant', session_id: 'claude-composition', cwd: project, timestamp, message: { id: 'claude-call', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 70, cache_read_input_tokens: 20, cache_creation_input_tokens: 10, output_tokens: 30 } } },
+    { type: 'assistant', session_id: 'claude-composition', cwd: project, timestamp, message: { id: 'claude-call', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 70, cache_read_input_tokens: 20, cache_creation_input_tokens: 10, output_tokens: 30 } } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  await writeFile(path.join(codexHome, 'sessions', '2026', '09', '10', 'rollout-codex-composition.jsonl'), [
+    { timestamp, type: 'session_meta', payload: { id: 'codex-composition', cwd: project } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'turn-composition', cwd: project, model: 'gpt-4.1', model_provider: 'openai' } },
+    { timestamp, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'codex-call', usage: { input_tokens: 100, cached_input_tokens: 20, cache_write_input_tokens: 10, output_tokens: 30, reasoning_output_tokens: 0, total_tokens: 130 } } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+
+  try {
+    const [{ stdout: claudeOutput }, { stdout: codexOutput }] = await Promise.all([
+      runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json'], { CLAUDE_CONFIG_DIR: claudeHome }),
+      runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'], { CODEX_HOME: codexHome }),
+    ]);
+    const claude = JSON.parse(claudeOutput);
+    const codex = JSON.parse(codexOutput);
+    assert.equal(claude.summary.totalTokens.value, 130);
+    assert.equal(claude.summary.totalTokens.provenance, 'derived');
+    assert.equal(claude.report.dailyUsage[0].inputTokens.value, 70);
+    assert.equal(claude.report.dailyUsage[0].cachedInputTokens.value, 20);
+    assert.equal(claude.report.dailyUsage[0].cacheWriteTokens.value, 10);
+    assert.equal(claude.report.dailyUsage[0].outputTokens.value, 30);
+    assert.equal(claude.report.dailyUsage[0].reasoningTokens.value, null);
+    assert.equal(codex.summary.totalTokens.value, 130);
+    assert.equal(codex.report.dailyUsage[0].inputTokens.value, 70);
+    assert.equal(codex.report.dailyUsage[0].cachedInputTokens.value, 20);
+    assert.equal(codex.report.dailyUsage[0].cacheWriteTokens.value, 10);
+    assert.equal(codex.report.dailyUsage[0].outputTokens.value, 30);
+    assert.equal(codex.report.dailyUsage[0].unclassifiedTokens.value, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('cache ratios aggregate compatible Token buckets and report lower composition coverage', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-cache-'));
+  const project = path.join(root, 'project');
+  const claudeHome = path.join(root, 'claude-home');
+  const transcriptRoot = path.join(claudeHome, 'projects', 'project');
+  const htmlPath = path.join(root, 'report.html');
+  const sharePath = path.join(root, 'share.md');
+  await mkdir(project, { recursive: true });
+  await mkdir(transcriptRoot, { recursive: true });
+  const timestamp = isoHoursAgo(1);
+  const records = [
+    { type: 'user', session_id: 'cache-session', cwd: project, timestamp },
+    { type: 'assistant', session_id: 'cache-session', cwd: project, provider: 'anthropic', timestamp, message: { id: 'cache-call-1', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 90, cache_read_input_tokens: 10, cache_creation_input_tokens: 0, output_tokens: 10, total_tokens: 110 } } },
+    { type: 'assistant', session_id: 'cache-session', cwd: project, provider: 'anthropic', timestamp, message: { id: 'cache-call-2', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 0, cache_read_input_tokens: 90, cache_creation_input_tokens: 0, output_tokens: 10, total_tokens: 100 } } },
+    { type: 'assistant', session_id: 'cache-session', cwd: project, provider: 'anthropic', timestamp, message: { id: 'cache-incomplete', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 50, output_tokens: 5, total_tokens: 55 } } },
+  ];
+  await writeFile(path.join(transcriptRoot, 'cache-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  try {
+    const env = { CLAUDE_CONFIG_DIR: claudeHome };
+    const { stdout } = await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json'], env);
+    const result = JSON.parse(stdout);
+    assert.equal(result.report.cacheEconomics.cacheReadRatePercent.value, 52.63);
+    assert.equal(result.report.cacheEconomics.cacheWriteRatePercent.value, 0);
+    assert.equal(result.report.cacheEconomics.totalInputTokens.value, 190);
+    assert.equal(result.report.cacheEconomics.coveragePercent.value, 79.25);
+    assert.match(result.report.cacheEconomics.limitations.join(' '), /incompatible|composition/i);
+
+    const { stdout: textOutput } = await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'text', '--view', 'usage'], env);
+    assert.match(textOutput, /cache-read rate|缓存读取率/i);
+    assert.match(textOutput, /52\.63/);
+    await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json', '--html', htmlPath], env);
+    await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json', '--share', sharePath], env);
+    assert.match(await readFile(htmlPath, 'utf8'), /52\.63|cache-read rate|缓存读取率/i);
+    assert.match(await readFile(sharePath, 'utf8'), /52\.63|cache-read rate|缓存读取率/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('API-equivalent cache cost uses exact Provider/model/TTL dimensions and exposes an all-uncached counterfactual', async () => {
+  const timestamp = isoHoursAgo(1);
+  const knownCalls = [{ sessionId: 'cost-session', callId: 'cost-call', timestamp, provider: 'anthropic', model: 'claude-sonnet-5', inputTokens: 70, cachedInputTokens: 20, cacheWriteTokens: 10, cacheWrite5mTokens: 10, cacheWrite1hTokens: 0, cacheWriteTtl: '5m', outputTokens: 30, reasoningTokens: null, totalTokens: 130, reportedCost: null, status: 'ok', tokenProvenance: 'reported' }];
+  const response = (payload, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => payload });
+  const fetcher = async (url) => url.endsWith('/claude-sonnet-5')
+    ? response({ id: 'claude-sonnet-5', provider: 'anthropic', input_cost_per_token: 0.000002, cache_read_input_token_cost: 0.0000002, cache_creation_input_token_cost: 0.0000025, output_cost_per_token: 0.00001 })
+    : response({ data: [] }, 404);
+  const readFor = (modelCalls) => ({
+    sessions: [{ harness: 'claude', sessionId: 'cost-session', title: null, projectCwd: 'D:\\project', startedAt: timestamp, endedAt: timestamp, parentSessionId: null, isSubagent: false, partial: false, sourceVersion: null }],
+    modelCalls,
+    toolCalls: [],
+    lifecycle: [],
+    coverage: { filesRead: 1, recordsRead: modelCalls.length, recordsSkipped: 0, partialSessions: 0, warnings: [] },
+  });
+  const scope = { cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') };
+  const pricing = await resolveApiPricing(knownCalls, 'claude', 'litellm', fetcher, 'https://catalog.test/model_catalog');
+  const priced = analyseAudit(scope, readFor(knownCalls), 'claude', pricing);
+  assert.equal(priced.report.apiEquivalentCost.total.value, 0.000469);
+  assert.equal(priced.report.apiEquivalentCost.allUncachedTotal.value, 0.0005);
+  assert.equal(priced.report.apiEquivalentCost.difference.value, 0.000031);
+  assert.equal(priced.report.apiEquivalentCost.differencePercent.value, 6.2);
+  assert.equal(priced.report.apiEquivalentCost.coveragePercent.value, 100);
+  assert.equal(priced.report.apiEquivalentCost.source.effectiveDate, null);
+  assert.equal(priced.report.apiEquivalentCost.total.provenance, 'estimated');
+  assert.equal(priced.report.cacheEconomics.cacheSavings.value, 0.000031);
+
+  const mixedCalls = knownCalls.map((call) => ({ ...call, provider: null })).concat([{ sessionId: 'cost-session', callId: 'unpriced-call', timestamp, provider: 'other-provider', model: 'claude-sonnet-5-preview', inputTokens: 10, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 5, reasoningTokens: null, totalTokens: 15, reportedCost: null, status: 'ok', tokenProvenance: 'reported' }]);
+  const mixedPricing = await resolveApiPricing(mixedCalls, 'claude', 'litellm', fetcher, 'https://catalog.test/model_catalog');
+  const mixed = analyseAudit(scope, readFor(mixedCalls), 'claude', mixedPricing);
+  assert.equal(mixed.report.apiEquivalentCost.total.value, 0.000469);
+  assert.equal(mixed.report.apiEquivalentCost.allUncachedTotal.value, 0.0005);
+  assert.equal(mixed.report.apiEquivalentCost.difference.value, 0.000031);
+  assert.equal(mixed.report.apiEquivalentCost.differencePercent.value, 6.2);
+  assert.equal(mixed.report.apiEquivalentCost.total.provenance, 'estimated');
+  assert.equal(mixed.report.apiEquivalentCost.coveragePercent.value, 89.66);
+  assert.equal(mixed.report.cacheEconomics.cacheReadRatePercent.value, 18.18);
+  assert.equal(mixed.report.cacheEconomics.cacheSavings.value, 0.000031);
+  assert.equal(mixed.report.cacheEconomics.cacheSavingsPercent.value, 6.2);
+  assert.match(mixed.report.apiEquivalentCost.limitations.join(' '), /priced Usage|unpriced.*excluded/i);
+  const mixedChineseText = renderText(mixed, 'zh-CN');
+  assert.match(mixedChineseText, /定价时根据所选 Harness 推导 Provider：anthropic/);
+  assert.match(mixedChineseText, /Provider 与所选 Harness 不匹配：other-provider/);
+  assert.match(mixedChineseText, /未解析到 other-provider\/claude-sonnet-5-preview 的价格条目/);
+  assert.match(mixedChineseText, /方法：缓存读取 Token 总量除以分母/);
+  assert.doesNotMatch(mixedChineseText, /Provider was derived|no resolved price entry|cache-read Token count numerator/);
+
+  const lowCoverageCalls = knownCalls.concat([{ sessionId: 'cost-session', callId: 'low-coverage-unpriced-call', timestamp, provider: 'other-provider', model: 'unknown-model', inputTokens: 1000, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 5, reasoningTokens: null, totalTokens: 1005, reportedCost: null, status: 'ok', tokenProvenance: 'reported' }]);
+  const lowCoverage = analyseAudit(scope, readFor(lowCoverageCalls), 'claude', mixedPricing);
+  assert.equal(lowCoverage.report.apiEquivalentCost.coveragePercent.value, 11.45);
+  const lowCoverageHtml = renderHtml(lowCoverage, 'zh-CN');
+  assert.match(lowCoverageHtml, /API 等价估算（USD）/);
+  assert.match(lowCoverageHtml, /\$0\.000469/);
+  assert.match(lowCoverageHtml, /首次请求中位数（Token）/);
+  assert.match(lowCoverageHtml, /costVisible":true/);
+});
+
+test('cost remains unavailable when no selected Usage has compatible pricing', async () => {
+  const timestamp = isoHoursAgo(1);
+  const calls = [{ sessionId: 'unpriced-session', callId: 'unpriced-call', timestamp, provider: 'anthropic', model: 'unknown-model', inputTokens: 100, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 10, reasoningTokens: null, totalTokens: 110, reportedCost: null, status: 'ok', tokenProvenance: 'reported' }];
+  const pricing = { source: { kind: 'litellm', endpoint: 'https://catalog.test/model_catalog', retrievedAt: timestamp, effectiveDate: null, currency: 'USD' }, rates: [], limitations: ['LiteLLM price lookup failed'] };
+  const result = analyseAudit(
+    { cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') },
+    { sessions: [{ harness: 'claude', sessionId: 'unpriced-session', title: null, projectCwd: 'D:\\project', startedAt: timestamp, endedAt: timestamp, parentSessionId: null, isSubagent: false, partial: false, sourceVersion: null }], modelCalls: calls, toolCalls: [], lifecycle: [], coverage: { filesRead: 1, recordsRead: 1, recordsSkipped: 0, partialSessions: 0, warnings: [] } },
+    'claude',
+    pricing,
+  );
+  assert.equal(result.report.apiEquivalentCost.total.value, null);
+  assert.equal(result.report.cacheEconomics.cacheSavings.value, null);
+  assert.equal(result.report.apiEquivalentCost.coveragePercent.value, 0);
+});
+
+test('Chinese presentation localizes first-request limitations', () => {
+  const timestamp = '2026-09-10T08:09:10.000Z';
+  const result = analyseAudit(
+    { cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') },
+    {
+      sessions: [{ harness: 'claude', sessionId: 'presentation-session', title: null, projectCwd: 'D:\\project', startedAt: timestamp, endedAt: timestamp, parentSessionId: null, isSubagent: false, partial: false, sourceVersion: null }],
+      modelCalls: [],
+      toolCalls: [],
+      lifecycle: [],
+      coverage: { filesRead: 1, recordsRead: 1, recordsSkipped: 0, partialSessions: 0, warnings: [] },
+    },
+    'claude',
+    { source: { kind: 'litellm', version: 'litellm-model-catalog', retrievedAt: timestamp, effectiveDate: null, currency: 'USD', unit: 'USD per 1M tokens' }, rates: [], limitations: [] },
+  );
+  const text = renderText(result, 'zh-CN');
+  assert.match(text, /首次请求负担是观测到的最早请求大小，不是可精确移除的启动税/);
+  assert.match(text, /没有带时间戳有效 ModelCall 的 Session 已排除在首次请求覆盖率之外/);
+  assert.doesNotMatch(text, /Sessions without a timestamped valid ModelCall|is an observed earliest request size/);
+});
+
+test('LiteLLM pricing lookup uses exact model/provider fields, cache prices, and long-context overrides', async () => {
+  const timestamp = isoHoursAgo(1);
+  const calls = [
+    { sessionId: 'litellm-session', callId: 'litellm-call', timestamp, provider: null, model: 'gpt-5.6-sol', inputTokens: 1100, cachedInputTokens: 100, cacheWriteTokens: 0, outputTokens: 10, reasoningTokens: 0, totalTokens: 1110, reportedCost: null, status: 'ok', tokenProvenance: 'reported' },
+  ];
+  const requests = [];
+  const response = (payload, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => payload });
+  const fetcher = async (url) => {
+    requests.push(url);
+    if (url.endsWith('/gpt-5.6-sol')) return response({ id: 'gpt-5.6-sol', provider: 'openai', input_cost_per_token: 0.000002, output_cost_per_token: 0.00001, cache_read_input_token_cost: 0.0000002, cache_creation_input_token_cost: 0.0000025, input_cost_per_token_above_1k_tokens: 0.000004, cache_read_input_token_cost_above_1k_tokens: 0.0000004 });
+    return response({ data: [] }, 404);
+  };
+  const pricing = await resolveApiPricing(calls, 'codex', 'litellm', fetcher, 'https://catalog.test/model_catalog');
+  const result = analyseAudit(
+    { cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') },
+    { sessions: [{ harness: 'codex', sessionId: 'litellm-session', title: null, projectCwd: 'D:\\project', startedAt: timestamp, endedAt: timestamp, parentSessionId: null, isSubagent: false, partial: false, sourceVersion: null }], modelCalls: calls, toolCalls: [], lifecycle: [], coverage: { filesRead: 1, recordsRead: 1, recordsSkipped: 0, partialSessions: 0, warnings: [] } },
+    'codex',
+    pricing,
+  );
+  assert.equal(requests.length, 1);
+  assert.match(requests[0], /gpt-5\.6-sol$/);
+  assert.equal(pricing.source.kind, 'litellm');
+  assert.equal(pricing.source.effectiveDate, null);
+  assert.equal(result.report.apiEquivalentCost.total.value, 0.00414);
+  assert.equal(result.report.apiEquivalentCost.total.provenance, 'estimated');
+  assert.equal(result.report.apiEquivalentCost.coveragePercent.value, 100);
+  assert.match(result.report.apiEquivalentCost.total.method, /LiteLLM model catalog/);
+  assert.match(result.report.apiEquivalentCost.total.method, /Harness-to-Provider mapping/);
+});
+
+test('LiteLLM lookup falls back to exact Provider/model search and degrades without network', async () => {
+  const calls = [{ sessionId: 'lookup-session', callId: 'lookup-call', timestamp: isoHoursAgo(1), provider: 'openai', model: 'catalog-model', inputTokens: 10, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 5, reasoningTokens: 0, totalTokens: 15, reportedCost: null, status: 'ok', tokenProvenance: 'reported' }];
+  const requests = [];
+  const response = (payload, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => payload });
+  const fetcher = async (url) => {
+    requests.push(url);
+    if (url.endsWith('/catalog-model')) return response({ error: 'not found' }, 404);
+    return response({ data: [
+      { id: 'catalog-model-extra', provider: 'openai', input_cost_per_token: 0.000001, output_cost_per_token: 0.000001 },
+      { id: 'catalog-model', provider: 'openai', input_cost_per_token: 0.000001, output_cost_per_token: 0.000002 },
+    ] });
+  };
+  const pricing = await resolveApiPricing(calls, 'codex', 'litellm', fetcher, 'https://catalog.test/model_catalog');
+  assert.equal(requests.length, 2);
+  assert.match(requests[1], /provider=openai/);
+  assert.equal(pricing.source.kind, 'litellm');
+  assert.equal(pricing.rates[0].model, 'catalog-model');
+
+  const failed = await resolveApiPricing(calls, 'codex', 'litellm', async () => { throw new Error('offline'); }, 'https://catalog.test/model_catalog');
+  assert.equal(failed.rates.some((rate) => rate.model === 'catalog-model'), false);
+  assert.match(failed.limitations.join(' '), /LiteLLM price lookup failed/);
+});
+
+test('first-request burden selects one earliest deduplicated call and separates source-proven Session identities', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-first-request-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessionsRoot = path.join(codexHome, 'sessions', '2026', '09', '10');
+  const htmlPath = path.join(root, 'first.html');
+  const sharePath = path.join(root, 'first.md');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessionsRoot, { recursive: true });
+  const topTime = isoHoursAgo(3);
+  const subTime = isoHoursAgo(2.5);
+  const topRecords = [
+    { timestamp: topTime, type: 'session_meta', payload: { id: 'first-top', cwd: project, source: 'user' } },
+    { timestamp: topTime, type: 'turn_context', payload: { turn_id: 'first-top-turn-z', cwd: project, model: 'gpt-4.1', model_provider: 'openai' } },
+    { timestamp: topTime, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'z-first', usage: { input_tokens: 999, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0, total_tokens: 1000 } } },
+    { timestamp: topTime, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'a-first', usage: { input_tokens: 100, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 } } },
+    { timestamp: isoHoursAgo(2), type: 'turn_context', payload: { turn_id: 'first-top-turn-2', cwd: project, model: 'gpt-4.1', model_provider: 'openai' } },
+    { timestamp: isoHoursAgo(2), type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'top-second', usage: { input_tokens: 10, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 } } },
+  ];
+  const subRecords = [
+    { timestamp: subTime, type: 'session_meta', payload: { id: 'first-sub', cwd: project, source: { type: 'subagent' } } },
+    { timestamp: subTime, type: 'turn_context', payload: { turn_id: 'first-sub-turn', cwd: project, model: 'gpt-4.1', model_provider: 'openai' } },
+    { timestamp: subTime, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'sub-first', usage: { input_tokens: 200, cached_input_tokens: 100, cache_write_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 210 } } },
+    { timestamp: isoHoursAgo(1.5), type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'sub-second', usage: { input_tokens: 20, cached_input_tokens: 10, cache_write_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 25 } } },
+  ];
+  await writeFile(path.join(sessionsRoot, 'rollout-first-top.jsonl'), topRecords.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  await writeFile(path.join(sessionsRoot, 'rollout-first-sub.jsonl'), subRecords.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  try {
+    const env = { CODEX_HOME: codexHome };
+    const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'], env);
+    const result = JSON.parse(stdout);
+    const first = result.report.firstRequestBurden;
+    assert.equal(first.sessionCount.value, 2);
+    assert.equal(first.validFirstRequestCount.value, 2);
+    assert.equal(first.coveragePercent.value, 100);
+    assert.equal(first.medianTokens.value, 160);
+    assert.equal(first.totalTokens.value, 320);
+    assert.equal(first.inputTokens.value, 200);
+    assert.equal(first.cachedInputTokens.value, 100);
+    assert.equal(first.cacheReadRatePercent.value, 33.33);
+    assert.equal(first.coldSessionCount.value, 1);
+    assert.equal(first.coldSessionRatePercent.value, 50);
+    assert.equal(first.topLevel.medianTokens.value, 110);
+    assert.equal(first.subagent.medianTokens.value, 210);
+    assert.equal(first.identityCoveragePercent.value, 100);
+
+    const { stdout: textOutput } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text', '--locale', 'zh-CN', '--view', 'usage'], env);
+    assert.match(textOutput, /首次请求负担/);
+    assert.match(textOutput, /160/);
+    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--html', htmlPath], env);
+    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--share', sharePath], env);
+    assert.match(await readFile(htmlPath, 'utf8'), /首次请求负担|first-request burden/);
+    assert.match(await readFile(sharePath, 'utf8'), /首次请求负担|First-request burden/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Claude Code Skill evidence keeps listing, invocation, attribution, and final cost snapshot distinct', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-claude-skills-'));
+  const project = path.join(root, 'project');
+  const claudeHome = path.join(root, 'claude-home');
+  const transcriptRoot = path.join(claudeHome, 'projects', 'project');
+  await mkdir(project, { recursive: true });
+  await mkdir(transcriptRoot, { recursive: true });
+  const timestamp = isoHoursAgo(1);
+  const records = [
+    { type: 'system', session_id: 'claude-skills', cwd: project, timestamp, available_skills: ['listed-skill', 'attributed-skill'] },
+    { type: 'assistant', session_id: 'claude-skills', cwd: project, timestamp, provider: 'anthropic', attributionSkill: 'attributed-skill', message: { id: 'attributed-call', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 70, cache_read_input_tokens: 20, cache_creation_input_tokens: 10, cache_creation: { ephemeral_5m_input_tokens: 10 }, output_tokens: 30, total_tokens: 130 }, content: [{ type: 'tool_use', id: 'ordinary-tool', name: 'Read', input: { file: 'do-not-return.ts' } }] } },
+    { type: 'assistant', session_id: 'claude-skills', cwd: project, timestamp, provider: 'anthropic', attributionSkill: 'attributed-skill', message: { id: 'attributed-call', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 70, cache_read_input_tokens: 20, cache_creation_input_tokens: 10, cache_creation: { ephemeral_5m_input_tokens: 10 }, output_tokens: 30, total_tokens: 130 } } },
+    { type: 'assistant', session_id: 'claude-skills', cwd: project, timestamp, provider: 'anthropic', message: { id: 'fallback-call', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 5, total_tokens: 25 }, content: [{ type: 'tool_use', id: 'skill-tool-1', name: 'Skill', input: { skill: 'fallback-skill' } }] } },
+    { type: 'user', session_id: 'claude-skills', cwd: project, timestamp, message: { role: 'user', content: 'attributed-skill is only a prose marker and must not be inferred as a call' } },
+    { type: 'cost-state', session_id: 'claude-skills', cwd: project, timestamp, totalCostUSD: 1.25 },
+    { type: 'cost-state', session_id: 'claude-skills', cwd: project, timestamp, totalCostUSD: 2.5 },
+  ];
+  await writeFile(path.join(transcriptRoot, 'claude-skills.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  try {
+    const { stdout } = await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json'], { CLAUDE_CONFIG_DIR: claudeHome });
+    const result = JSON.parse(stdout);
+    const byName = new Map(result.report.skills.map((skill) => [skill.name, skill]));
+    assert.equal(result.summary.reportedCost.value, 2.5);
+    assert.equal(byName.get('listed-skill').state, 'available');
+    assert.equal(byName.get('listed-skill').invocationCount.value, 0);
+    assert.equal(byName.get('attributed-skill').state, 'attributed');
+    assert.equal(byName.get('attributed-skill').invocationCount.value, 1);
+    assert.equal(byName.get('attributed-skill').sessionCount.value, 1);
+    assert.equal(byName.get('attributed-skill').attributedTokens.value, 130);
+    const attributedCost = byName.get('attributed-skill').attributedApiEquivalentCost;
+    assert.equal(attributedCost.value === null || typeof attributedCost.value === 'number', true);
+    assert.equal(attributedCost.value === null ? attributedCost.provenance : 'estimated', attributedCost.value === null ? 'unavailable' : 'estimated');
+    assert.equal(byName.get('attributed-skill').evidenceCoveragePercent.value, 100);
+    assert.equal(byName.get('fallback-skill').state, 'invoked');
+    assert.equal(byName.get('fallback-skill').invocationCount.value, 1);
+    assert.equal(byName.get('fallback-skill').attributedTokens.value, null);
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes('do-not-return.ts'), false);
+    assert.equal(serialized.includes('attributed-skill is only a prose marker'), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Codex Skill evidence recognizes structured input and verifiable resource or script relations without exposing paths', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-codex-skills-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessionsRoot = path.join(codexHome, 'sessions', '2026', '09', '10');
+  const htmlPath = path.join(root, 'skills.html');
+  const sharePath = path.join(root, 'skills.md');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessionsRoot, { recursive: true });
+  const timestamp = isoHoursAgo(1);
+  const records = [
+    { timestamp, type: 'session_meta', payload: { id: 'codex-skills', cwd: project, source: 'user' } },
+    { timestamp, type: 'event_msg', payload: { type: 'skill_listing', skills: [{ name: 'listing-only-skill' }, { name: 'explicit-skill' }] } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'skill-turn', cwd: project, model: 'gpt-4.1', model_provider: 'openai' } },
+    { timestamp, type: 'event_msg', payload: { type: 'skill_input', id: 'explicit-input-1', skill_name: 'explicit-skill' } },
+    { timestamp, type: 'event_msg', payload: { type: 'skill_input', id: 'explicit-input-1', skill_name: 'explicit-skill' } },
+    { timestamp, type: 'response_item', payload: { type: 'function_call', name: 'read_file', arguments: { path: 'C:\\private\\.agents\\skills\\resource-skill\\SKILL.md' } } },
+    { timestamp, type: 'response_item', payload: { type: 'shell_command', command: 'node C:\\private\\.agents\\skills\\script-skill\\scripts\\run.js' } },
+    { timestamp, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'skill-response', usage: { input_tokens: 100, cached_input_tokens: 20, cache_write_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 110 } } },
+  ];
+  await writeFile(path.join(sessionsRoot, 'rollout-codex-skills.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  try {
+    const env = { CODEX_HOME: codexHome };
+    const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'], env);
+    const result = JSON.parse(stdout);
+    const byName = new Map(result.report.skills.map((skill) => [skill.name, skill]));
+    assert.equal(byName.get('listing-only-skill').state, 'available');
+    assert.equal(byName.get('listing-only-skill').invocationCount.value, 0);
+    assert.equal(byName.get('explicit-skill').state, 'attributed');
+    assert.equal(byName.get('explicit-skill').invocationCount.value, 1);
+    assert.equal(byName.get('explicit-skill').attributedTokens.value, 110);
+    assert.equal(byName.get('resource-skill').state, 'attributed');
+    assert.equal(byName.get('resource-skill').evidenceTypes.includes('resource-read'), true);
+    assert.equal(byName.get('script-skill').state, 'attributed');
+    assert.equal(byName.get('script-skill').evidenceTypes.includes('script-execution'), true);
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes('C:\\private'), false);
+    assert.equal(serialized.includes('SKILL.md'), false);
+    assert.equal(serialized.includes('run.js'), false);
+
+    const { stdout: textOutput } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text', '--view', 'usage'], env);
+    assert.match(textOutput, /Skill evidence/i);
+    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--html', htmlPath], env);
+    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--share', sharePath], env);
+    assert.match(await readFile(htmlPath, 'utf8'), /Skill evidence/);
+    assert.match(await readFile(sharePath, 'utf8'), /Skill evidence/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('joint evidence facts stay aligned across JSON, text, share, and standalone HTML', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-joint-'));
+  const project = path.join(root, 'project');
+  const claudeHome = path.join(root, 'claude-home');
+  const transcriptRoot = path.join(claudeHome, 'projects', 'project');
+  const htmlPath = path.join(root, 'joint.html');
+  const sharePath = path.join(root, 'joint.md');
+  await mkdir(project, { recursive: true });
+  await mkdir(transcriptRoot, { recursive: true });
+  const timestamp = isoHoursAgo(1);
+  await writeFile(path.join(transcriptRoot, 'joint-session.jsonl'), [
+    { type: 'user', session_id: 'joint-session', cwd: project, timestamp, message: { role: 'user', content: 'PRIVATE_PROMPT_JOINT' } },
+    { type: 'system', session_id: 'joint-session', cwd: project, timestamp, available_skills: ['joint-skill'] },
+    { type: 'assistant', session_id: 'joint-session', cwd: project, provider: 'anthropic', attributionSkill: 'joint-skill', timestamp, message: { id: 'joint-call', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 20, cache_read_input_tokens: 10, cache_creation_input_tokens: 5, cache_creation: { ephemeral_5m_input_tokens: 5 }, output_tokens: 5, total_tokens: 40 } } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  try {
+    const env = { CLAUDE_CONFIG_DIR: claudeHome };
+    const baseArgs = ['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d'];
+    const { stdout: jsonOutput } = await runAudit([...baseArgs, '--locale', 'zh-CN', '--format', 'json', '--html', htmlPath, '--share', sharePath], env);
+    const { stdout: textOutput } = await runAudit([...baseArgs, '--format', 'text', '--view', 'full'], env);
+    const html = await readFile(htmlPath, 'utf8');
+    const share = await readFile(sharePath, 'utf8');
+    const result = JSON.parse(jsonOutput);
+    assert.equal(result.report.cacheEconomics.cacheReadRatePercent.value, 28.57);
+    assert.equal(result.report.cacheEconomics.cacheWriteRatePercent.value, 14.29);
+    assert.equal(result.report.cacheEconomics.cacheSavingsPercent.value, 12.92);
+    assert.equal(result.report.firstRequestBurden.medianTokens.value, 40);
+    assert.equal(result.report.skills.find((skill) => skill.name === 'joint-skill').attributedTokens.value, 40);
+    for (const output of [jsonOutput, textOutput, html, share]) {
+      assert.match(output, /28\.57/);
+      assert.match(output, /14\.29/);
+      assert.match(output, /12\.92/);
+      assert.match(output, /joint-skill/);
+      assert.equal(output.includes('PRIVATE_PROMPT_JOINT'), false);
+    }
+    assert.match(html, /\d{4}\.\d{2}\.\d{2}/);
+    assert.doesNotMatch(html, /\d{4}年\d{1,2}月\d{1,2}日/);
+    assert.doesNotMatch(html, /title="精确值：\d{4}-\d{2}-\d{2}T/);
+    assert.doesNotMatch(html, /证据标识|Evidence markers|[●◆≈]\s/);
+    assert.doesNotMatch(html, /source value|calculated from records|approximation|missing source data|listing 只表示可用/);
+    assert.match(html, /<meta name="viewport"/i);
+    assert.match(html, /<table/);
+    assert.match(html, /aria-/i);
+    assert.doesNotMatch(html, /<script\s+src=/i);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

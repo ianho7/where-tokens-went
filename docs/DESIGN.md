@@ -78,10 +78,15 @@ interface ModelCallRecord {
   inputTokens: number | null;
   cachedInputTokens: number | null;
   cacheWriteTokens: number | null;
+  cacheWrite5mTokens?: number | null;
+  cacheWrite1hTokens?: number | null;
+  cacheWriteTtl?: "5m" | "1h" | "mixed" | null;
   outputTokens: number | null;
   reasoningTokens: number | null;
+  totalTokens: number | null;
   reportedCost: number | null;
   status: "ok" | "error" | "interrupted" | "unknown";
+  turnId?: string | null;
 }
 
 interface ToolCallRecord {
@@ -99,6 +104,25 @@ interface LifecycleRecord {
   timestamp: string | null;
   kind: "retry" | "compaction" | "subagent" | "interrupted";
   relatedId: string | null;
+}
+
+interface SkillUseRecord {
+  sessionId: string;
+  skillName: string | null;
+  state: "available" | "invoked" | "attributed" | "unavailable";
+  evidenceType: "listing" | "versioned-attribution" | "explicit-input" | "resource-read" | "script-execution";
+  turnId: string | null;
+  callId: string | null;
+  timestamp: string | null;
+  sourceLocation: string | null; // redacted structural location only
+  provenance: Provenance;
+}
+
+interface SessionCostRecord {
+  sessionId: string;
+  totalCost: number | null;
+  timestamp: string | null;
+  provenance: "reported" | "unavailable";
 }
 ```
 
@@ -120,6 +144,8 @@ interface ReadResult {
   modelCalls: ModelCallRecord[];
   toolCalls: ToolCallRecord[];
   lifecycle: LifecycleRecord[];
+  skillEvidence?: SkillUseRecord[];
+  sessionCosts?: SessionCostRecord[];
   coverage: {
     filesRead: number;
     recordsRead: number;
@@ -193,6 +219,16 @@ Contribution rankings include the exact token `value` and a derived `sharePercen
 For Codex, when every selected Session has source metadata that proves whether it is a subagent, `summary.topLevelSessionCount` and `summary.subagentSessionCount` split the total execution Session count. When that source metadata is missing, both remain `unavailable`; the report never guesses from a title or sidebar state. `SessionRecord.partial` is `true` when the Reader attributes an unsupported accounting record, unusable timestamp, or broken tail to that Session; it is `false` after the Reader checks the Session and finds no such gap; it remains `null` when attribution is not possible.
 
 The partial/subagent cross-statistics `summary.partialTopLevelSessionCount`, `summary.partialSubagentSessionCount`, and `summary.partialSessionRatePercent` are derived only when every selected Codex Session has boolean `isSubagent` and `partial` values, the attributed partial count equals `coverage.partialSessions`, and the selected Session denominator is greater than zero. Otherwise all three remain `unavailable`. This prevents an aggregate partial count from being presented as proof that the same Sessions are subagents.
+
+Token composition is one Harness-aware seam in the shared analysis. Codex's reported `inputTokens` may include cache-read and cache-write subsets, so ordinary input is `input - cached - cacheWrite` only when the result is non-negative and internally consistent. Claude Code's ordinary input, cache-read input, cache-write input, and output are mutually exclusive buckets; a complete total may be derived from their sum even when reasoning tokens are absent. No bucket is silently converted to zero. Cache rates first sum compatible buckets across calls and then divide by the ordinary-input plus cache-read plus cache-write denominator.
+
+API-equivalent cost is always an estimated reference amount, separate from Harness subscription spend and Provider quota. The default and only pricing path queries the LiteLLM model catalog using only the expected Provider/model identifiers (the selected Harness supplies the Provider mapping when a source record omits it), retains retrieval metadata, and uses exact catalog rows. An explicit conflicting Provider is not coerced. It keeps observed prices separate from an all-uncached counterfactual and reports price coverage; when at least one selected Usage has compatible pricing, currency values are estimated over that priced subset and explicitly exclude unpriced or incompatible Usage. Only a selection with no priced Usage leaves currency unavailable, while Token counts and non-price findings remain usable.
+
+`firstRequestBurden` selects one earliest valid, timestamped and deduplicated ModelCall per selected Session. It reports median, aggregate total/share, cache composition and coverage, plus top-level/Subagent groups only when the source proves identity for every selected Session. The result is an observed first-request burden, not a decomposable startup tax.
+
+`skillEvidence` is a small Reader output containing only Session/turn/call boundaries, normalized Skill names, evidence type, timestamp, redacted source location, coverage, and Provenance. `available` comes from an explicit listing, `invoked` from explicit invocation or verifiable resource/script relation, and `attributed` from a stronger versioned attribution or a source-proven call/turn match. Listing does not imply invocation; direct resource footprint, observed association, and causal impact are separate values. Without a valid counterfactual, causal impact is `unavailable`.
+
+Follow-up extraction, AI rework classification, and a rework-rate metric remain outside this design; no reader field, analysis path, or report panel is reserved for them in this increment.
 
 `summary.totalTokens` and related usage totals describe observed tokens from supported, selected ModelCall records. They are not a completeness claim: when Coverage is partial or records were skipped, the observed total may undercount actual usage. The analysis method that refers to “complete ModelCall token totals” means complete within those supported observed records, not complete history coverage.
 

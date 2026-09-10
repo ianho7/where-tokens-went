@@ -42,11 +42,12 @@ const path = __importStar(require("node:path"));
 const analysis_1 = require("./analysis");
 const claude_reader_1 = require("./claude-reader");
 const codex_reader_1 = require("./codex-reader");
+const rates_1 = require("./rates");
 const report_1 = require("./report");
 function usage() {
     return [
-        "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
-        "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
+        "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
+        "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
     ].join("\n");
 }
 function parseDuration(value) {
@@ -83,6 +84,7 @@ function parseArgs(args) {
     let view = "full";
     let htmlPath = null;
     let sharePath = null;
+    let pricing = "litellm";
     for (let index = 1; index < args.length; index += 1) {
         const flag = args[index];
         if (flag === "--harness") {
@@ -117,6 +119,13 @@ function parseArgs(args) {
             locale = (0, report_1.normalizeLocale)(requireValue(args, index, flag));
             index += 1;
         }
+        else if (flag === "--pricing") {
+            const value = requireValue(args, index, flag);
+            index += 1;
+            if (value !== "litellm")
+                throw new Error("--pricing must be litellm.");
+            pricing = value;
+        }
         else if (flag === "--view") {
             const value = requireValue(args, index, flag);
             index += 1;
@@ -143,7 +152,7 @@ function parseArgs(args) {
         throw new Error("--cwd and --all-projects are mutually exclusive.");
     if (!cwd && !allProjects)
         throw new Error("Provide --cwd or --all-projects.");
-    return { harness, cwd, allProjects, since, sinceExplicit, format, locale, view, htmlPath, sharePath };
+    return { harness, cwd, allProjects, since, sinceExplicit, format, locale, view, htmlPath, sharePath, pricing };
 }
 async function readHarness(harness, scope) {
     return harness === "codex"
@@ -170,10 +179,14 @@ function sliceRead(read, from, to) {
     const modelCalls = read.modelCalls.filter((call) => inRange(call.timestamp, from, to));
     const toolCalls = read.toolCalls.filter((call) => inRange(call.timestamp, from, to));
     const lifecycle = read.lifecycle.filter((event) => inRange(event.timestamp, from, to));
+    const skillEvidence = read.skillEvidence?.filter((record) => inRange(record.timestamp, from, to));
+    const sessionCosts = read.sessionCosts?.filter((record) => inRange(record.timestamp, from, to));
     const sessionIds = new Set([
         ...modelCalls.map((call) => call.sessionId),
         ...toolCalls.map((call) => call.sessionId),
         ...lifecycle.map((event) => event.sessionId),
+        ...(skillEvidence ?? []).map((record) => record.sessionId),
+        ...(sessionCosts ?? []).map((record) => record.sessionId),
     ]);
     return {
         ...read,
@@ -181,6 +194,8 @@ function sliceRead(read, from, to) {
         modelCalls,
         toolCalls,
         lifecycle,
+        ...(read.skillEvidence ? { skillEvidence } : {}),
+        ...(read.sessionCosts ? { sessionCosts } : {}),
     };
 }
 function missingWeekEvidence(label) {
@@ -233,17 +248,19 @@ async function main(args = process.argv.slice(2)) {
             const previousFrom = new Date(currentFrom.getTime() - 7 * 24 * 60 * 60 * 1000);
             const sourceScope = { cwd: options.cwd, allProjects: options.allProjects, since: previousFrom };
             const sourceRead = await readHarness(options.harness, sourceScope);
+            const pricing = await (0, rates_1.resolveApiPricing)(sourceRead.modelCalls, options.harness, options.pricing);
             const currentScope = { cwd: options.cwd, allProjects: options.allProjects, since: currentFrom };
             const previousScope = { cwd: options.cwd, allProjects: options.allProjects, since: previousFrom };
-            const current = (0, analysis_1.analyseAudit)(currentScope, sliceRead(sourceRead, currentFrom, currentTo), options.harness);
-            const previous = (0, analysis_1.analyseAudit)(previousScope, sliceRead(sourceRead, previousFrom, currentFrom), options.harness);
+            const current = (0, analysis_1.analyseAudit)(currentScope, sliceRead(sourceRead, currentFrom, currentTo), options.harness, pricing);
+            const previous = (0, analysis_1.analyseAudit)(previousScope, sliceRead(sourceRead, previousFrom, currentFrom), options.harness, pricing);
             result = { ...current, view: "week", weekComparison: makeWeekComparison(current, previous, currentFrom, currentTo, previousFrom) };
         }
         else {
             const since = options.view === "share" && !options.sinceExplicit ? parseDuration("30d") : options.since;
             const scope = { cwd: options.cwd, allProjects: options.allProjects, since };
             const read = await readHarness(options.harness, scope);
-            result = { ...(0, analysis_1.analyseAudit)(scope, read, options.harness), view: options.view };
+            const pricing = await (0, rates_1.resolveApiPricing)(read.modelCalls, options.harness, options.pricing);
+            result = { ...(0, analysis_1.analyseAudit)(scope, read, options.harness, pricing), view: options.view };
         }
         const outputKinds = [];
         const shouldWriteHtml = options.htmlPath !== null || options.view === "full" || options.view === "report" || options.view === "question";

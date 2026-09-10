@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { analyseAudit } from "./analysis";
 import { readClaude } from "./claude-reader";
 import { readCodex } from "./codex-reader";
+import { resolveApiPricing, type PricingMode } from "./rates";
 import { normalizeLocale, renderHtml, renderShare, renderText, renderWeekText } from "./report";
 import type { AuditResult, AuditSnapshot, AuditView, EvidenceValue, Harness, ReadResult, ReadScope, ReportLocale, WeekComparison, WeekStructureChange } from "./types";
 
@@ -20,12 +21,13 @@ interface CliOptions {
   view: AuditView;
   htmlPath: string | null;
   sharePath: string | null;
+  pricing: PricingMode;
 }
 
 function usage(): string {
   return [
-    "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
-    "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
+    "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
+    "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
   ].join("\n");
 }
 
@@ -62,6 +64,7 @@ export function parseArgs(args: string[]): CliOptions {
   let view: AuditView = "full";
   let htmlPath: string | null = null;
   let sharePath: string | null = null;
+  let pricing: PricingMode = "litellm";
 
   for (let index = 1; index < args.length; index += 1) {
     const flag = args[index];
@@ -88,6 +91,11 @@ export function parseArgs(args: string[]): CliOptions {
     } else if (flag === "--locale" || flag === "--lang") {
       locale = normalizeLocale(requireValue(args, index, flag));
       index += 1;
+    } else if (flag === "--pricing") {
+      const value = requireValue(args, index, flag);
+      index += 1;
+      if (value !== "litellm") throw new Error("--pricing must be litellm.");
+      pricing = value;
     } else if (flag === "--view") {
       const value = requireValue(args, index, flag);
       index += 1;
@@ -109,7 +117,7 @@ export function parseArgs(args: string[]): CliOptions {
   if (!harness) throw new Error(`--harness is required.\n${usage()}`);
   if (cwd && allProjects) throw new Error("--cwd and --all-projects are mutually exclusive.");
   if (!cwd && !allProjects) throw new Error("Provide --cwd or --all-projects.");
-  return { harness, cwd, allProjects, since, sinceExplicit, format, locale, view, htmlPath, sharePath };
+  return { harness, cwd, allProjects, since, sinceExplicit, format, locale, view, htmlPath, sharePath, pricing };
 }
 
 async function readHarness(harness: Harness, scope: ReadScope): Promise<ReadResult> {
@@ -140,10 +148,14 @@ function sliceRead(read: ReadResult, from: Date, to: Date): ReadResult {
   const modelCalls = read.modelCalls.filter((call) => inRange(call.timestamp, from, to));
   const toolCalls = read.toolCalls.filter((call) => inRange(call.timestamp, from, to));
   const lifecycle = read.lifecycle.filter((event) => inRange(event.timestamp, from, to));
+  const skillEvidence = read.skillEvidence?.filter((record) => inRange(record.timestamp, from, to));
+  const sessionCosts = read.sessionCosts?.filter((record) => inRange(record.timestamp, from, to));
   const sessionIds = new Set([
     ...modelCalls.map((call) => call.sessionId),
     ...toolCalls.map((call) => call.sessionId),
     ...lifecycle.map((event) => event.sessionId),
+    ...(skillEvidence ?? []).map((record) => record.sessionId),
+    ...(sessionCosts ?? []).map((record) => record.sessionId),
   ]);
   return {
     ...read,
@@ -151,6 +163,8 @@ function sliceRead(read: ReadResult, from: Date, to: Date): ReadResult {
     modelCalls,
     toolCalls,
     lifecycle,
+    ...(read.skillEvidence ? { skillEvidence } : {}),
+    ...(read.sessionCosts ? { sessionCosts } : {}),
   };
 }
 
@@ -217,16 +231,18 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
       const previousFrom = new Date(currentFrom.getTime() - 7 * 24 * 60 * 60 * 1000);
       const sourceScope: ReadScope = { cwd: options.cwd, allProjects: options.allProjects, since: previousFrom };
       const sourceRead = await readHarness(options.harness, sourceScope);
+      const pricing = await resolveApiPricing(sourceRead.modelCalls, options.harness, options.pricing);
       const currentScope: ReadScope = { cwd: options.cwd, allProjects: options.allProjects, since: currentFrom };
       const previousScope: ReadScope = { cwd: options.cwd, allProjects: options.allProjects, since: previousFrom };
-      const current = analyseAudit(currentScope, sliceRead(sourceRead, currentFrom, currentTo), options.harness);
-      const previous = analyseAudit(previousScope, sliceRead(sourceRead, previousFrom, currentFrom), options.harness);
+      const current = analyseAudit(currentScope, sliceRead(sourceRead, currentFrom, currentTo), options.harness, pricing);
+      const previous = analyseAudit(previousScope, sliceRead(sourceRead, previousFrom, currentFrom), options.harness, pricing);
       result = { ...current, view: "week", weekComparison: makeWeekComparison(current, previous, currentFrom, currentTo, previousFrom) };
     } else {
       const since = options.view === "share" && !options.sinceExplicit ? parseDuration("30d") : options.since;
       const scope: ReadScope = { cwd: options.cwd, allProjects: options.allProjects, since };
       const read = await readHarness(options.harness, scope);
-      result = { ...analyseAudit(scope, read, options.harness), view: options.view };
+      const pricing = await resolveApiPricing(read.modelCalls, options.harness, options.pricing);
+      result = { ...analyseAudit(scope, read, options.harness, pricing), view: options.view };
     }
 
     const outputKinds: string[] = [];
