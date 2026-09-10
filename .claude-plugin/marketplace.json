@@ -1,16 +1,16 @@
 {
-  "name": "agent-audit",
+  "name": "where-tokens-went",
   "owner": {
-    "name": "Agent Audit"
+    "name": "where-tokens-went"
   },
   "plugins": [
     {
-      "name": "agent-audit-claude",
-      "source": "./skills/agent-audit-claude",
+      "name": "where-tokens-went-claude",
+      "source": "./skills/where-tokens-went-claude",
       "description": "Explain Claude Code usage from local history with a bundled deterministic tool.",
       "version": "0.1.0",
       "author": {
-        "name": "Agent Audit"
+        "name": "where-tokens-went"
       }
     }
   ]

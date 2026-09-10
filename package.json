@@ -1,11 +1,11 @@
 {
-  "name": "agent-audit",
+  "name": "where-tokens-went",
   "version": "0.1.0",
   "private": true,
   "description": "Local deterministic usage audit for coding-agent Harness histories",
   "type": "commonjs",
   "bin": {
-    "agent-audit": "bin/agent-audit"
+    "where-tokens-went": "bin/where-tokens-went"
   },
   "scripts": {
     "build": "node scripts/build-echarts.js && tsc -p tsconfig.json",

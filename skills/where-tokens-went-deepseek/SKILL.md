@@ -1,9 +1,9 @@
 ---
-name: agent-audit-deepseek
-description: Explain recent DeepSeek Harness usage from local Session persistence using the Agent Audit deterministic tool.
+name: where-tokens-went-deepseek
+description: Explain recent DeepSeek Harness usage from local Session persistence using the where-tokens-went deterministic tool.
 ---
 
-# Agent Audit for DeepSeek Harness
+# where-tokens-went for DeepSeek Harness
 
 Use this Skill when the user asks where DeepSeek Harness usage went, why usage rose, which Session or project was largest, or what action could reduce context growth.
 
@@ -11,10 +11,10 @@ The invoking Harness is fixed to DeepSeek Harness. Do not inspect Claude Code, C
 
 ## Invocation
 
-For the Current Project, resolve the directory containing this `SKILL.md` as `<skill-directory>` and run the bundled `scripts/agent-audit.js` with Node; do not call a global `agent-audit` command:
+For the Current Project, resolve the directory containing this `SKILL.md` as `<skill-directory>` and run the bundled `scripts/where-tokens-went.js` with Node; do not call a global `where-tokens-went` command:
 
 ```text
-node <skill-directory>/scripts/agent-audit.js inspect --harness deepseek --cwd <absolute-current-project-path> --since <duration> --format json
+node <skill-directory>/scripts/where-tokens-went.js inspect --harness deepseek --cwd <absolute-current-project-path> --since <duration> --format json
 ```
 
 Use `7d` when no period is requested. Use `--all-projects` only when the user explicitly asks for a Global Audit within DeepSeek Harness.
@@ -33,7 +33,7 @@ Line charts must combine color with solid/dashed/dotted line types and distinct 
 
 Natural language is the primary interface. Interpret the request into fixed Harness, Audit Scope, period, locale, view, and output arguments, then run the same bundled inspect command. Logical shortcuts are optional aliases, not a second implementation:
 
-- Full diagnosis or /agent-audit: current project and 7d by default, view full, and a local self-contained HTML report.
+- Full diagnosis or /where-tokens-went: current project and 7d by default, view full, and a local self-contained HTML report.
 - usage: view usage for an at-a-glance panel.
 - window: view window for locally observed recent five-hour activity. Provider quota, remaining allowance, reset time, and safe-to-start claims are unavailable without first-party data.
 - report [days]: view report with --since <days>d and a local HTML path.

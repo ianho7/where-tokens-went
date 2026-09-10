@@ -32,7 +32,7 @@ Do not choose a bundler, single-binary packager, MCP transport, or plugin SDK un
 MVP exposes one command:
 
 ```text
-agent-audit inspect \
+where-tokens-went inspect \
   --harness <claude|codex|pi|deepseek> \
   [--cwd <absolute-path> | --all-projects] \
   [--since <duration>] \

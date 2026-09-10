@@ -1,4 +1,4 @@
-# Agent Audit MVP：四种 Harness 的历史数据源与 Reader 约定
+# where-tokens-went MVP：四种 Harness 的历史数据源与 Reader 约定
 
 > 调研快照：2026-09-07。范围仅包括 Claude Code、OpenAI Codex、Pi（`earendil-works/pi`）和 DeepSeek Harness。目标是：工具由哪个 Harness 调用，就只读取该 Harness、当前项目的既有本地历史；不默认扫描其他 Harness，也不把实时采集放进 MVP。
 

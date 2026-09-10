@@ -1,4 +1,6 @@
-# Working on agent-audit
+# Working on where-tokens-went
+
+The formal external project name and current CLI/Skill/plugin namespace is `where-tokens-went`. Keep this namespace consistent across user-facing text, executable names, Skill IDs, plugin IDs, paths, and generated artifacts.
 
 Build the smallest end-to-end path that improves the Aha moment in [docs/MVP.md](docs/MVP.md).
 
@@ -13,4 +15,3 @@ Build the smallest end-to-end path that improves the Aha moment in [docs/MVP.md]
 - Prefer one Reader function and one shared analysis path over registries, factories, services, databases, or extension frameworks.
 
 Repository scripts and configuration are the source of truth for commands and dependencies; keep this file focused on behavior that is not obvious from the tree.
-

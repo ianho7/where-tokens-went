@@ -9,7 +9,7 @@ const { promisify } = require('node:util');
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
-const bundledCodexPath = path.resolve(__dirname, '..', 'skills', 'agent-audit-codex', 'scripts', 'agent-audit.js');
+const bundledCodexPath = path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js');
 
 function isoHoursAgo(hours) {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
@@ -34,7 +34,7 @@ async function runBundledCodex(args, env) {
 }
 
 test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', async () => {
-  const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'agent-audit-codex', 'SKILL.md'), 'utf8');
+  const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'SKILL.md'), 'utf8');
   assert.match(skill, /complete only after both steps occur in the same conversation turn/i);
   assert.match(skill, /generate and open the deterministic local HTML, then give one explicit Host Agent Finding/i);
   assert.match(skill, /The HTML is deterministic evidence and diagnostic signals, not the Finding itself/i);
@@ -44,7 +44,7 @@ test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', 
 
 test('other Harness Skills preserve the same atomic report and evidence contract', async () => {
   for (const [name, harness] of [['claude', 'claude'], ['pi', 'pi'], ['deepseek', 'deepseek']]) {
-    const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'agent-audit-' + name, 'SKILL.md'), 'utf8');
+    const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-' + name, 'SKILL.md'), 'utf8');
     assert.match(skill, new RegExp('--harness ' + harness));
     assert.match(skill, /Current Project versus Global Audit/);
     assert.match(skill, /Finding, Evidence, mechanism, action when justified, and material uncertainty/);
@@ -56,20 +56,20 @@ test('other Harness Skills preserve the same atomic report and evidence contract
 });
 
 test('native Skill installation exposes one fixed Harness entry per platform', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-skills-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-skills-'));
   const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
   const expected = [
-    ['codex', '.agents', 'skills', 'agent-audit-codex'],
-    ['claude', '.claude', 'skills', 'agent-audit-claude'],
-    ['pi', '.pi', 'skills', 'agent-audit-pi'],
-    ['deepseek', '.agents', 'skills', 'agent-audit-deepseek'],
+    ['codex', '.agents', 'skills', 'where-tokens-went-codex'],
+    ['claude', '.claude', 'skills', 'where-tokens-went-claude'],
+    ['pi', '.pi', 'skills', 'where-tokens-went-pi'],
+    ['deepseek', '.agents', 'skills', 'where-tokens-went-deepseek'],
   ];
   try {
     await execFileAsync(process.execPath, [installer, root]);
     for (const [harness, ...relative] of expected) {
       const skillPath = path.join(root, ...relative, 'SKILL.md');
       const skill = await require('node:fs/promises').readFile(skillPath, 'utf8');
-      const source = await require('node:fs/promises').readFile(path.resolve(__dirname, '..', 'skills', 'agent-audit-' + harness, 'SKILL.md'), 'utf8');
+      const source = await require('node:fs/promises').readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-' + harness, 'SKILL.md'), 'utf8');
       assert.equal(skill, source);
       assert.match(skill, new RegExp(`--harness ${harness}`));
       assert.match(skill, /--cwd <absolute-current-project-path>/);
@@ -78,7 +78,7 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
       assert.match(skill, /Natural language is the primary interface/);
       assert.match(skill, /same bundled inspect command/);
       assert.match(skill, /An arbitrary question is interpreted by the Host Agent/);
-      await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'agent-audit.js'));
+      await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'where-tokens-went.js'));
       await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'runtime', 'cli.js'));
     }
   } finally {
@@ -87,14 +87,14 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
 });
 
 test('each copied Skill runs its bundled deterministic tool without the source checkout', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-bundled-skill-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-bundled-skill-'));
   const project = path.join(root, 'project');
   const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
   const installed = {
-    codex: path.join(root, '.agents', 'skills', 'agent-audit-codex', 'scripts', 'agent-audit.js'),
-    claude: path.join(root, '.claude', 'skills', 'agent-audit-claude', 'scripts', 'agent-audit.js'),
-    pi: path.join(root, '.pi', 'skills', 'agent-audit-pi', 'scripts', 'agent-audit.js'),
-    deepseek: path.join(root, '.agents', 'skills', 'agent-audit-deepseek', 'scripts', 'agent-audit.js'),
+    codex: path.join(root, '.agents', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js'),
+    claude: path.join(root, '.claude', 'skills', 'where-tokens-went-claude', 'scripts', 'where-tokens-went.js'),
+    pi: path.join(root, '.pi', 'skills', 'where-tokens-went-pi', 'scripts', 'where-tokens-went.js'),
+    deepseek: path.join(root, '.agents', 'skills', 'where-tokens-went-deepseek', 'scripts', 'where-tokens-went.js'),
   };
   const envByHarness = {
     codex: { CODEX_HOME: path.join(root, 'missing-codex') },
@@ -124,7 +124,7 @@ test('each copied Skill runs its bundled deterministic tool without the source c
 });
 
 test('Codex Skill path reports a deterministic long-session check without raw content', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-codex-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-codex-'));
   const project = path.join(root, 'project');
   const codexHome = path.join(root, 'codex-home');
   const sessions = path.join(codexHome, 'sessions', '2026', '09', '07');
@@ -255,7 +255,7 @@ test('Codex Skill path reports a deterministic long-session check without raw co
 });
 
 test('Codex scope keeps projects separate and deduplicates repeated response usage', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-codex-scope-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-codex-scope-'));
   const project = path.join(root, 'current');
   const otherProject = path.join(root, 'other');
   const codexHome = path.join(root, 'codex-home');
@@ -327,7 +327,7 @@ test('Codex scope keeps projects separate and deduplicates repeated response usa
 });
 
 test('Codex reports source-proven top-level and subagent Session counts separately', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-codex-subagents-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-codex-subagents-'));
   const project = path.join(root, 'project');
   const codexHome = path.join(root, 'codex-home');
   const sessions = path.join(codexHome, 'sessions', '2026', '09', '07');
@@ -351,7 +351,7 @@ test('Codex reports source-proven top-level and subagent Session counts separate
 });
 
 test('Codex report attributes repeated tool output and extra lifecycle calls', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-codex-tools-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-codex-tools-'));
   const project = path.join(root, 'project');
   const codexHome = path.join(root, 'codex-home');
   const sessions = path.join(codexHome, 'sessions', '2026', '09', '07');
@@ -437,7 +437,7 @@ test('Codex report attributes repeated tool output and extra lifecycle calls', a
 });
 
 test('Tare report views stay localized, provenance-safe, and shareable', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-tare-report-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-tare-report-'));
   const project = path.join(root, 'project');
   const codexHome = path.join(root, 'codex-home');
   const sessions = path.join(codexHome, 'sessions', '2026', '09', '07');
@@ -587,7 +587,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.equal(result.report.rollingWindow.providerQuota.value, null);
     assert.equal(result.report.rollingWindow.providerQuota.provenance, 'unavailable');
     assert.equal(result.report.rollingWindow.observedTokens.value, 126000000);
-    assert.match(html, /Agent Audit 诊断报告/);
+    assert.match(html, /where-tokens-went 诊断报告/);
     assert.match(html, /class="metric-main"[^>]*>1\.26亿</);
     assert.match(html, /title="精确值：126,000,000"/);
     assert.match(html, /id="token-trend" class="echart"/);
@@ -620,7 +620,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
     await execFileAsync(process.execPath, [installer, installedRoot]);
     const installedHtmlPath = path.join(root, 'installed-tare-report.html');
-    const installedCodexPath = path.join(installedRoot, '.agents', 'skills', 'agent-audit-codex', 'scripts', 'agent-audit.js');
+    const installedCodexPath = path.join(installedRoot, '.agents', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js');
     const { stdout: installedJsonText } = await execFileAsync(process.execPath, [
       installedCodexPath,
       'inspect', '--harness', 'codex', '--cwd', project, '--since', '7d',
@@ -689,7 +689,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
 });
 
 test('Codex Global Audit widens projects without crossing the Harness boundary', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-codex-global-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-codex-global-'));
   const projectA = path.join(root, 'project-a');
   const projectB = path.join(root, 'project-b');
   const codexHome = path.join(root, 'codex-home');
@@ -742,7 +742,7 @@ test('Codex Global Audit widens projects without crossing the Harness boundary',
 });
 
 test('Claude Code Skill path deduplicates assistant usage and pairs tool results', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-claude-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-claude-'));
   const project = path.join(root, 'project');
   const claudeHome = path.join(root, 'claude-home');
   const transcripts = path.join(claudeHome, 'projects', 'encoded-project');
@@ -785,7 +785,7 @@ test('Claude Code Skill path deduplicates assistant usage and pairs tool results
 });
 
 test('Pi Skill path reports usage, reported cost, and branch-safe tool evidence', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-pi-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-pi-'));
   const project = path.join(root, 'project');
   const sessions = path.join(root, 'pi-sessions');
   await mkdir(project, { recursive: true });
@@ -888,7 +888,7 @@ test('Pi Skill path reports usage, reported cost, and branch-safe tool evidence'
 });
 
 test('DeepSeek Harness Skill path reads zstd Session events without returning content', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-dsh-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-dsh-'));
   const project = path.join(root, 'project');
   const sessionFile = path.join(root, 'session.jsonl.zstd');
   await mkdir(project, { recursive: true });
@@ -981,7 +981,7 @@ test('DeepSeek Harness Skill path reads zstd Session events without returning co
 });
 
 test('every supported Harness emits the same safe empty-result contract', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'agent-audit-empty-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-empty-'));
   const project = path.join(root, 'project');
   await mkdir(project, { recursive: true });
   const envByHarness = {

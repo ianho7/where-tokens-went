@@ -10,10 +10,10 @@ const dependencyRoot = path.join(repoRoot, 'node_modules', 'fzstd');
 const dependencyEntry = path.join(dependencyRoot, 'lib', 'index.js');
 const dependencyLicense = path.join(dependencyRoot, 'LICENSE');
 const skillNames = [
-  'agent-audit-codex',
-  'agent-audit-claude',
-  'agent-audit-pi',
-  'agent-audit-deepseek',
+  'where-tokens-went-codex',
+  'where-tokens-went-claude',
+  'where-tokens-went-pi',
+  'where-tokens-went-deepseek',
 ];
 
 if (!fs.existsSync(path.join(compiledRoot, 'cli.js'))) {
@@ -44,6 +44,6 @@ for (const name of skillNames) {
   const deepSeekRuntime = path.join(runtimeRoot, 'deepseek-reader.js');
   const deepSeekSource = fs.readFileSync(deepSeekRuntime, 'utf8');
   fs.writeFileSync(deepSeekRuntime, deepSeekSource.replace('require("fzstd")', 'require("./fzstd.js")'), 'utf8');
-  fs.writeFileSync(path.join(scriptsRoot, 'agent-audit.js'), launcher, 'utf8');
+  fs.writeFileSync(path.join(scriptsRoot, 'where-tokens-went.js'), launcher, 'utf8');
   console.log(`packaged ${name}`);
 }

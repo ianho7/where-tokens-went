@@ -2,6 +2,12 @@ node_modules/
 dist/
 
 # Generated project-native Skill copies; canonical sources live under skills/.
+.agents/skills/where-tokens-went-deepseek/
+.agents/skills/where-tokens-went-codex/
+.claude/skills/where-tokens-went-claude/
+.pi/skills/where-tokens-went-pi/
+
+# Legacy copies produced before the namespace migration remain user-owned and ignored.
 .agents/skills/agent-audit-deepseek/
 .agents/skills/agent-audit-codex/
 .claude/skills/agent-audit-claude/

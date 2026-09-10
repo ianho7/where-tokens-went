@@ -92,7 +92,7 @@ interface Labels {
 }
 
 const ZH: Labels = {
-  title: "Agent Audit 诊断报告",
+  title: "where-tokens-went 诊断报告",
   scope: "审计范围",
   coverage: "覆盖情况",
   currentProject: "当前项目",
@@ -169,7 +169,7 @@ const ZH: Labels = {
 };
 
 const EN: Labels = {
-  title: "Agent Audit diagnostic report",
+  title: "where-tokens-went diagnostic report",
   scope: "Audit scope",
   coverage: "Coverage",
   currentProject: "current project",
@@ -825,7 +825,7 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US"):
   const parts = [
     "<!doctype html><html lang=\"" + (locale === "zh-CN" ? "zh-CN" : "en") + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
       escapeHtml(labels.title) + "</title>" + renderStyles() + "</head><body><main>",
-    "<header><div class=\"eyebrow\">Agent Audit</div><h1>" + escapeHtml(labels.title) + "</h1><p>" + escapeHtml(labels.methodNote) + "</p></header>",
+    "<header><div class=\"eyebrow\">where-tokens-went</div><h1>" + escapeHtml(labels.title) + "</h1><p>" + escapeHtml(labels.methodNote) + "</p></header>",
     "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "</section>",
     renderKpis(result, locale),
     renderChecks(result, locale),

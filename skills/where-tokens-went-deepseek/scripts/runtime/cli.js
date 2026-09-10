@@ -47,8 +47,8 @@ const pi_reader_1 = require("./pi-reader");
 const report_1 = require("./report");
 function usage() {
     return [
-        "Usage: agent-audit inspect --harness <claude|codex|pi|deepseek> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
-        "       agent-audit inspect --harness <claude|codex|pi|deepseek> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
+        "Usage: where-tokens-went inspect --harness <claude|codex|pi|deepseek> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
+        "       where-tokens-went inspect --harness <claude|codex|pi|deepseek> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--view full|usage|window|report|tools|week|share]",
     ].join("\n");
 }
 function parseDuration(value) {
@@ -221,7 +221,7 @@ function makeWeekComparison(current, previous, currentFrom, currentTo, previousF
     };
 }
 function defaultOutputPath(harness, kind, extension) {
-    return path.join(os.tmpdir(), "agent-audit-" + harness + "-" + kind + "-" + Date.now() + extension);
+    return path.join(os.tmpdir(), "where-tokens-went-" + harness + "-" + kind + "-" + Date.now() + extension);
 }
 async function writeLocalFile(filePath, contents) {
     const absolute = path.resolve(filePath);
@@ -278,7 +278,7 @@ async function main(args = process.argv.slice(2)) {
         return 0;
     }
     catch (error) {
-        process.stderr.write(`${error instanceof Error ? error.message : "Agent Audit failed."}\n`);
+        process.stderr.write(`${error instanceof Error ? error.message : "where-tokens-went failed."}\n`);
         return 2;
     }
 }

@@ -6,16 +6,16 @@ const path = require('node:path');
 const repoRoot = path.resolve(__dirname, '..');
 const targetRoot = path.resolve(process.argv[2] || repoRoot);
 const installs = [
-  ['agent-audit-codex', ['.agents', 'skills']],
-  ['agent-audit-claude', ['.claude', 'skills']],
-  ['agent-audit-pi', ['.pi', 'skills']],
-  ['agent-audit-deepseek', ['.agents', 'skills']],
+  ['where-tokens-went-codex', ['.agents', 'skills']],
+  ['where-tokens-went-claude', ['.claude', 'skills']],
+  ['where-tokens-went-pi', ['.pi', 'skills']],
+  ['where-tokens-went-deepseek', ['.agents', 'skills']],
 ];
 
 for (const [name, parent] of installs) {
   const source = path.join(repoRoot, 'skills', name);
   const destination = path.join(targetRoot, ...parent, name);
-  if (!fs.existsSync(path.join(source, 'SKILL.md')) || !fs.existsSync(path.join(source, 'scripts', 'agent-audit.js'))) {
+  if (!fs.existsSync(path.join(source, 'SKILL.md')) || !fs.existsSync(path.join(source, 'scripts', 'where-tokens-went.js'))) {
     throw new Error(`Skill ${name} is not packaged. Run npm run package-skills first.`);
   }
   fs.mkdirSync(destination, { recursive: true });

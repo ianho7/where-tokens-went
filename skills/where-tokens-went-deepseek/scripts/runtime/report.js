@@ -9,7 +9,7 @@ exports.renderShare = renderShare;
 const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 const ZH = {
-    title: "Agent Audit 诊断报告",
+    title: "where-tokens-went 诊断报告",
     scope: "审计范围",
     coverage: "覆盖情况",
     currentProject: "当前项目",
@@ -85,7 +85,7 @@ const ZH = {
     redactedShare: "脱敏分享稿",
 };
 const EN = {
-    title: "Agent Audit diagnostic report",
+    title: "where-tokens-went diagnostic report",
     scope: "Audit scope",
     coverage: "Coverage",
     currentProject: "current project",
@@ -721,7 +721,7 @@ function renderHtml(result, locale = "en-US") {
     const parts = [
         "<!doctype html><html lang=\"" + (locale === "zh-CN" ? "zh-CN" : "en") + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
             escapeHtml(labels.title) + "</title>" + renderStyles() + "</head><body><main>",
-        "<header><div class=\"eyebrow\">Agent Audit</div><h1>" + escapeHtml(labels.title) + "</h1><p>" + escapeHtml(labels.methodNote) + "</p></header>",
+        "<header><div class=\"eyebrow\">where-tokens-went</div><h1>" + escapeHtml(labels.title) + "</h1><p>" + escapeHtml(labels.methodNote) + "</p></header>",
         "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "</section>",
         renderKpis(result, locale),
         renderChecks(result, locale),

@@ -1,6 +1,10 @@
-# Agent Audit
+# where-tokens-went
 
-`agent-audit` 用来解释编码智能体的历史用量去了哪里。用户在 Claude Code、Codex、Pi 或 DeepSeek Harness 中用自然语言提问，对应的原生 Agent Skill 会调用同一台机器上的确定性 CLI，再由当前智能体解释 CLI 返回的证据。
+`where-tokens-went` 用来解释编码智能体的历史用量去了哪里。用户在 Claude Code、Codex、Pi 或 DeepSeek Harness 中用自然语言提问，对应的原生 Agent Skill 会调用同一台机器上的确定性 CLI，再由当前智能体解释 CLI 返回的证据。
+
+## 名称与迁移状态
+
+`where-tokens-went` 是项目正式对外名称，也已经同步作为 CLI 命令、四个 Skill/plugin 的安装标识和目录命名空间。旧版 agent-audit 命令和 agent-audit-* Skill 标识不再是当前发布入口；已有旧版安装需要按新名称重新安装。
 
 ## Aha moment
 
@@ -24,7 +28,7 @@
 
 ## 安装
 
-推荐从包含本仓库的 Git 版本或 Skill 平台安装。每个 Skill 目录现在都包含 `SKILL.md` 和同版本的本地确定性工具；不需要另行安装全局 `agent-audit` 命令。
+推荐从包含本仓库的 Git 版本或 Skill 平台安装。每个 Skill 目录现在都包含 `SKILL.md` 和同版本的本地确定性工具；不需要另行安装全局 `where-tokens-went` 命令。
 
 ### GitHub / skills.sh
 
@@ -32,28 +36,28 @@
 
 ```bash
 # 使用 skills.sh CLI 安装指定 Harness 的 Skill（将 owner/repo 替换为实际仓库）
-npx skills add <owner>/<repo> --skill agent-audit-codex --agent codex --yes
-npx skills add <owner>/<repo> --skill agent-audit-claude --agent claude-code --yes
+npx skills add <owner>/<repo> --skill where-tokens-went-codex --agent codex --yes
+npx skills add <owner>/<repo> --skill where-tokens-went-claude --agent claude-code --yes
 
 # 使用 GitHub CLI 安装指定 Harness 的 Skill
-gh skill install <owner>/<repo> agent-audit-codex --agent codex
-gh skill install <owner>/<repo> agent-audit-claude --agent claude-code
+gh skill install <owner>/<repo> where-tokens-went-codex --agent codex
+gh skill install <owner>/<repo> where-tokens-went-claude --agent claude-code
 ```
 
 安装前请检查 Skill 目录中的脚本和来源；默认只读取本机历史，不上传数据。需要固定版本时，使用 Git tag 或 commit。
 
 ### Claude Code 市场
 
-仓库包含 `.claude-plugin/marketplace.json`，在 Claude Code 中添加仓库后安装 `agent-audit-claude`：
+仓库包含 `.claude-plugin/marketplace.json`，在 Claude Code 中添加仓库后安装 `where-tokens-went-claude`：
 
 ```text
 /plugin marketplace add <owner>/<repo>
-/plugin install agent-audit-claude@agent-audit
+/plugin install where-tokens-went-claude@where-tokens-went
 ```
 
 ### Codex 插件市场
 
-Codex Skill 目录包含 `.codex-plugin/plugin.json`，仓库同时提供 repo-local marketplace 元数据。将该仓库作为本地 marketplace 添加后，安装 `agent-audit-codex`；具体命令以当前 Codex CLI 的插件命令为准。
+Codex Skill 目录包含 `.codex-plugin/plugin.json`，仓库同时提供 repo-local marketplace 元数据。将该仓库作为本地 marketplace 添加后，安装 `where-tokens-went-codex`；具体命令以当前 Codex CLI 的插件命令为准。
 
 ### 从源码开发安装
 
@@ -70,7 +74,7 @@ npm run install-local
 
 1. 编译 TypeScript CLI；
 2. 将同版本运行产物和 zstd 解码依赖打包到四个 Skill 目录；
-3. 通过 `npm link` 暴露全局 `agent-audit` 命令（仅供直接 CLI 调试），并将完整 Skill 目录安装到对应 Host 的原生目录。
+3. 通过 `npm link` 暴露全局 `where-tokens-went` 命令（仅供直接 CLI 调试），并将完整 Skill 目录安装到对应 Host 的原生目录。
 
 源码变更后重新生成 Skill 产物：
 
@@ -80,10 +84,10 @@ npm run package-skills
 
 | Harness | Skill 安装位置 |
 | --- | --- |
-| Codex | `.agents/skills/agent-audit-codex/`（含 `SKILL.md` 和 `scripts/`） |
-| Claude Code | `.claude/skills/agent-audit-claude/`（含 `SKILL.md` 和 `scripts/`） |
-| Pi | `.pi/skills/agent-audit-pi/`（含 `SKILL.md` 和 `scripts/`） |
-| DeepSeek Harness | `.agents/skills/agent-audit-deepseek/`（含 `SKILL.md` 和 `scripts/`） |
+| Codex | `.agents/skills/where-tokens-went-codex/`（含 `SKILL.md` 和 `scripts/`） |
+| Claude Code | `.claude/skills/where-tokens-went-claude/`（含 `SKILL.md` 和 `scripts/`） |
+| Pi | `.pi/skills/where-tokens-went-pi/`（含 `SKILL.md` 和 `scripts/`） |
+| DeepSeek Harness | `.agents/skills/where-tokens-went-deepseek/`（含 `SKILL.md` 和 `scripts/`） |
 
 如果要把已打包的 Skill 安装到另一个项目，请仍在本仓库根目录执行：
 
@@ -126,23 +130,23 @@ npm run install-skills -- "<目标项目绝对路径>"
 直接 CLI 调试（开发安装后）：
 
 ```bash
-agent-audit inspect --harness codex --cwd "<当前项目绝对路径>" --since 7d --format text
+where-tokens-went inspect --harness codex --cwd "<当前项目绝对路径>" --since 7d --format text
 ```
 
-Skill 正常使用时会调用自身目录下的 `scripts/agent-audit.js`，不依赖全局命令。
+Skill 正常使用时会调用自身目录下的 `scripts/where-tokens-went.js`，不依赖全局命令。
 
 直接 CLI 输出是确定性证据面，不调用模型，也不替代 Host Agent 的 Finding。
 
 获取适合智能体继续解释的权威 JSON：
 
 ```bash
-agent-audit inspect --harness codex --cwd "<当前项目绝对路径>" --since 7d --format json
+where-tokens-went inspect --harness codex --cwd "<当前项目绝对路径>" --since 7d --format json
 ```
 
 审计同一 Harness 下的所有项目：
 
 ```bash
-agent-audit inspect --harness codex --all-projects --since 30d --format json
+where-tokens-went inspect --harness codex --all-projects --since 30d --format json
 ```
 
 将 `codex` 替换为 `claude`、`pi` 或 `deepseek`，即可审计对应 Harness。

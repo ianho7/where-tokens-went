@@ -1,18 +1,18 @@
 {
-  "name": "agent-audit-codex",
+  "name": "where-tokens-went-codex",
   "version": "0.1.0",
   "description": "Explain Codex usage from local history with a bundled deterministic tool.",
   "author": {
-    "name": "Agent Audit"
+    "name": "where-tokens-went"
   },
   "license": "MIT",
   "keywords": ["codex", "usage", "audit"],
   "skills": "./SKILL.md",
   "interface": {
-    "displayName": "Agent Audit for Codex",
+    "displayName": "where-tokens-went for Codex",
     "shortDescription": "Explain local Codex usage",
     "longDescription": "Read-only Codex history analysis with a self-contained local deterministic tool.",
-    "developerName": "Agent Audit",
+    "developerName": "where-tokens-went",
     "category": "Productivity"
   }
 }

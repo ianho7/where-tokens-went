@@ -1,11 +1,11 @@
-# Agent Audit
+# where-tokens-went
 
-Agent Audit is the domain of explaining a coding agent's historical resource usage from evidence already stored by its harness.
+where-tokens-went is the domain of explaining a coding agent's historical resource usage from evidence already stored by its harness.
 
 ## Language
 
 **Host Agent**:
-The coding agent in which the user invokes Agent Audit, such as Codex or Claude Code.
+The coding agent in which the user invokes where-tokens-went, such as Codex or Claude Code.
 _Avoid_: Provider, model, client
 
 **Harness**:

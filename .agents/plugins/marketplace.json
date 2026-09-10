@@ -1,14 +1,14 @@
 {
-  "name": "agent-audit",
+  "name": "where-tokens-went",
   "interface": {
-    "displayName": "Agent Audit"
+    "displayName": "where-tokens-went"
   },
   "plugins": [
     {
-      "name": "agent-audit-codex",
+      "name": "where-tokens-went-codex",
       "source": {
         "source": "local",
-        "path": "./skills/agent-audit-codex"
+        "path": "./skills/where-tokens-went-codex"
       },
       "policy": {
         "installation": "AVAILABLE",

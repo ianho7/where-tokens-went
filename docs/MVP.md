@@ -2,7 +2,7 @@
 
 ## Product promise
 
-When invoked inside Claude Code, Codex, Pi, or DeepSeek Harness, Agent Audit examines only that Harness's existing local history and produces one evidence-backed explanation of where usage went and what the user should try next.
+When invoked inside Claude Code, Codex, Pi, or DeepSeek Harness, where-tokens-went examines only that Harness's existing local history and produces one evidence-backed explanation of where usage went and what the user should try next.
 
 The first release succeeds when a user sees a real session, tool, retry, compaction, or subagent behavior responsible for a meaningful share of usage and says, “原来消耗在这里。”
 
@@ -13,13 +13,13 @@ The user-facing product is a thin Harness-native Skill or integration plus a loc
 MVP invocation behind the integration:
 
 ```text
-agent-audit inspect --harness <claude|codex|pi|deepseek> --cwd <absolute-path> --since 7d --format json
+where-tokens-went inspect --harness <claude|codex|pi|deepseek> --cwd <absolute-path> --since 7d --format json
 ```
 
 For a requested global view within the invoking Harness:
 
 ```text
-agent-audit inspect --harness codex --all-projects --since 30d --format json
+where-tokens-went inspect --harness codex --all-projects --since 30d --format json
 ```
 
 `--all-projects` widens project scope only. It never scans another Harness.
