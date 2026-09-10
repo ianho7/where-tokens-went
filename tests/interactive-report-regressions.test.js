@@ -138,9 +138,11 @@ test('exact values are hover titles instead of visible secondary lines', () => {
   assert.equal(bootScript.includes('exact.format(v)'), false);
 });
 
-test('automated checks use their compact card layout', () => {
+test('automated checks use a quiet editorial list', () => {
   const html = renderHtml(result(), 'zh-CN');
-  assert.match(html, /class="supporting-finding"/);
+  assert.match(html, /class="editorial-item"/);
+  assert.match(html, /class="tag tag--quiet"/);
+  assert.doesNotMatch(html, /▲/);
   assert.equal(html.includes('.supporting-findings ul{'), true);
 });
 
@@ -169,7 +171,8 @@ test('Coverage narrative proves partial subagent overlap or stays unavailable', 
   const proven = partialCoverageResult(true);
   const provenHtml = renderHtml(proven, 'en-US');
   const { renderText, renderShare } = require('../dist/src/report.js');
-  assert.match(provenHtml, /class="coverage-alert"/);
+  assert.match(provenHtml, /class="quiet-callout"/);
+  assert.doesNotMatch(provenHtml, /coverage-alert|border-left/);
   const provenCoverageText = provenHtml.replace(/<[^>]+>/g, '');
   assert.match(provenCoverageText, /1 of 2 Sessions[\s\S]*50%/);
   assert.match(provenCoverageText, /All partial Sessions are source-proven subagent Sessions/);
@@ -224,7 +227,8 @@ test('time presentation uses numeric editorial dates and yearless chart labels',
 test('daily token trend uses the Kami contrast ladder and redundant line encodings', () => {
   const html = renderHtml(result(), 'zh-CN');
   assert.doesNotMatch(html, /stack:'tokens'/);
-  assert.match(html, /#2d4e7a/);
+  assert.match(html, /#2d5a8a/);
+  assert.match(html, /getComputedStyle\(document\.documentElement\)\.getPropertyValue\('--serif'\)/);
   assert.match(html, /lineType,symbol,focus/);
   assert.match(html, /lineStyle:\{color,width:focus\?2\.5:2,opacity:focus\?1:\.92,type:lineType\}/);
   assert.match(html, /symbol,showSymbol:d.rows.length<=14/);
@@ -255,6 +259,6 @@ test('automated checks are stable, evidence-backed, private, and shared by forma
     assert.doesNotMatch(output, /long_session|tool_amplification|extra_calls|model_concentration|data_quality/);
   }
   assert.match(renderText(first, 'zh-CN'), /发现:/);
-  assert.match(renderHtml(first, 'zh-CN'), />自动<\/span>/);
+  assert.doesNotMatch(renderHtml(first, 'zh-CN'), /class="tag[^"]*"[^>]*>自动<\/span>/);
   assert.equal(JSON.stringify(first).includes('PRIVATE_PROMPT'), false);
 });

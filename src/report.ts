@@ -524,6 +524,34 @@ function percentageHtml(value: EvidenceValue, locale: ReportLocale): string {
     escapeHtml(title) + "\">" + escapeHtml(provenancePrefix(value.provenance, locale) + exactValue) + "</span></span>";
 }
 
+type MetricKind = "metric" | "currency" | "percentage";
+
+function metricValueHtml(value: EvidenceValue, locale: ReportLocale, kind: MetricKind, compact = true): string {
+  return kind === "percentage"
+    ? percentageHtml(value, locale)
+    : evidenceHtml(value, locale, compact, kind === "currency");
+}
+
+function renderMetric(label: string, value: EvidenceValue, locale: ReportLocale, kind: MetricKind = "metric", compact = true): string {
+  return "<div class=\"metric\"><span class=\"metric-label\">" + escapeHtml(label) + "</span><strong class=\"metric-value\">" +
+    metricValueHtml(value, locale, kind, compact) + "</strong></div>";
+}
+
+function renderMetrics(items: Array<[string, EvidenceValue, MetricKind, boolean?]>, locale: ReportLocale, variant = "default"): string {
+  return "<div class=\"metrics metrics--" + variant + "\">" + items.map(([label, value, kind, compact]) =>
+    renderMetric(label, value, locale, kind, compact ?? true),
+  ).join("") + "</div>";
+}
+
+function tagHtml(label: string, variant: "quiet" | "default" = "quiet"): string {
+  return "<span class=\"tag tag--" + variant + "\">" + escapeHtml(label) + "</span>";
+}
+
+function outcomeLabel(outcome: AutomatedCheck["outcome"], locale: ReportLocale): string {
+  if (locale === "zh-CN") return outcome === "warning" ? "警告" : outcome === "notice" ? "提示" : "通过";
+  return outcome === "warning" ? "Warning" : outcome === "notice" ? "Notice" : "Pass";
+}
+
 function publicLabel(value: string, fallback: string): string {
   return value.length <= 80 && /^[A-Za-z0-9_.:@-]+$/.test(value) ? value : fallback;
 }
@@ -631,7 +659,7 @@ function localizeMethod(method: string | undefined, locale: ReportLocale): strin
 function renderWarningList(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (result.coverage.warnings.length === 0) return emptyState(labels);
-  return "<ul class=\"warning-list\">" + result.coverage.warnings
+  return "<ul class=\"editorial-list\">" + result.coverage.warnings
     .map((warning) => "<li>" + escapeHtml(localizeWarning(warning, locale)) + "</li>")
     .join("") + "</ul>";
 }
@@ -739,18 +767,22 @@ function renderCoverage(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const narrative = coverageNarrative(result, locale);
   const alert = result.coverage.partialSessions > 0 || result.coverage.recordsSkipped > 0 || result.coverage.warnings.length > 0;
-  return "<div class=\"coverage-grid\">" +
-    "<div><strong>" + result.coverage.filesRead + "</strong><span>" + escapeHtml(labels.files) + "</span></div>" +
-    "<div><strong>" + result.coverage.recordsRead + "</strong><span>" + escapeHtml(labels.records) + "</span></div>" +
-    "<div><strong>" + result.coverage.recordsSkipped + "</strong><span>" + escapeHtml(labels.skipped) + "</span></div>" +
-    "<div><strong>" + result.coverage.partialSessions + "</strong><span>" + escapeHtml(labels.partialSessions) + "</span></div>" +
-    "<div><strong>" + result.coverage.warnings.length + "</strong><span>" + escapeHtml(labels.warnings) + "</span></div>" +
-    "</div><p class=\"" + (alert ? "coverage-alert" : "ok") + "\">" + narrative.html + "</p>";
+  const metrics: Array<[string, EvidenceValue, MetricKind, boolean]> = [
+    [labels.files, coverageEvidence(result.coverage.filesRead, "count of files read"), "metric", false],
+    [labels.records, coverageEvidence(result.coverage.recordsRead, "count of records read"), "metric", false],
+    [labels.skipped, coverageEvidence(result.coverage.recordsSkipped, "count of records skipped"), "metric", false],
+    [labels.partialSessions, coverageEvidence(result.coverage.partialSessions, "count of partial Sessions"), "metric", false],
+    [labels.warnings, coverageEvidence(result.coverage.warnings.length, "count of coverage warnings"), "metric", false],
+  ];
+  const narrativeHtml = alert
+    ? "<aside class=\"quiet-callout\"><span class=\"tag tag--quiet\">" + escapeHtml(locale === "zh-CN" ? "覆盖提醒" : "Coverage note") + "</span><p>" + narrative.html + "</p></aside>"
+    : "<p class=\"coverage-note\">" + narrative.html + "</p>";
+  return renderMetrics(metrics, locale, "coverage") + narrativeHtml;
 }
 
 function renderScope(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
-  return "<dl class=\"scope-grid\">" +
+  return "<dl class=\"metadata-grid\">" +
     "<div><dt>" + escapeHtml(labels.harness) + "</dt><dd>" + escapeHtml(result.scope.harness) + "</dd></div>" +
     "<div><dt>" + escapeHtml(labels.scope) + "</dt><dd>" + escapeHtml(result.scope.allProjects ? labels.allProjects : labels.currentProject) + "</dd></div>" +
     "<div><dt>" + escapeHtml(labels.since) + "</dt><dd>" + escapeHtml(formatDateTime(result.scope.since, locale)) + "</dd></div>" +
@@ -760,23 +792,21 @@ function renderScope(result: AuditResult, locale: ReportLocale): string {
 function renderKpis(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const sessionBreakdown = result.summary.topLevelSessionCount.value !== null && result.summary.subagentSessionCount.value !== null
-    ? [[labels.topLevelSessions, result.summary.topLevelSessionCount, false], [labels.subagentSessions, result.summary.subagentSessionCount, false]] as Array<[string, EvidenceValue, boolean]>
+    ? [[labels.topLevelSessions, result.summary.topLevelSessionCount, "metric"], [labels.subagentSessions, result.summary.subagentSessionCount, "metric"]] as Array<[string, EvidenceValue, MetricKind]>
     : [];
-  const items: Array<[string, EvidenceValue, boolean]> = [
-    [labels.totalTokens, result.summary.totalTokens, false],
-    [labels.sessions, result.summary.sessionCount, false],
-    [labels.modelCalls, result.summary.modelCallCount, false],
+  const items: Array<[string, EvidenceValue, MetricKind]> = [
+    [labels.totalTokens, result.summary.totalTokens, "metric"],
+    [labels.sessions, result.summary.sessionCount, "metric"],
+    [labels.modelCalls, result.summary.modelCallCount, "metric"],
     ...sessionBreakdown,
-    ...(result.summary.reportedCost.value === null ? [] : [[labels.reportedCost, result.summary.reportedCost, true] as [string, EvidenceValue, boolean]]),
-    ...(typeof result.report.apiEquivalentCost.total.value === "number" ? [[locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)", result.report.apiEquivalentCost.total, true] as [string, EvidenceValue, boolean]] : []),
+    ...(result.summary.reportedCost.value === null ? [] : [[labels.reportedCost, result.summary.reportedCost, "currency"] as [string, EvidenceValue, MetricKind]]),
+    ...(typeof result.report.apiEquivalentCost.total.value === "number" ? [[locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)", result.report.apiEquivalentCost.total, "currency"] as [string, EvidenceValue, MetricKind]] : []),
   ];
-  return "<div class=\"kpis\">" + items.map(([label, value, currency]) =>
-    "<div class=\"kpi\"><span>" + escapeHtml(label) + "</span><strong>" + evidenceHtml(value, locale, true, currency) + "</strong></div>",
-  ).join("") + "</div>";
+  return renderMetrics(items, locale, "summary");
 }
 
 interface PresentedCheck {
-  marker: string;
+  outcomeLabel: string;
   headline: string;
   detail: string;
   headlineHtml: string;
@@ -791,9 +821,9 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
   const percentageHtmlValue = (index: number) => findingPercentageHtml(check.evidence[index], locale);
   const chinese = locale === "zh-CN";
   const labels = labelsFor(locale);
-  const marker = check.outcome === "pass" ? "✓" : "▲";
+  const status = outcomeLabel(check.outcome, locale);
   if (check.id === "long_session") return {
-    marker,
+    outcomeLabel: status,
     headline: chinese ? "一个 Session 占已观测 Token 的 " + percentage(2) : "One Session accounts for " + percentage(2) + " of observed tokens",
     detail: chinese ? evidence(1) + " 次模型调用；" + evidence(0) + " 个已观测 Token。" : evidence(1) + " ModelCall records; " + evidence(0) + " observed tokens.",
     headlineHtml: (chinese ? "一个 Session 占已观测 Token 的 " : "One Session accounts for ") + percentageHtmlValue(2) + (chinese ? "" : " of observed tokens"),
@@ -801,7 +831,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     method: localizeMethod(check.method, locale),
   };
   if (check.id === "tool_amplification") return {
-    marker,
+    outcomeLabel: status,
       headline: chinese ? "一个工具结果可能在后续上下文中延续；暴露估算" + evidence(2) : "One tool result may be carried forward; exposure estimate " + evidence(2),
     detail: chinese ? "配对结果 " + evidence(0) + " " + labels.characters + "；其后有 " + evidence(1) + " 次模型调用。" : "Paired result: " + evidence(0) + " " + labels.characters + "; later ModelCall records: " + evidence(1) + ".",
       headlineHtml: (chinese ? "一个工具结果可能在后续上下文中延续；暴露估算" : "One tool result may be carried forward; exposure estimate ") + metricHtml(2),
@@ -809,7 +839,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     method: localizeMethod(check.method, locale),
   };
   if (check.id === "extra_calls") return {
-    marker,
+    outcomeLabel: status,
     headline: chinese ? "观察到 " + evidence(0) + " 条重试、中断或子 Agent 生命周期记录" : evidence(0) + " retry, interruption, or subagent lifecycle records observed",
     detail: chinese ? "该检查只计数已观察到的生命周期记录。" : "This check counts only observed lifecycle records.",
     headlineHtml: (chinese ? "观察到 " : "") + metricHtml(0) + (chinese ? " 条重试、中断或子 Agent 生命周期记录" : " retry, interruption, or subagent lifecycle records observed"),
@@ -817,7 +847,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     method: localizeMethod(check.method, locale),
   };
   if (check.id === "model_concentration") return {
-    marker,
+    outcomeLabel: status,
     headline: chinese ? evidence(0) + " 占已观测 Token 的 " + percentage(1) : evidence(0) + " accounts for " + percentage(1) + " of observed tokens",
     detail: chinese ? evidence(2) + " 次模型调用。" : evidence(2) + " ModelCall records.",
     headlineHtml: metricHtml(0) + (chinese ? " 占已观测 Token 的 " : " accounts for ") + percentageHtmlValue(1) + (chinese ? "" : " of observed tokens"),
@@ -825,7 +855,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     method: localizeMethod(check.method, locale),
   };
   if (check.outcome === "pass") return {
-    marker,
+    outcomeLabel: status,
     headline: chinese ? "历史记录未报告覆盖警告" : "History parsed without coverage warnings",
     detail: chinese ? evidence(1) + " 条记录来自 " + evidence(0) + " 个文件；没有跳过或不完整 Session。" : evidence(1) + " records from " + evidence(0) + " files; no skipped or partial Sessions.",
     headlineHtml: chinese ? "历史记录未报告覆盖警告" : "History parsed without coverage warnings",
@@ -833,7 +863,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
     method: localizeMethod(check.method, locale),
   };
   return {
-    marker,
+    outcomeLabel: status,
     headline: chinese ? "覆盖范围报告存在跳过、不完整或警告记录" : "Coverage reports skipped, partial, or warning records",
     detail: chinese ? evidence(2) + " 条跳过记录；" + evidence(3) + " 个不完整 Session；" + evidence(4) + " 条覆盖警告。" : evidence(2) + " skipped records; " + evidence(3) + " partial Sessions; " + evidence(4) + " coverage warnings.",
     headlineHtml: chinese ? "覆盖范围报告存在跳过、不完整或警告记录" : "Coverage reports skipped, partial, or warning records",
@@ -844,7 +874,7 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
 
 function checkLine(check: AutomatedCheck, locale: ReportLocale): string {
   const presented = presentCheck(check, locale);
-  return presented.marker + " " + presented.headline + " — " + presented.detail + " " + (locale === "zh-CN" ? "方法：" : "Method: ") + presented.method;
+  return presented.outcomeLabel + ": " + presented.headline + " — " + presented.detail + " " + (locale === "zh-CN" ? "方法：" : "Method: ") + presented.method;
 }
 
 function renderChecks(result: AuditResult, locale: ReportLocale): string {
@@ -853,7 +883,8 @@ function renderChecks(result: AuditResult, locale: ReportLocale): string {
   if (result.checks.length === 0) return "<section><h2>" + escapeHtml(title) + "</h2>" + emptyState(labelsFor(locale), none) + "</section>";
   return "<section class=\"supporting-findings\"><h2>" + escapeHtml(title) + "</h2><p class=\"coverage-note\">" + escapeHtml(labelsFor(locale).checksNote) + "</p><ul>" + result.checks.map((check) => {
     const presented = presentCheck(check, locale);
-    return "<li class=\"supporting-finding\"><div><strong><span class=\"check-marker\" aria-label=\"" + escapeHtml(check.outcome) + "\">" + presented.marker + "</span> <span class=\"finding-source\">" + escapeHtml(locale === "zh-CN" ? "自动" : "Automated") + "</span> " + presented.headlineHtml + "</strong><span>" + presented.detailHtml + "</span><small>" + escapeHtml(locale === "zh-CN" ? "方法：" : "Method: ") + escapeHtml(presented.method) + "</small></div></li>";
+    const severityTag = tagHtml(presented.outcomeLabel);
+    return "<li class=\"editorial-item\" data-outcome=\"" + escapeHtml(check.outcome) + "\"><div class=\"editorial-tags\" aria-label=\"" + escapeHtml(check.outcome) + "\">" + severityTag + "</div><strong class=\"editorial-title\">" + presented.headlineHtml + "</strong><p class=\"editorial-detail\">" + presented.detailHtml + "</p><small class=\"editorial-method\">" + escapeHtml(locale === "zh-CN" ? "方法：" : "Method: ") + escapeHtml(presented.method) + "</small></li>";
   }).join("") + "</ul></section>";
 }
 function tokenCell(value: EvidenceValue, locale: ReportLocale): string {
@@ -873,7 +904,7 @@ function renderDaily(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.report.dailyUsage;
   if (rows.length === 0) return emptyState(labels);
-  return "<table class=\"sortable\"><thead><tr><th>" + escapeHtml(labels.date) + "</th><th>" + escapeHtml(labels.totalTokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" +
+  return "<table class=\"kami-table compact sortable\"><thead><tr><th>" + escapeHtml(labels.date) + "</th><th>" + escapeHtml(labels.totalTokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" +
     escapeHtml(labels.input) + "</th><th>" + escapeHtml(labels.cachedInput) + "</th><th>" + escapeHtml(labels.cacheWrite) + "</th><th>" + escapeHtml(labels.output) + "</th><th>" + escapeHtml(locale === "zh-CN" ? "未分类余量" : "unclassified remainder") + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(formatDateKey(row.key, locale)) + "</th><td>" + tokenCell(row.totalTokens, locale) + "</td><td>" +
       percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(row.inputTokens, locale) + "</td><td>" + tokenCell(row.cachedInputTokens, locale) +
@@ -885,7 +916,7 @@ function renderModels(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.rankings.models;
   if (rows.length === 0) return emptyState(labels);
-  return "<table class=\"sortable\"><thead><tr><th>" + escapeHtml(labels.model) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.calls) + "</th></tr></thead><tbody>" +
+  return "<table class=\"kami-table compact sortable\"><thead><tr><th>" + escapeHtml(labels.model) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.calls) + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(modelLabel(row.key, locale)) + "</th><td>" + tokenCell(row.value, locale) +
       "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(row.count, locale) + "</td></tr>").join("") +
     "</tbody></table>";
@@ -895,7 +926,7 @@ function renderSessions(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.rankings.sessions.slice(0, 10);
   if (rows.length === 0) return emptyState(labels);
-  return "<table class=\"sortable\"><thead><tr><th>" + escapeHtml(labels.session) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.calls) + "</th></tr></thead><tbody>" +
+  return "<table class=\"kami-table compact sortable\"><thead><tr><th>" + escapeHtml(labels.session) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.calls) + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(sessionLabel(row, locale)) + "</th><td>" + tokenCell(row.value, locale) +
       "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(row.count, locale) + "</td></tr>").join("") +
     "</tbody></table>";
@@ -906,7 +937,7 @@ function renderTools(result: AuditResult, locale: ReportLocale): string {
   const rows = result.report.tools;
   if (rows.length === 0) return emptyState(labels, labels.noToolData);
   const showErrors = rows.some((row) => row.errors.value !== null);
-  return "<p class=\"coverage-note\">" + escapeHtml(labels.toolImpactNote) + "</p><table class=\"sortable\"><thead><tr><th>Tool</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.pairedResults) + "</th>" +
+  return "<p class=\"coverage-note\">" + escapeHtml(labels.toolImpactNote) + "</p><table class=\"kami-table compact sortable\"><thead><tr><th>Tool</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.pairedResults) + "</th>" +
     (showErrors ? "<th>" + escapeHtml(labels.errors) + "</th>" : "") + "<th>" +
     escapeHtml(labels.injected) + "</th><th>" + escapeHtml(labels.amplified) + "</th><th>" + escapeHtml(labels.share) + "</th></tr></thead><tbody>" +
     rows.map((row: ToolAnalysisEntry) => "<tr><th scope=\"row\">" + escapeHtml(publicLabel(row.key, labels.unavailable)) + "</th><td>" + tokenCell(row.calls, locale) +
@@ -982,31 +1013,39 @@ function renderSkillsText(result: AuditResult, locale: ReportLocale): string[] {
 function renderCacheHtml(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const cache = result.report.cacheEconomics;
-  const metrics: Array<[string, EvidenceValue, "metric" | "currency" | "percentage"]> = [
+  const efficiencyMetrics: Array<[string, EvidenceValue, MetricKind]> = [
     [labels.cacheReadRate, cache.cacheReadRatePercent, "percentage"],
     [labels.cacheWriteRate, cache.cacheWriteRatePercent, "percentage"],
     [labels.cacheCoverage, cache.coveragePercent, "percentage"],
+    [labels.priceCoverage, cache.pricedUsageCoveragePercent, "percentage"],
+  ];
+  const impactMetrics: Array<[string, EvidenceValue, MetricKind]> = [
     [labels.observedApiCost, cache.observedApiEquivalentCost, "currency"],
     [labels.allUncachedApiCost, cache.allUncachedApiEquivalentCost, "currency"],
     [labels.cacheSavings, cache.cacheSavings, "currency"],
     [labels.cacheSavingsPercent, cache.cacheSavingsPercent, "percentage"],
-    [labels.priceCoverage, cache.pricedUsageCoveragePercent, "percentage"],
   ];
-  const metricHtml = metrics.map(([label, value, kind]) => "<div><span>" + escapeHtml(label) + "</span><strong>" + (kind === "percentage" ? percentageHtml(value, locale) : evidenceHtml(value, locale, true, kind === "currency")) + "</strong></div>").join("");
-  const limitations = cache.limitations.length > 0 ? "<ul class=\"warning-list\">" + cache.limitations.map((limitation) => "<li>" + escapeHtml(localizeLimitation(limitation, locale)) + "</li>").join("") + "</ul>" : "";
-  return "<section class=\"cache-economics\"><h2>" + escapeHtml(labels.cacheEconomics) + "</h2><div class=\"scope-grid\">" + metricHtml + "</div><p class=\"coverage-note\">" + escapeHtml((locale === "zh-CN" ? "缓存比例先汇总互斥 Token 再相除；金额是 API 等价估算，不是订阅账单。方法：" : "Cache ratios sum mutually exclusive Token buckets before division; currency is an API-equivalent estimate, not a subscription bill. Method: ") + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale)) + "</p>" + limitations + "</section>";
+  const limitations = cache.limitations.length > 0 ? "<ul class=\"editorial-list\">" + cache.limitations.map((limitation) => "<li>" + escapeHtml(localizeLimitation(limitation, locale)) + "</li>").join("") + "</ul>" : "";
+  const efficiencyTitle = locale === "zh-CN" ? "缓存效率" : "Cache efficiency";
+  const impactTitle = locale === "zh-CN" ? "成本影响" : "Cost impact";
+  const groups = "<div class=\"comparison-grid economic-groups\"><div class=\"ivory-group\"><h3>" + escapeHtml(efficiencyTitle) + "</h3>" + renderMetrics(efficiencyMetrics, locale, "economic") + "</div><div class=\"ivory-group\"><h3>" + escapeHtml(impactTitle) + "</h3>" + renderMetrics(impactMetrics, locale, "economic") + "</div></div>";
+  return "<section class=\"cache-economics\"><h2>" + escapeHtml(labels.cacheEconomics) + "</h2>" + groups + "<p class=\"coverage-note\">" + escapeHtml((locale === "zh-CN" ? "缓存比例先汇总互斥 Token 再相除；金额是 API 等价估算，不是订阅账单。方法：" : "Cache ratios sum mutually exclusive Token buckets before division; currency is an API-equivalent estimate, not a subscription bill. Method: ") + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale)) + "</p>" + limitations + "</section>";
 }
 
 function renderFirstGroupHtml(group: AuditResult["report"]["firstRequestBurden"]["topLevel"], label: string, locale: ReportLocale): string {
   if (!group) return "";
   const labels = labelsFor(locale);
-  return "<h3>" + escapeHtml(label) + "</h3><div class=\"scope-grid\"><div><span>" + escapeHtml(labels.firstRequestMedian) + "</span><strong>" + evidenceHtml(group.medianTokens, locale, false) + "</strong></div><div><span>" + escapeHtml(labels.firstRequestCompositionCoverage) + "</span><strong>" + percentageHtml(group.compositionCoveragePercent, locale) + "</strong></div><div><span>" + escapeHtml(labels.coldFirstRequestRate) + "</span><strong>" + percentageHtml(group.coldSessionRatePercent, locale) + "</strong></div></div>";
+  return "<div class=\"ivory-group comparison-card\"><h3>" + escapeHtml(label) + "</h3>" + renderMetrics([
+    [labels.firstRequestMedian, group.medianTokens, "metric", false],
+    [labels.firstRequestCompositionCoverage, group.compositionCoveragePercent, "percentage"],
+    [labels.coldFirstRequestRate, group.coldSessionRatePercent, "percentage"],
+  ], locale, "group") + "</div>";
 }
 
 function renderFirstRequestHtml(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const first = result.report.firstRequestBurden;
-  const metrics: Array<[string, EvidenceValue, "metric" | "percentage"]> = [
+  const metrics: Array<[string, EvidenceValue, MetricKind]> = [
     [labels.firstRequestMedian, first.medianTokens, "metric"],
     [labels.firstRequestShare, first.sharePercent, "percentage"],
     [labels.firstRequestCoverage, first.coveragePercent, "percentage"],
@@ -1014,16 +1053,17 @@ function renderFirstRequestHtml(result: AuditResult, locale: ReportLocale): stri
     [labels.coldFirstRequestRate, first.coldSessionRatePercent, "percentage"],
     [labels.identityCoverage, first.identityCoveragePercent, "percentage"],
   ];
-  const metricHtml = metrics.map(([label, value, kind]) => "<div><span>" + escapeHtml(label) + "</span><strong>" + (kind === "percentage" ? percentageHtml(value, locale) : evidenceHtml(value, locale)) + "</strong></div>").join("");
-  const limitations = first.limitations.length > 0 ? "<ul class=\"warning-list\">" + first.limitations.map((limitation) => "<li>" + escapeHtml(localizeLimitation(limitation, locale)) + "</li>").join("") + "</ul>" : "";
-  return "<section class=\"first-request\"><h2>" + escapeHtml(labels.firstRequestBurden) + "</h2><div class=\"scope-grid\">" + metricHtml + "</div><p class=\"coverage-note\">" + escapeHtml(locale === "zh-CN" ? "这是每个 Session 最早有效请求的观测负担（Token），不是可精确拆出的启动税。" : "This is the observed burden in Tokens of each Session's earliest valid request, not an exact decomposable startup tax.") + "</p>" + renderFirstGroupHtml(first.topLevel, labels.topLevelSessions, locale) + renderFirstGroupHtml(first.subagent, labels.subagentSessions, locale) + limitations + "</section>";
+  const limitations = first.limitations.length > 0 ? "<ul class=\"editorial-list\">" + first.limitations.map((limitation) => "<li>" + escapeHtml(localizeLimitation(limitation, locale)) + "</li>").join("") + "</ul>" : "";
+  const comparisonGroups = [renderFirstGroupHtml(first.topLevel, labels.topLevelSessions, locale), renderFirstGroupHtml(first.subagent, labels.subagentSessions, locale)].filter(Boolean).join("");
+  const comparison = comparisonGroups ? "<div class=\"comparison-grid\">" + comparisonGroups + "</div>" : "";
+  return "<section class=\"first-request\"><h2>" + escapeHtml(labels.firstRequestBurden) + "</h2>" + renderMetrics(metrics, locale, "first-request") + "<p class=\"coverage-note\">" + escapeHtml(locale === "zh-CN" ? "这是每个 Session 最早有效请求的观测负担（Token），不是可精确拆出的启动税。" : "This is the observed burden in Tokens of each Session's earliest valid request, not an exact decomposable startup tax.") + "</p>" + comparison + limitations + "</section>";
 }
 
 function renderSkillsHtml(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (result.report.skills.length === 0) return "<section><h2>" + escapeHtml(labels.skillEvidence) + "</h2>" + emptyState(labels, labels.noSkillEvidence) + "</section>";
   const rows = result.report.skills.map((skill) => "<tr><th scope=\"row\">" + escapeHtml(skillLabel(skill.name, locale)) + "</th><td>" + escapeHtml(skillStateLabel(skill.state, locale)) + "</td><td>" + evidenceHtml(skill.availableSessions, locale, false) + "</td><td>" + evidenceHtml(skill.invocationCount, locale, false) + "</td><td>" + evidenceHtml(skill.sessionCount, locale, false) + "</td><td>" + evidenceHtml(skill.attributedTokens, locale) + "</td><td>" + evidenceHtml(skill.attributedApiEquivalentCost, locale, false, true) + "</td><td>" + percentageHtml(skill.evidenceCoveragePercent, locale) + "</td><td>" + evidenceHtml(dateEvidence(skill.firstObservedAt, locale), locale, false) + " → " + evidenceHtml(dateEvidence(skill.lastObservedAt, locale), locale, false) + "</td><td>" + evidenceHtml(skill.directResourceFootprint, locale, false) + " / " + evidenceHtml(skill.observedAssociation, locale, false) + " / " + evidenceHtml(skill.causalImpact, locale, false) + "</td></tr>").join("");
-  return "<section class=\"skill-evidence\"><h2>" + escapeHtml(labels.skillEvidence) + "</h2><p class=\"coverage-note\">" + escapeHtml(locale === "zh-CN" ? "列表只表示可用；已调用和已归因必须有明确边界。直接资源 / 观察关联 / 因果影响分开，因果影响没有反事实时保持不可用。" : "A listing means available only; invoked and attributed require explicit boundaries. Direct resource / observed association / causal impact stay separate, with causal impact unavailable without a counterfactual.") + "</p><table class=\"sortable\"><thead><tr><th scope=\"col\">Skill</th><th scope=\"col\">" + escapeHtml(labels.skillState) + "</th><th scope=\"col\">" + escapeHtml(labels.availableSessions) + "</th><th scope=\"col\">" + escapeHtml(labels.invocationCount) + "</th><th scope=\"col\">" + escapeHtml(labels.skillSessions) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedTokens) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedCost) + "</th><th scope=\"col\">" + escapeHtml(labels.evidenceCoverage) + "</th><th scope=\"col\">" + escapeHtml(labels.observedFrom + " → " + labels.observedTo) + "</th><th scope=\"col\">" + escapeHtml(labels.directResourceFootprint + " / " + labels.observedAssociation + " / " + labels.causalImpact) + "</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
+  return "<section class=\"skill-evidence\"><h2>" + escapeHtml(labels.skillEvidence) + "</h2><p class=\"coverage-note\">" + escapeHtml(locale === "zh-CN" ? "列表只表示可用；已调用和已归因必须有明确边界。直接资源 / 观察关联 / 因果影响分开，因果影响没有反事实时保持不可用。" : "A listing means available only; invoked and attributed require explicit boundaries. Direct resource / observed association / causal impact stay separate, with causal impact unavailable without a counterfactual.") + "</p><table class=\"kami-table compact sortable skills-table\"><thead><tr><th scope=\"col\">Skill</th><th scope=\"col\">" + escapeHtml(labels.skillState) + "</th><th scope=\"col\">" + escapeHtml(labels.availableSessions) + "</th><th scope=\"col\">" + escapeHtml(labels.invocationCount) + "</th><th scope=\"col\">" + escapeHtml(labels.skillSessions) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedTokens) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedCost) + "</th><th scope=\"col\">" + escapeHtml(labels.evidenceCoverage) + "</th><th scope=\"col\">" + escapeHtml(labels.observedFrom + " → " + labels.observedTo) + "</th><th scope=\"col\">" + escapeHtml(labels.directResourceFootprint + " / " + labels.observedAssociation + " / " + labels.causalImpact) + "</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
 }
 
 function numericValue(value: EvidenceValue): number | null {
@@ -1174,7 +1214,7 @@ function renderHourly(result: AuditResult, locale: ReportLocale): string {
   const rows = result.report.hourlyActivity;
   if (!result.report.hourlySupported || rows.length === 0) return emptyState(labels, labels.noTimestampData);
   return renderHourlyHeatmap(result, locale) +
-    "<details><summary>" + escapeHtml(locale === "zh-CN" ? "查看小时明细" : "View hourly details") + "</summary><table class=\"sortable\"><thead><tr><th>" +
+    "<details><summary>" + escapeHtml(locale === "zh-CN" ? "查看小时明细 ↓" : "View hourly details ↓") + "</summary><table class=\"kami-table compact sortable\"><thead><tr><th>" +
     escapeHtml(locale === "zh-CN" ? "本地时间" : "Local time") + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.share) + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(localHour(row.key, locale)?.timeLabel ?? row.key) + "</th><td>" + tokenCell(row.totalTokens, locale) + "</td><td>" +
       tokenCell(row.modelCallCount, locale) + "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td></tr>").join("") + "</tbody></table></details>";
@@ -1184,20 +1224,21 @@ function renderRolling(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rolling = result.report.rollingWindow;
   if (!rolling) return emptyState(labels, labels.noTimestampData);
-  return "<div class=\"window-note\"><strong>" + escapeHtml(labels.localOnly) + "</strong><span>" + escapeHtml(formatDateTime(rolling.startAt, locale) + " → " + formatDateTime(rolling.endAt, locale)) + "</span></div>" +
-    "<div class=\"window-grid\">" +
-    "<div><span>" + escapeHtml(labels.calls) + "</span><strong>" + tokenCell(rolling.observedModelCallCount, locale) + "</strong></div>" +
-    "<div><span>" + escapeHtml(labels.latestWindowTokens) + "</span><strong>" + tokenCell(rolling.observedTokens, locale) + "</strong></div>" +
-    "<div><span>" + escapeHtml(labels.historicalPeakTokens) + "</span><strong>" + tokenCell(rolling.historicalPeakObservedTokens, locale) + "</strong></div>" +
-    "<div><span>" + escapeHtml(labels.providerQuota) + "</span><strong>" + tokenCell(rolling.providerQuota, locale) + "</strong></div>" +
-    "<div><span>" + escapeHtml(labels.resetTime) + "</span><strong>" + tokenCell(rolling.resetAt, locale) + "</strong></div>" +
-    "</div><p class=\"empty\">" + escapeHtml(labels.noQuota) + "</p>";
+  return "<div class=\"ivory-group rolling-activity\"><span class=\"tag tag--quiet\">" + escapeHtml(locale === "zh-CN" ? "本地观察" : "Local observation") + "</span><p class=\"coverage-note\">" + escapeHtml(labels.localOnly) + "</p><div class=\"window-note\"><span>" + escapeHtml(formatDateTime(rolling.startAt, locale) + " → " + formatDateTime(rolling.endAt, locale)) + "</span></div>" +
+    renderMetrics([
+      [labels.calls, rolling.observedModelCallCount, "metric"],
+      [labels.latestWindowTokens, rolling.observedTokens, "metric"],
+      [labels.historicalPeakTokens, rolling.historicalPeakObservedTokens, "metric"],
+      [labels.providerQuota, rolling.providerQuota, "metric"],
+      [labels.resetTime, rolling.resetAt, "metric"],
+    ], locale, "window") +
+    "<p class=\"empty\">" + escapeHtml(labels.noQuota) + "</p></div>";
 }
 
 function renderWeekChanges(rows: WeekStructureChange[], heading: string, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (rows.length === 0) return "<h3>" + escapeHtml(heading) + "</h3>" + emptyState(labels);
-  return "<h3>" + escapeHtml(heading) + "</h3><table class=\"sortable\"><thead><tr><th>Key</th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" +
+  return "<h3>" + escapeHtml(heading) + "</h3><table class=\"kami-table compact sortable\"><thead><tr><th>Key</th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" +
     escapeHtml(labels.previousWeek) + "</th><th>" + escapeHtml(labels.change) + "</th></tr></thead><tbody>" +
     rows.slice(0, 20).map((row) => "<tr><th scope=\"row\">" + escapeHtml(publicLabel(row.key, labels.unavailable)) + "</th><td>" + tokenCell(row.current, locale) +
       "</td><td>" + tokenCell(row.previous, locale) + "</td><td>" + tokenCell(row.change, locale) + "</td></tr>").join("") + "</tbody></table>";
@@ -1209,7 +1250,7 @@ function renderWeek(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   return "<div class=\"week-ranges\"><div><strong>" + escapeHtml(labels.currentWeek) + "</strong><span>" + escapeHtml(formatDateTime(comparison.currentFrom, locale) + " → " + formatDateTime(comparison.currentTo, locale)) +
     "</span></div><div><strong>" + escapeHtml(labels.previousWeek) + "</strong><span>" + escapeHtml(formatDateTime(comparison.previousFrom, locale) + " → " + formatDateTime(comparison.previousTo, locale)) + "</span></div></div>" +
-    "<table class=\"sortable\"><thead><tr><th></th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" + escapeHtml(labels.previousWeek) + "</th><th>" + escapeHtml(labels.change) + "</th></tr></thead><tbody>" +
+    "<table class=\"kami-table compact sortable\"><thead><tr><th></th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" + escapeHtml(labels.previousWeek) + "</th><th>" + escapeHtml(labels.change) + "</th></tr></thead><tbody>" +
     "<tr><th scope=\"row\">" + escapeHtml(labels.totalTokens) + "</th><td>" + tokenCell(comparison.current.summary.totalTokens, locale) + "</td><td>" +
     tokenCell(comparison.previous.summary.totalTokens, locale) + "</td><td>" + tokenCell(comparison.changes.totalTokens, locale) + "</td></tr>" +
     "<tr><th scope=\"row\">" + escapeHtml(labels.modelCalls) + "</th><td>" + tokenCell(comparison.current.summary.modelCallCount, locale) + "</td><td>" +
@@ -1237,38 +1278,42 @@ function renderInteractiveCharts(result: AuditResult, locale: ReportLocale): str
   const data = JSON.stringify({ rows, models, tools, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: locale === "zh-CN" ? "未分类余量" : "unclassified remainder", cost: locale === "zh-CN" ? "API 等价估算（USD）" : "API-equivalent estimate (USD)" }, costVisible }).replaceAll("<", "\\u003c");
   const runtime = chartRuntime();
   if (!runtime || rows.length === 0) return "";
-  const chartPalette = { brand: "#1b365d", chartMidBlue: "#2d4e7a", olive: "#504e49", stone: "#6b6a64", darkWarm: "#3d3d3a", lightStone: "#b8b7b0" };
+  const chartPalette = { brand: "#1b365d", brandLight: "#2d5a8a", olive: "#504e49", stone: "#6b6a64", darkWarm: "#3d3d3a", lightStone: "#b8b7b0" };
   const unavailableLabel = JSON.stringify(locale === "zh-CN" ? "不可用" : "unavailable");
   const chartAria = JSON.stringify(locale === "zh-CN" ? "每条曲线和悬停值均为该分量原始 Token 值；各分量不堆叠。" : "Each curve and hover value is the raw Token value of that component; components are not stacked.");
   const chartScript = [
-    "addEventListener('DOMContentLoaded',()=>{const d=", data, ";const p=", JSON.stringify(chartPalette), ";const compact=new Intl.NumberFormat(d.locale,{notation:'compact',maximumFractionDigits:2});",
-    "const axis={axisLine:{lineStyle:{color:'#e8e6dc'}},axisLabel:{color:p.stone}};",
-    "const make=(id,option)=>{const el=document.getElementById(id);if(!el||!window.echarts)return;const c=echarts.init(el,null,{renderer:'svg'});c.setOption({textStyle:{fontFamily:'Charter, Georgia, Palatino, serif',color:p.olive},...option});addEventListener('resize',()=>c.resize())};",
+    "addEventListener('DOMContentLoaded',()=>{const d=", data, ";const p=", JSON.stringify(chartPalette), ";const serifFont=getComputedStyle(document.documentElement).getPropertyValue('--serif').trim();const compact=new Intl.NumberFormat(d.locale,{notation:'compact',maximumFractionDigits:2});",
+    "const axis={axisLine:{lineStyle:{color:'#e8e6dc'}},axisLabel:{fontFamily:serifFont,color:p.stone}};",
+    "const make=(id,option)=>{const el=document.getElementById(id);if(!el||!window.echarts)return;const c=echarts.init(el,null,{renderer:'svg'});c.setOption({backgroundColor:'transparent',textStyle:{fontFamily:serifFont,color:p.olive},...option});addEventListener('resize',()=>c.resize())};",
     "const tooltip=params=>params.map(item=>item.value==null?item.seriesName+': '+" + unavailableLabel + ":item.seriesName===d.labels.cost?item.seriesName+': $'+compact.format(item.value):item.seriesName+': '+compact.format(item.value)).join('<br>');",
-    "const series=[['input',d.labels.input,p.brand,'solid','circle',true],['cached',d.labels.cached,p.stone,'dashed','rect',false],['cacheWrite',d.labels.cacheWrite,p.olive,'dotted','diamond',false],['output',d.labels.output,p.chartMidBlue,'solid','triangle',false],['unclassified',d.labels.unclassified,p.lightStone,'dashed','none',false]].map(([key,name,color,lineType,symbol,focus])=>({name,type:'line',smooth:false,symbol,showSymbol:d.rows.length<=14,symbolSize:5,lineStyle:{color,width:focus?2.5:2,opacity:focus?1:.92,type:lineType},itemStyle:{color},...(focus?{areaStyle:{color,opacity:.1}}:{}),emphasis:{focus:'series',lineStyle:{color,width:3,opacity:1},...(focus?{areaStyle:{color,opacity:.12}}:{})},data:d.rows.map(r=>r[key])}));",
+    "const series=[['input',d.labels.input,p.brand,'solid','circle',true],['cached',d.labels.cached,p.stone,'dashed','rect',false],['cacheWrite',d.labels.cacheWrite,p.olive,'dotted','diamond',false],['output',d.labels.output,p.brandLight,'solid','triangle',false],['unclassified',d.labels.unclassified,p.lightStone,'dashed','none',false]].map(([key,name,color,lineType,symbol,focus])=>({name,type:'line',smooth:false,symbol,showSymbol:d.rows.length<=14,symbolSize:5,lineStyle:{color,width:focus?2.5:2,opacity:focus?1:.92,type:lineType},itemStyle:{color},...(focus?{areaStyle:{color,opacity:.1}}:{}),emphasis:{focus:'series',lineStyle:{color,width:3,opacity:1},...(focus?{areaStyle:{color,opacity:.12}}:{})},data:d.rows.map(r=>r[key])}));",
     "if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'diamond',showSymbol:d.rows.length<=14,symbolSize:5,connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:p.darkWarm,width:2,type:'dashed'},itemStyle:{color:p.darkWarm},emphasis:{focus:'series',lineStyle:{color:p.darkWarm,width:3,opacity:1}}});",
-    "make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',formatter:tooltip},legend:{type:'scroll',textStyle:{color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
-    "make('model-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按模型的 Token 分布；下方表格提供等价数据。" : "Token distribution by model; the table below provides equivalent data."), "},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand,borderRadius:[3,3,0,0]}}]});",
-    "make('tool-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按工具的估算工具结果注入大小；下方表格提供等价数据。" : "Estimated tool-result injection by tool; the table below provides equivalent data."), "},tooltip:{trigger:'axis',valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e8e6dc'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.chartMidBlue,borderRadius:[0,3,3,0]}}]});",
-    "document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent;const b=document.createElement('button');b.type='button';b.textContent=label+' ↕';b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})});</script>"
+    "make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:tooltip},legend:{type:'scroll',textStyle:{fontFamily:serifFont,color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
+    "make('model-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按模型的 Token 分布；下方表格提供等价数据。" : "Token distribution by model; the table below provides equivalent data."), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand}}]});",
+    "make('tool-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按工具的估算工具结果注入大小；下方表格提供等价数据。" : "Estimated tool-result injection by tool; the table below provides equivalent data."), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.brandLight}}]});",
+    "document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent.trim();const b=document.createElement('button');b.type='button';b.className='sort-button';b.textContent=label;b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})});</script>"
   ].join('');
   const script = "<script>" + runtime + "</script><script>" + chartScript;
   return `<div id="token-trend" class="echart" role="img" aria-label="${escapeHtml(labels.dailyUsage)}"></div><p class="chart-summary">${escapeHtml(locale === "zh-CN" ? "每条线的纵坐标和悬停值都是该 Token 分量自身的值；各分量不堆叠。" : "Each curve and hover value is the raw Token value of that component; components are not stacked.")}</p>${script}`;
 }
 function renderStyles(): string {
   return `<style>
-:root{color-scheme:light;--parchment:#f5f4ed;--ivory:#faf9f5;--warm-sand:#e8e6dc;--inline-code:#f0eee6;--deep-dark:#141413;--brand:#1b365d;--brand-light:#2d5a8a;--chart-mid-blue:#2d4e7a;--near-black:#141413;--dark-warm:#3d3d3a;--olive:#504e49;--stone:#6b6a64;--border:#e8e6dc;--border-soft:#e5e3d8;--tag-bg:#e4ecf5;--tag-quiet:#eef2f7;--brand-tint:#eef2f7;--chart-muted:#d4d3cd;--serif:Charter,Georgia,Palatino,"Times New Roman",serif;--sans:var(--serif);--mono:"JetBrains Mono","SF Mono","Fira Code",Consolas,Monaco,monospace}
+:root{color-scheme:light;--parchment:#f5f4ed;--ivory:#faf9f5;--warm-sand:#e8e6dc;--inline-code:#f0eee6;--deep-dark:#141413;--brand:#1b365d;--brand-light:#2d5a8a;--near-black:#141413;--dark-warm:#3d3d3a;--olive:#504e49;--stone:#6b6a64;--border:#e8e6dc;--border-soft:#e5e3d8;--tag-bg:#e4ecf5;--tag-quiet:#eef2f7;--brand-tint:#eef2f7;--chart-muted:#d4d3cd;--serif:Charter,Georgia,Palatino,"Times New Roman",serif;--sans:var(--serif);--mono:"JetBrains Mono","SF Mono","Fira Code",Consolas,Monaco,monospace}
 html[lang="zh-CN"]{--serif:"Source Han Serif SC","Source Han Serif CN","Noto Serif CJK SC","Noto Serif SC","Songti SC","STSong",Georgia,serif;--sans:var(--serif)}
 *{box-sizing:border-box}html,body{margin:0;padding:0}body{background:var(--parchment);color:var(--near-black);font-family:var(--serif);font-size:15px;font-weight:400;line-height:1.55;letter-spacing:0;font-synthesis:none;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}html[lang="zh-CN"] body{letter-spacing:.3px}
 main{max-width:1120px;margin:0 auto;padding:88px 64px 120px}header{padding-bottom:32px;border-bottom:1px solid var(--border-soft);margin-bottom:48px}.eyebrow{font-family:var(--sans);font-size:12px;font-weight:500;line-height:1.35;letter-spacing:1px;text-transform:uppercase;color:var(--stone);margin:0 0 16px}h1,h2,h3{font-family:var(--serif);font-weight:500;color:var(--near-black)}h1{font-size:38px;line-height:1.1;letter-spacing:-.4px;margin:0 0 12px}header p{font-family:var(--serif);font-size:16px;line-height:1.55;color:var(--olive);max-width:720px;margin:0}h2{font-size:24px;line-height:1.2;margin:0 0 20px}h3{font-size:18px;line-height:1.3;margin:32px 0 12px}section{margin:0 0 56px;padding:0;background:transparent;border:0;border-radius:0}section>h2{margin-top:0}
-.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{display:grid;gap:24px}.scope-grid{grid-template-columns:repeat(3,1fr);margin:0 0 32px}.scope-grid div{padding:0 16px 16px 0;border-bottom:1px solid var(--border-soft)}.scope-grid dt{color:var(--stone);font-size:12px;line-height:1.35}.scope-grid dd{margin:6px 0 0;font-weight:500;line-height:1.45;overflow-wrap:anywhere}.coverage-grid{grid-template-columns:repeat(5,1fr);margin:0 0 12px}.coverage-grid div,.window-grid div{padding:0 16px 16px 0;border-bottom:1px solid var(--border-soft)}.coverage-grid strong,.coverage-grid span,.window-grid strong,.window-grid span{display:block}.coverage-grid strong{font-family:var(--serif);font-size:24px;line-height:1.1;font-weight:500;color:var(--brand)}.coverage-grid span,.window-grid span{color:var(--stone);font-size:12px;line-height:1.4}.coverage-note,.empty{color:var(--olive);font-size:13px;line-height:1.5}.warning-list{margin:12px 0 0;padding-left:20px}.ok{color:var(--olive)}
-.kpis{grid-template-columns:repeat(4,1fr);gap:32px;margin:0 0 56px}.kpi{padding:0 0 20px;border:0;border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent}.kpi>span{display:block;color:var(--stone);font-size:13px;line-height:1.4}.kpi strong{display:block;margin-top:8px;font-family:var(--serif);font-size:36px;font-weight:500;line-height:1.05;color:var(--brand);font-variant-numeric:lining-nums tabular-nums}.metric-stack{display:inline-flex;flex-direction:column;align-items:flex-start;gap:3px;font-variant-numeric:lining-nums tabular-nums}.metric-main{display:block}.percentage{display:block;white-space:nowrap}.unavailable{color:var(--stone);font-style:normal}
-.finding{padding:24px;background:var(--ivory);border:0;border-radius:8px}.finding.neutral{padding:0;background:transparent}.finding h2{font-size:24px;line-height:1.2;max-width:800px}.finding p{max-width:820px}.evidence{display:flex;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:20px 0}.evidence li{background:var(--tag-bg);border-radius:2px;padding:4px 8px;color:var(--brand);font-size:12px;line-height:1.35}.recommendation{border-top:1px solid var(--border-soft);padding-top:16px}.recommendation strong{color:var(--brand);font-weight:500}.recommendation p{margin:6px 0 0;font-weight:500}.supporting-findings ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 32px;list-style:none;margin:0;padding:0;border-top:1px solid var(--border-soft)}.supporting-finding{padding:16px 0;border:0;border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent}.supporting-finding strong,.supporting-finding span,.supporting-finding small{display:block}.supporting-finding strong{font-size:15px;font-weight:500;line-height:1.4}.supporting-finding>div>span,.supporting-finding small{margin-top:6px;color:var(--olive);font-size:12px;line-height:1.45}.check-marker{display:inline!important;margin:0!important;color:var(--brand);font-size:14px!important}.finding-source{display:inline!important;margin:0 5px 0 0!important;border:0;border-radius:2px;padding:2px 6px;background:var(--tag-quiet);color:var(--brand);font-size:11px!important;font-weight:500}
-table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;line-height:1.5;font-variant-numeric:lining-nums tabular-nums}th,td{text-align:left;border-bottom:.5px solid var(--border-soft);padding:8px 8px;vertical-align:top}thead th{color:var(--dark-warm);font-size:12px;font-weight:500;line-height:1.35;border-bottom:1px solid var(--border)}tbody th{font-weight:500}tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}.sortable button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-weight:500;padding:0;cursor:pointer;text-align:left}.sortable button:focus-visible,summary:focus-visible{outline:2px solid var(--brand);outline-offset:3px}.empty{margin:8px 0}.echart{width:100%;height:300px;margin:0 0 12px;background:var(--ivory);border-radius:8px}.chart-summary{color:var(--olive);font-size:12px;line-height:1.45}.chart{display:block;width:100%;height:auto;margin:0 0 20px;background:var(--ivory);border-radius:4px;padding:12px;overflow:visible}.chart-label,.chart-value,.heat-hour{font-family:var(--serif);font-size:12px;fill:var(--stone)}.chart-value{font-variant-numeric:lining-nums tabular-nums;fill:var(--near-black)}.chart-bar{fill:var(--brand)}.chart-track{fill:var(--border)}.segment-input{fill:var(--brand)}.segment-cached{fill:var(--stone)}.segment-cache-write{fill:var(--olive)}.segment-output{fill:var(--chart-mid-blue)}.segment-reasoning{fill:var(--chart-muted)}.heat-0{fill:var(--parchment)}.heat-1{fill:var(--tag-quiet)}.heat-2{fill:var(--tag-bg)}.heat-3{fill:var(--stone)}.heat-4{fill:var(--brand)}details{border-top:1px solid var(--border-soft);padding-top:16px}summary{cursor:pointer;color:var(--brand);font-weight:500;line-height:1.4;margin-bottom:12px}.window-note{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;background:var(--ivory);border-radius:4px;padding:16px;margin-bottom:16px}.window-note span,.week-ranges span{color:var(--stone);font-size:12px;line-height:1.4}.window-grid{grid-template-columns:repeat(5,1fr)}.window-grid strong{margin-top:8px;font-family:var(--serif);font-size:20px;font-weight:500;color:var(--brand)}.week-ranges{grid-template-columns:repeat(2,1fr);margin-bottom:24px}.week-ranges div{background:var(--ivory);border-radius:4px;padding:16px}.week-ranges strong,.week-ranges span{display:block}footer{color:var(--stone);font-size:12px;line-height:1.45;border-top:1px solid var(--border-soft);margin-top:24px;padding-top:24px}footer p{margin:6px 0 16px}
-@media print{ @page{size:A4;margin:14mm 16mm;background:#f5f4ed} body{background:#f5f4ed;-webkit-print-color-adjust:exact;print-color-adjust:exact}main{max-width:none;padding:0}section{break-inside:auto;margin-bottom:36px}.finding,.supporting-finding,.window-note,.week-ranges div,table,.echart{break-inside:avoid}.sortable button{color:inherit} }
-@media(max-width:880px){main{padding:64px 32px 88px}.scope-grid,.coverage-grid,.kpis,.window-grid{grid-template-columns:repeat(2,1fr)}.week-ranges{grid-template-columns:1fr}h1{font-size:40px}.supporting-findings ul{grid-template-columns:1fr}}
-@media(max-width:480px){main{padding:40px 20px 64px}header{margin-bottom:40px;padding-bottom:24px}h1{font-size:30px;letter-spacing:0}header p{font-size:14px}h2{font-size:22px}h3{font-size:16px;margin-top:24px}section{margin-bottom:40px}.scope-grid,.coverage-grid,.kpis,.window-grid,.week-ranges{grid-template-columns:1fr;gap:16px}.kpis{margin-bottom:40px}.kpi{padding-bottom:16px}.kpi strong{font-size:30px}.supporting-findings ul{grid-template-columns:1fr}.echart{height:260px}table{display:block;overflow-x:auto;white-space:nowrap}}
-.finding-evidence{display:inline-flex!important;vertical-align:baseline;flex-direction:column;align-items:flex-start;gap:1px;margin:0 2px!important;color:var(--near-black)!important;font-size:inherit!important;line-height:1.2!important}.finding-value{display:inline!important;margin:0!important;color:inherit!important;font-size:inherit!important}.coverage-alert{color:var(--near-black);background:var(--tag-quiet);border-left:3px solid var(--brand);padding:10px 12px;margin:12px 0 0;font-size:13px;line-height:1.5}.coverage-alert .finding-evidence{vertical-align:middle}.coverage-percentage{display:inline-flex;align-items:baseline;gap:2px;font-variant-numeric:lining-nums tabular-nums}.tool-impact .coverage-note{color:var(--stone)}
+.metadata-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin:0 0 32px}.metadata-grid div{padding:0 16px 14px 0;border-bottom:1px solid var(--border-soft)}.metadata-grid dt,.metric-label{color:var(--stone);font-size:12px;line-height:1.35}.metadata-grid dd{margin:6px 0 0;font-weight:500;line-height:1.45;overflow-wrap:anywhere}
+.metrics{display:grid;gap:24px;margin:0 0 24px}.metrics--summary{grid-template-columns:repeat(3,minmax(0,1fr));gap:32px 28px;margin-bottom:56px}.metrics--coverage{grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:16px}.metrics--economic{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px;margin-bottom:0}.metrics--first-request{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:24px}.metrics--group{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:0}.metrics--window{grid-template-columns:repeat(5,minmax(0,1fr));margin-bottom:0}.metric{min-width:0}.metric-label{display:block}.metric-value{display:block;margin-top:6px;font-family:var(--serif);font-size:22px;font-weight:500;line-height:1.1;color:var(--brand);font-variant-numeric:lining-nums tabular-nums}.metrics--summary .metric-value{font-size:32px}.metrics--coverage .metric-value,.metrics--window .metric-value{font-size:24px}.metric-stack{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;font-variant-numeric:lining-nums tabular-nums}.metric-main{display:block}.percentage{display:block;white-space:nowrap}.unavailable{color:var(--stone);font-style:normal}.finding-evidence{display:inline-flex;vertical-align:baseline;flex-direction:column;align-items:flex-start;gap:1px;margin:0 2px;color:inherit;font-size:inherit;line-height:1.2}.finding-value{display:inline;margin:0;color:inherit;font-size:inherit}.coverage-percentage{display:inline-flex;align-items:baseline;gap:2px;font-variant-numeric:lining-nums tabular-nums}
+.comparison-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin:24px 0 0}.ivory-group{background:var(--ivory);border:0;border-radius:10px;padding:20px 22px;break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact}.ivory-group h3{margin:0 0 16px}.ivory-group .metrics{margin-bottom:0}.rolling-activity .coverage-note{margin:10px 0 12px}.rolling-activity .window-note{justify-content:flex-start;margin-bottom:18px}
+.coverage-note,.empty{color:var(--olive);font-size:13px;line-height:1.5}.quiet-callout{background:var(--ivory);border:0;border-radius:8px;padding:12px 16px;margin:16px 0 0;color:var(--dark-warm)}.quiet-callout p{margin:8px 0 0}.quiet-callout .finding-evidence{vertical-align:middle}.tag{display:inline-block;border:0;border-radius:2px;padding:2px 6px;font-family:var(--sans);font-size:11px;font-weight:500;line-height:1.35;color:var(--brand);white-space:nowrap}.tag--quiet{background:var(--tag-quiet)}.tag--default{background:var(--tag-bg)}
+.editorial-list{margin:12px 0 0;padding-left:20px;color:var(--olive);font-size:13px;line-height:1.5}.editorial-list li+li{margin-top:8px}.supporting-findings ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 32px;list-style:none;margin:0;padding:0}.editorial-item{padding:18px 0;border-top:1px solid var(--border-soft)}.editorial-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}.editorial-title{display:block;font-size:16px;font-weight:500;line-height:1.4}.editorial-detail{margin:6px 0 0;color:var(--olive);font-size:14px;line-height:1.5}.editorial-method{display:block;margin-top:8px;color:var(--stone);font-size:12px;line-height:1.45}
+.kami-table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;line-height:1.45;font-variant-numeric:lining-nums tabular-nums}.kami-table th,.kami-table td{text-align:left;border-bottom:.5px solid var(--border-soft);padding:8px 0 8px 16px;vertical-align:top}.kami-table th:first-child,.kami-table td:first-child{padding-left:0}.kami-table thead th{color:var(--dark-warm);font-size:12px;font-weight:500;line-height:1.35;border-bottom:1px solid var(--border)}.kami-table th:not(:first-child),.kami-table td:not(:first-child){text-align:right}.kami-table tbody th{font-weight:500;text-align:left}.kami-table tbody tr:last-child th,.kami-table tbody tr:last-child td{border-bottom:0}.kami-table.skills-table th:nth-child(2),.kami-table.skills-table td:nth-child(2),.kami-table.skills-table th:nth-child(9),.kami-table.skills-table td:nth-child(9),.kami-table.skills-table th:nth-child(10),.kami-table.skills-table td:nth-child(10){text-align:left}.kami-table.compact th,.kami-table.compact td{padding-top:6px;padding-bottom:6px}.sortable button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-weight:500;padding:0;cursor:pointer;text-align:left;width:100%}.sort-button::after{color:var(--stone);font-size:.9em;font-weight:400}.kami-table th:not([aria-sort]) .sort-button:hover::after,.kami-table th:not([aria-sort]) .sort-button:focus-visible::after{content:" ↕"}.kami-table th[aria-sort="ascending"] .sort-button::after{content:" ↑"}.kami-table th[aria-sort="descending"] .sort-button::after{content:" ↓"}.kami-table th:not(:first-child) button{text-align:right}.sortable button:focus-visible,summary:focus-visible{outline:2px solid var(--brand);outline-offset:3px}.empty{margin:8px 0}
+.echart{width:100%;height:300px;margin:0 0 12px;background:transparent;border:0;border-radius:0}.chart-summary{color:var(--olive);font-size:12px;line-height:1.45}.chart{display:block;width:100%;height:auto;margin:0 0 20px;background:transparent;border-radius:0;padding:0;overflow:visible}.chart-label,.chart-value,.heat-hour{font-family:var(--serif);font-size:12px;fill:var(--stone)}.chart-value{font-variant-numeric:lining-nums tabular-nums;fill:var(--near-black)}.chart-bar{fill:var(--brand)}.chart-track{fill:var(--border)}.segment-input{fill:var(--brand)}.segment-cached{fill:var(--stone)}.segment-cache-write{fill:var(--olive)}.segment-output{fill:var(--brand-light)}.segment-reasoning{fill:var(--chart-muted)}.heat-0{fill:var(--parchment)}.heat-1{fill:var(--tag-quiet)}.heat-2{fill:var(--tag-bg)}.heat-3{fill:var(--stone)}.heat-4{fill:var(--brand)}
+details{margin-top:24px;padding-top:4px}summary{cursor:pointer;list-style:none;color:var(--brand);font-weight:500;line-height:1.4;margin:0}summary::-webkit-details-marker{display:none}summary::after{content:""}.window-note{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 16px}.window-note span,.week-ranges span{color:var(--stone);font-size:12px;line-height:1.4}.week-ranges{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-bottom:24px}.week-ranges div{background:var(--ivory);border-radius:8px;padding:14px 16px}.week-ranges strong,.week-ranges span{display:block}footer{color:var(--stone);font-size:12px;line-height:1.45;border-top:1px solid var(--border-soft);margin-top:24px;padding-top:24px}footer p{margin:6px 0 16px}
+@media print{@page{size:A4;margin:14mm 16mm;background:#f5f4ed}body{background:#f5f4ed;-webkit-print-color-adjust:exact;print-color-adjust:exact}main{max-width:none;padding:0}section{break-inside:auto;margin-bottom:36px}.quiet-callout,.ivory-group,.editorial-item,.week-ranges div,.kami-table,.echart,.chart{break-inside:avoid}.sortable button{color:inherit}}
+@media(max-width:880px){main{padding:64px 32px 88px}.metadata-grid,.metrics--coverage,.metrics--summary,.metrics--economic,.metrics--first-request,.metrics--group,.metrics--window{grid-template-columns:repeat(2,minmax(0,1fr))}.comparison-grid{gap:18px}.week-ranges{grid-template-columns:1fr}h1{font-size:40px}.supporting-findings ul{grid-template-columns:1fr}}
+@media(max-width:480px){main{padding:40px 20px 64px}header{margin-bottom:40px;padding-bottom:24px}h1{font-size:30px;letter-spacing:0}header p{font-size:14px}h2{font-size:22px}h3{font-size:16px;margin-top:24px}section{margin-bottom:40px}.metadata-grid{grid-template-columns:1fr;gap:16px}.metrics--coverage,.metrics--summary,.metrics--economic,.metrics--first-request,.metrics--group,.metrics--window{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.comparison-grid,.week-ranges{grid-template-columns:1fr;gap:16px}.ivory-group{padding:18px}.metrics--summary{margin-bottom:40px}.metrics--summary .metric-value{font-size:30px}.echart{height:260px}.kami-table{display:block;overflow-x:auto;white-space:nowrap}}
+.tool-impact .coverage-note{color:var(--stone)}
 </style>`;
 }
 

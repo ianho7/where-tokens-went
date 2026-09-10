@@ -714,7 +714,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.match(html, /title="精确值：126,000,000；证据来源：已报告"/);
     assert.match(html, /id="token-trend" class="echart"/);
     assert.match(html, /renderer:'svg'/);
-    assert.match(html, /table class="sortable"/);
+    assert.match(html, /table class="kami-table compact sortable"/);
     assert.match(html, /class="chart hourly-heatmap"/);
     assert.match(html, /viewBox="0 0 880/);
     assert.equal(html.includes('x="745"'), false);
