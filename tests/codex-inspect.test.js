@@ -6,6 +6,8 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { analyseAudit } = require('../dist/src/analysis.js');
+const { readContentEvidence } = require('../dist/src/content-evidence.js');
+const { auditFingerprint, validateKeySessionAnalysis, composeKeySessionAnalyses } = require('../dist/src/key-session-analysis.js');
 const { resolveApiPricing } = require('../dist/src/rates.js');
 const { renderHtml, renderText } = require('../dist/src/report.js');
 
@@ -401,6 +403,203 @@ test('Codex scope keeps projects separate and deduplicates repeated response usa
     assert.equal(result.summary.topSessionId.value, 'current-session');
     assert.equal(result.summary.topSessionTitle.provenance, 'unavailable');
     assert.equal(result.rankings.sessions[0].displayName, 'current-session');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Codex current usage records prefer deduplicated response usage and reconcile cumulative snapshots', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-codex-accounting-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '11');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessions, { recursive: true });
+  const timestamp = isoHoursAgo(1);
+  const usage = (total) => ({ input_tokens: total - 10, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: total });
+  const records = [
+    { timestamp, type: 'session_meta', payload: { id: 'accounting-session', cwd: project, cli_version: 'current-fixture' } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'turn-1', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp, type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-1' } },
+    { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'response-1', turn_id: 'turn-1', usage: usage(40), turn_token_usage: usage(40), thread_token_usage: usage(40) } },
+    { timestamp, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'response-1', usage: usage(40) } },
+    { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'response-2', turn_id: 'turn-1', usage: usage(40), turn_token_usage: usage(80), thread_token_usage: usage(80) } },
+    { timestamp, type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: usage(40), total_token_usage: usage(80) } } },
+    { timestamp, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-1', duration_ms: 1200, time_to_first_token_ms: 200 } },
+    { timestamp, type: 'event_msg', payload: { type: 'compacted', id: 'compact-1' } },
+  ];
+  await writeFile(path.join(sessions, 'rollout-accounting-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  try {
+    const { stdout } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      { CODEX_HOME: codexHome },
+    );
+    const result = JSON.parse(stdout);
+    assert.equal(result.summary.totalTokens.value, 80);
+    assert.equal(result.summary.modelCallCount.value, 2);
+    assert.equal(result.summary.tokenAccountingStatus.value, 'reconciled');
+    assert.equal(result.coverage.partialSessions, 0);
+    assert.equal(result.coverage.warnings.some((warning) => /unsupported accounting/i.test(warning)), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Codex analysis exposes Turn trajectory evidence and neutral candidates', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-codex-turns-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '11');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessions, { recursive: true });
+  const first = isoHoursAgo(2);
+  const second = isoHoursAgo(1);
+  const response = (timestamp, id, turnId, total) => ({ timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: id, turn_id: turnId, usage: { input_tokens: total - 10, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: total } } });
+  const records = [
+    { timestamp: first, type: 'session_meta', payload: { id: 'turn-session', cwd: project, cli_version: 'turn-fixture' } },
+    { timestamp: first, type: 'turn_context', payload: { turn_id: 'turn-small', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp: first, type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-small' } },
+    response(first, 'turn-response-1', 'turn-small', 20),
+    { timestamp: first, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-small', duration_ms: 500, time_to_first_token_ms: 100 } },
+    { timestamp: second, type: 'turn_context', payload: { turn_id: 'turn-large', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp: second, type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-large' } },
+    { timestamp: second, type: 'item_started', payload: { type: 'item_started', turn_id: 'turn-large', item: { type: 'custom_tool_call', id: 'tool-1', name: 'Read', input: 'x' } } },
+    { timestamp: second, type: 'item_completed', payload: { type: 'item_completed', turn_id: 'turn-large', item: { type: 'custom_tool_call_output', id: 'tool-1', name: 'Read', output: 'large-result' } } },
+    response(second, 'turn-response-2', 'turn-large', 80),
+    { timestamp: second, type: 'event_msg', payload: { type: 'compacted', id: 'compact-1', turn_id: 'turn-large' } },
+    { timestamp: second, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-large', duration_ms: 1500, time_to_first_token_ms: 300 } },
+  ];
+  await writeFile(path.join(sessions, 'rollout-turn-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  try {
+    const { stdout } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      { CODEX_HOME: codexHome },
+    );
+    const result = JSON.parse(stdout);
+    assert.equal(result.turns.length, 2);
+    assert.equal(result.turns.find((turn) => turn.turnId === 'turn-large').tokens.totalTokens.value, 80);
+    assert.equal(result.turns.find((turn) => turn.turnId === 'turn-large').toolCallCount.value, 1);
+    assert.equal(result.turns.find((turn) => turn.turnId === 'turn-large').lifecycleMarkers.includes('compaction'), true);
+    assert.equal(result.turnCandidates.some((candidate) => candidate.kind === 'turn_concentration'), true);
+    assert.equal(result.turnCandidates.some((candidate) => candidate.kind === 'waiting_hotspot'), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('progressive content Evidence stays inside the selected Top 3 Session and is untrusted in memory', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-content-evidence-'));
+  const project = path.join(root, 'project');
+  const otherProject = path.join(root, 'other-project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '11');
+  await mkdir(project, { recursive: true });
+  await mkdir(otherProject, { recursive: true });
+  await mkdir(sessions, { recursive: true });
+  const timestamp = isoHoursAgo(1);
+  const records = [
+    { timestamp, type: 'session_meta', payload: { id: 'content-session', cwd: project } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'content-turn', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp, type: 'response_item', payload: { type: 'user_message', turn_id: 'content-turn', text: 'historical task context api_key=do-not-persist' } },
+    { timestamp, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'content-response', turn_id: 'content-turn', usage: { input_tokens: 10, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 20 } } },
+  ];
+  await writeFile(path.join(sessions, 'rollout-content-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+  try {
+    const { stdout } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      { CODEX_HOME: codexHome },
+    );
+    const audit = JSON.parse(stdout);
+    const scope = { harness: 'codex', cwd: project, allProjects: false, since: new Date(audit.scope.since) };
+    const packets = await readContentEvidence({
+      scope,
+      audit,
+      selections: [{ sessionId: 'content-session', turnIds: ['content-turn'], selectionReason: 'largest complete Turn', unreadScope: 'remaining Turns' }],
+    });
+    assert.equal(packets[0].items[0].untrusted, true);
+    assert.match(packets[0].items[0].content, /<redacted>/);
+    assert.equal(packets[0].items[0].content.includes('do-not-persist'), false);
+    await assert.rejects(
+      readContentEvidence({
+        scope: { ...scope, cwd: otherProject },
+        audit,
+        selections: [{ sessionId: 'content-session', turnIds: ['content-turn'], selectionReason: 'wrong project', unreadScope: 'none' }],
+      }),
+      /outside the originating project scope/,
+    );
+    await assert.rejects(
+      readContentEvidence({
+        scope,
+        audit,
+        selections: [{ sessionId: 'not-top-three', turnIds: ['content-turn'], selectionReason: 'wrong session', unreadScope: 'none' }],
+      }),
+      /outside the Token-ranked Top 3/,
+    );
+  } finally {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Key Session Analysis validation binds prose to the audit, Session, and Turn Evidence', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-analysis-validation-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '11');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessions, { recursive: true });
+  const timestamp = isoHoursAgo(1);
+  const records = [
+    { timestamp, type: 'session_meta', payload: { id: 'analysis-session', cwd: project } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'analysis-turn', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'analysis-response', turn_id: 'analysis-turn', usage: { input_tokens: 10, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 20 }, turn_token_usage: { input_tokens: 10, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 20 }, thread_token_usage: { input_tokens: 10, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 20 } } },
+  ];
+  await writeFile(path.join(sessions, 'rollout-analysis-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  try {
+    const { stdout } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      { CODEX_HOME: codexHome },
+    );
+    const audit = JSON.parse(stdout);
+    const evidenceId = audit.turns[0].evidenceId;
+    const analysis = {
+      sessionId: 'analysis-session',
+      auditFingerprint: auditFingerprint(audit),
+      taskContext: 'The Session handled a scoped implementation task.',
+      primaryFinding: {
+        observation: 'The largest Turn contains the observed Token total.',
+        interpretation: 'The concentration is worth checking before changing the workflow.',
+        evidenceIds: [evidenceId],
+        support: 'strong',
+        alternativeExplanations: ['The task may have been legitimately complex.'],
+      },
+      recommendation: {
+        action: 'Compare the next similar Session with one smaller Turn boundary.',
+        rationale: 'This tests whether concentration is repeatable.',
+        applicability: 'Use when the next task has the same shape.',
+        tradeoff: 'More boundaries may add coordination overhead.',
+        verification: 'Compare the largest Turn share in the next report.',
+        targetEvidenceIds: [evidenceId],
+      },
+      evidenceRead: { turnIds: ['analysis-turn'], selectionReason: 'largest complete Turn', unreadScope: 'remaining Turns' },
+      limitations: ['No causal effect is proven by this report.'],
+    };
+    assert.equal(validateKeySessionAnalysis(audit, analysis).valid, true);
+    const composedHtml = renderHtml(audit, 'en-US', { auditFingerprint: auditFingerprint(audit), audit, keySessionAnalyses: [analysis] });
+    assert.match(composedHtml, /Key Session Analysis/);
+    assert.match(composedHtml, /The Session handled a scoped implementation task/);
+    assert.match(composedHtml, /<details class="key-session-analysis" open>/);
+    assert.match(renderHtml(audit, 'en-US'), /Key Session Analysis unavailable/);
+    const invalid = { ...analysis, auditFingerprint: 'stale', primaryFinding: { ...analysis.primaryFinding, evidenceIds: ['turn:other'] } };
+    const invalidResult = validateKeySessionAnalysis(audit, invalid);
+    assert.equal(invalidResult.valid, false);
+    assert.match(invalidResult.errors.join(' '), /stale|unknown|cross-Session/i);
+    const composition = composeKeySessionAnalyses(audit, [invalid]);
+    assert.equal(composition.analyses.length, 0);
+    assert.equal(composition.unavailable.length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

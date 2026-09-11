@@ -35,6 +35,18 @@ export interface SessionRecord {
   sourceVersion: string | null;
 }
 
+export interface TurnRecord {
+  sessionId: string;
+  turnId: string;
+  ordinal: number | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationMs: number | null;
+  timeToFirstTokenMs: number | null;
+  status: "ok" | "error" | "interrupted" | "open" | "unknown";
+  timingProvenance: Provenance;
+}
+
 export interface ModelCallRecord {
   sessionId: string;
   callId: string | null;
@@ -71,6 +83,12 @@ export interface ToolCallRecord {
   resultChars?: number | null;
   /** Optional source entry that owns this call when the source exposes branch entries. */
   entryId?: string | null;
+  turnId?: string | null;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  durationMs?: number | null;
+  commandKind?: string | null;
+  commandHash?: string | null;
   isError: boolean | null;
 }
 
@@ -79,6 +97,8 @@ export interface LifecycleRecord {
   timestamp: string | null;
   kind: "retry" | "compaction" | "subagent" | "interrupted";
   relatedId: string | null;
+  turnId?: string | null;
+  origin?: "automatic" | "manual" | null;
 }
 
 export interface ReadScope {
@@ -97,6 +117,7 @@ export interface Coverage {
 
 export interface ReadResult {
   sessions: SessionRecord[];
+  turns: TurnRecord[];
   modelCalls: ModelCallRecord[];
   toolCalls: ToolCallRecord[];
   lifecycle: LifecycleRecord[];
@@ -105,6 +126,15 @@ export interface ReadResult {
   skillEvidence?: SkillUseRecord[];
   /** Final per-Session client cost snapshots, when a Harness reports them. */
   sessionCosts?: SessionCostRecord[];
+  tokenAccounting?: TokenAccountingSummary;
+}
+
+export interface TokenAccountingSummary {
+  responseTotal: number | null;
+  turnTotal: number | null;
+  threadTotal: number | null;
+  status: "reconciled" | "mismatch" | "unavailable";
+  method: string;
 }
 
 export type SkillEvidenceState = "available" | "invoked" | "attributed" | "unavailable";
@@ -321,6 +351,118 @@ export interface AutomatedCheck {
   method: string;
 }
 
+export interface TurnAnalysisEntry {
+  sessionId: string;
+  turnId: string;
+  ordinal: EvidenceValue;
+  tokens: TokenBreakdown;
+  sessionSharePercent: EvidenceValue;
+  modelCallCount: EvidenceValue;
+  startedAt: EvidenceValue;
+  endedAt: EvidenceValue;
+  durationMs: EvidenceValue;
+  timeToFirstTokenMs: EvidenceValue;
+  observedSpanMs: EvidenceValue;
+  toolCallCount: EvidenceValue;
+  pairedToolResultCount: EvidenceValue;
+  toolResultChars: EvidenceValue;
+  toolResultBytes: EvidenceValue;
+  errorCount: EvidenceValue;
+  lifecycleMarkers: string[];
+  evidenceId: string;
+  method: string;
+  coverage: EvidenceValue;
+}
+
+export type TurnDiagnosticKind =
+  | "turn_concentration"
+  | "input_growth"
+  | "tool_result_adjacency"
+  | "compaction_change"
+  | "waiting_hotspot"
+  | "failed_path";
+
+export interface TurnDiagnosticCandidate {
+  id: string;
+  kind: TurnDiagnosticKind;
+  sessionId: string;
+  evidenceIds: string[];
+  evidence: EvidenceValue[];
+  method: string;
+  coverage: EvidenceValue;
+}
+
+export interface KeySessionAnalysis {
+  sessionId: string;
+  auditFingerprint: string;
+  taskContext: string;
+  primaryFinding: {
+    observation: string;
+    interpretation: string;
+    evidenceIds: string[];
+    support: "strong" | "moderate" | "limited";
+    alternativeExplanations: string[];
+  } | null;
+  recommendation: {
+    action: string;
+    rationale: string;
+    applicability: string;
+    tradeoff: string | null;
+    verification: string;
+    targetEvidenceIds: string[];
+  } | null;
+  evidenceRead: {
+    turnIds: string[];
+    selectionReason: string;
+    unreadScope: string;
+  };
+  limitations: string[];
+}
+
+export interface ReportComposition {
+  auditFingerprint: string;
+  audit: AuditResult;
+  keySessionAnalyses: KeySessionAnalysis[];
+}
+
+export interface ContentEvidenceScope extends ReadScope {
+  harness: Harness;
+}
+
+export interface ContentEvidenceSelection {
+  sessionId: string;
+  turnIds: string[];
+  callIds?: string[];
+  selectionReason: string;
+  unreadScope: string;
+}
+
+export interface ContentEvidenceItem {
+  sessionId: string;
+  turnId: string | null;
+  callId: string | null;
+  kind: "user" | "assistant" | "tool" | "metadata";
+  sourceLocation: string;
+  content: string;
+  truncated: boolean;
+  untrusted: true;
+}
+
+export interface ContentEvidencePacket {
+  scope: {
+    harness: Harness;
+    cwd: string | null;
+    allProjects: boolean;
+    since: string;
+  };
+  sessionId: string;
+  turnIds: string[];
+  selectionReason: string;
+  unreadScope: string;
+  items: ContentEvidenceItem[];
+  warnings: string[];
+}
+
 export interface AuditSnapshot {
   scope: {
     harness: Harness;
@@ -331,6 +473,8 @@ export interface AuditSnapshot {
   coverage: Coverage;
   summary: Record<string, EvidenceValue>;
   rankings: ContributionRankings;
+  turns: TurnAnalysisEntry[];
+  turnCandidates: TurnDiagnosticCandidate[];
   report: ReportData;
   checks: AutomatedCheck[];
 }

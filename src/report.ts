@@ -8,11 +8,15 @@ import type {
   AuditView,
   ContributionEntry,
   EvidenceValue,
+  KeySessionAnalysis,
   ReportLocale,
+  ReportComposition,
   ToolAnalysisEntry,
+  TurnAnalysisEntry,
   WeekComparison,
   WeekStructureChange,
 } from "./types";
+import { composeKeySessionAnalyses } from "./key-session-analysis";
 
 interface Labels {
   title: string;
@@ -123,6 +127,21 @@ interface Labels {
   observedAssociation: string;
   causalImpact: string;
   noSkillEvidence: string;
+  turn: string;
+  activeTime: string;
+  driver: string;
+  evidenceCompleteness: string;
+  turnTrajectory: string;
+  keySessionAnalysis: string;
+  taskContext: string;
+  primaryFinding: string;
+  evidenceChain: string;
+  improvementAction: string;
+  verificationMethod: string;
+  interpretation: string;
+  proposal: string;
+  analysisUnavailable: string;
+  noStrongEvidence: string;
 }
 
 const ZH: Labels = {
@@ -234,6 +253,21 @@ const ZH: Labels = {
   observedAssociation: "时间上相关（ModelCall）",
   causalImpact: "有因果证明",
   noSkillEvidence: "所选历史中没有足够证据确认 Skill 列表、调用或资源使用情况。",
+  turn: "Turn",
+  activeTime: "活跃耗时",
+  driver: "主要驱动",
+  evidenceCompleteness: "证据完整度",
+  turnTrajectory: "Turn Token 轨迹",
+  keySessionAnalysis: "关键 Session 分析",
+  taskContext: "任务背景",
+  primaryFinding: "主要问题",
+  evidenceChain: "证据链",
+  improvementAction: "改善行动",
+  verificationMethod: "验证方法",
+  interpretation: "AI 解读",
+  proposal: "改善提议",
+  analysisUnavailable: "关键 Session 分析不可用：",
+  noStrongEvidence: "未发现足以支持主要问题的 Evidence。",
 };
 
 const EN: Labels = {
@@ -345,6 +379,21 @@ const EN: Labels = {
   observedAssociation: "associated ModelCalls",
   causalImpact: "causal impact",
   noSkillEvidence: "The selected history has no verifiable Skill listing, invocation, or resource-use evidence.",
+  turn: "Turns",
+  activeTime: "active time",
+  driver: "main driver",
+  evidenceCompleteness: "Evidence completeness",
+  turnTrajectory: "Turn Token trajectory",
+  keySessionAnalysis: "Key Session Analysis",
+  taskContext: "Task context",
+  primaryFinding: "Primary problem",
+  evidenceChain: "Evidence chain",
+  improvementAction: "Improvement action",
+  verificationMethod: "Verification method",
+  interpretation: "Host Agent interpretation",
+  proposal: "Improvement proposal",
+  analysisUnavailable: "Key Session Analysis unavailable: ",
+  noStrongEvidence: "No Evidence supports a strong primary problem.",
 };
 
 export interface ReportProjection {
@@ -1055,6 +1104,82 @@ function sessionLabel(row: ContributionEntry, locale: ReportLocale): string {
   return (locale === "zh-CN" ? "未命名 Session" : "Untitled Session") + " · " + shortenedId(row.key);
 }
 
+function reportDerivedEvidence(value: number | string | null, method: string): EvidenceValue {
+  return value === null ? { value: null, provenance: "unavailable", method } : { value, provenance: "derived", method };
+}
+
+function sessionTurns(result: AuditResult, sessionId: string): TurnAnalysisEntry[] {
+  return (result.turns ?? []).filter((turn) => turn.sessionId === sessionId);
+}
+
+function sessionActiveTime(result: AuditResult, sessionId: string): EvidenceValue {
+  const turns = sessionTurns(result, sessionId);
+  const durations = turns.map((turn) => turn.durationMs.value).filter((value): value is number => typeof value === "number");
+  if (durations.length > 0) return reportDerivedEvidence(durations.reduce((sum, value) => sum + value, 0), "sum of source-reported Turn durations in the Session");
+  const spans = turns.map((turn) => turn.observedSpanMs.value).filter((value): value is number => typeof value === "number");
+  return spans.length > 0 ? reportDerivedEvidence(spans.reduce((sum, value) => sum + value, 0), "sum of observed Turn spans; exact active time was unavailable") : { value: null, provenance: "unavailable", method: "Session has no complete Turn duration or observed span" };
+}
+
+function sessionDriver(result: AuditResult, sessionId: string, locale: ReportLocale): string {
+  const candidate = (result.turnCandidates ?? []).find((item) => item.sessionId === sessionId);
+  if (!candidate) return "—";
+  const labels: Record<string, string> = locale === "zh-CN"
+    ? { turn_concentration: "Turn 集中", input_growth: "输入增长", tool_result_adjacency: "大工具结果邻接", compaction_change: "压缩边界", waiting_hotspot: "等待热点", failed_path: "失败路径" }
+    : { turn_concentration: "Turn concentration", input_growth: "input growth", tool_result_adjacency: "tool-result adjacency", compaction_change: "compaction boundary", waiting_hotspot: "waiting hotspot", failed_path: "failed path" };
+  return labels[candidate.kind] ?? candidate.kind;
+}
+
+function sessionCompleteness(result: AuditResult, sessionId: string): EvidenceValue {
+  const turns = sessionTurns(result, sessionId);
+  if (turns.length === 0) return { value: null, provenance: "unavailable", method: "Session has no Turn trajectory" };
+  return reportDerivedEvidence(Math.round((turns.reduce((sum, turn) => sum + Number(turn.coverage.value ?? 0), 0) / turns.length) * 100) / 100, "mean of Turn evidence completeness percentages");
+}
+
+function renderTurnTrajectory(result: AuditResult, sessionId: string, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  const turns = sessionTurns(result, sessionId);
+  if (turns.length === 0) return emptyState(labels, locale === "zh-CN" ? "没有可用的 Turn Evidence。" : "No Turn Evidence is available.");
+  const rows = turns.map((turn) => "<tr><th scope=\"row\">" + escapeHtml(turn.ordinal.value === null ? turn.turnId : String(turn.ordinal.value)) + "</th><td>" + tokenCell(turn.tokens.totalTokens, locale) + "</td><td>" + percentageHtml(turn.sessionSharePercent, locale) + "</td><td>" + tokenCell(turn.tokens.inputTokens, locale) + " / " + tokenCell(turn.tokens.cachedInputTokens, locale) + " / " + tokenCell(turn.tokens.outputTokens, locale) + "</td><td>" + tokenCell(turn.durationMs, locale) + " / " + tokenCell(turn.timeToFirstTokenMs, locale) + "</td><td>" + tokenCell(turn.toolCallCount, locale) + " / " + tokenCell(turn.toolResultChars, locale) + "</td><td>" + escapeHtml(turn.lifecycleMarkers.join(", ") || "—") + "</td></tr>").join("");
+  return "<table class=\"kami-table compact turn-trajectory\"><caption class=\"sr-only\">" + escapeHtml(labels.turnTrajectory) + "</caption><thead><tr><th scope=\"col\">" + escapeHtml(labels.turn) + "</th><th scope=\"col\">" + escapeHtml(labels.tokens) + "</th><th scope=\"col\">" + escapeHtml(labels.share) + "</th><th scope=\"col\">" + escapeHtml(labels.input) + " / " + escapeHtml(labels.cachedInput) + " / " + escapeHtml(labels.output) + "</th><th scope=\"col\">" + escapeHtml(labels.activeTime) + " / TTFT</th><th scope=\"col\">Tool / result</th><th scope=\"col\">Lifecycle</th></tr></thead><tbody>" + rows + "</tbody></table>";
+}
+
+function renderKeySessionAnalysis(result: AuditResult, locale: ReportLocale, composition?: ReportComposition): string {
+  const labels = labelsFor(locale);
+  const topSessions = result.rankings.sessions.slice(0, 3);
+  if (topSessions.length === 0 || (result.turns ?? []).length === 0) return "";
+  const validated = composition
+    ? composeKeySessionAnalyses(result, composition.keySessionAnalyses)
+    : { analyses: [], unavailable: [locale === "zh-CN" ? "未提供 Host Agent 结构化分析。" : "No Host Agent composition was provided."] };
+  const bySession = new Map(validated.analyses.map((analysis) => [analysis.sessionId, analysis]));
+  const blocks = topSessions.map((row, index) => {
+    const analysis = bySession.get(row.key);
+    const unavailableReason = validated.unavailable.find((reason) => reason.startsWith(row.key + ":")) ?? validated.unavailable[0];
+    let body = "";
+    if (!analysis) {
+      body = "<p class=\"analysis-unavailable\">" + escapeHtml(labels.analysisUnavailable + (unavailableReason ?? (locale === "zh-CN" ? "未返回合法结构。" : "No valid structured analysis was returned."))) + "</p>";
+    } else {
+      const evidenceIds = [...new Set([...(analysis.primaryFinding?.evidenceIds ?? []), ...(analysis.recommendation?.targetEvidenceIds ?? [])])];
+      const evidenceRows = evidenceIds.map((evidenceId) => {
+        const turn = (result.turns ?? []).find((candidate) => candidate.evidenceId === evidenceId);
+        return turn ? "<tr><th scope=\"row\">" + escapeHtml(evidenceId) + "</th><td>Turn " + escapeHtml(turn.turnId) + "</td><td>" + tokenCell(turn.tokens.totalTokens, locale) + "</td><td>" + percentageHtml(turn.sessionSharePercent, locale) + "</td></tr>" : "";
+      }).join("");
+      body = "<div class=\"analysis-grid\"><div><h4>" + escapeHtml(labels.taskContext) + "</h4><p>" + escapeHtml(analysis.taskContext) + "</p></div><div><h4>" + escapeHtml(labels.primaryFinding) + "</h4>" + (analysis.primaryFinding ? "<p><strong>" + escapeHtml(analysis.primaryFinding.observation) + "</strong></p><p class=\"analysis-interpretation\"><span class=\"analysis-label\">" + escapeHtml(labels.interpretation) + "</span> " + escapeHtml(analysis.primaryFinding.interpretation) + "</p><p>" + escapeHtml(analysis.primaryFinding.alternativeExplanations.join("; ")) + "</p>" : "<p>" + escapeHtml(labels.noStrongEvidence) + "</p>") + "</div><div><h4>" + escapeHtml(labels.evidenceChain) + "</h4>" + (evidenceRows ? "<table class=\"kami-table compact\"><thead><tr><th>Evidence ID</th><th>Turn</th><th>Token</th><th>Share</th></tr></thead><tbody>" + evidenceRows + "</tbody></table>" : "<p>—</p>") + "</div><div><h4>" + escapeHtml(labels.improvementAction) + "</h4>" + (analysis.recommendation ? "<p><span class=\"analysis-label\">" + escapeHtml(labels.proposal) + "</span> " + escapeHtml(analysis.recommendation.action) + "</p><p>" + escapeHtml(analysis.recommendation.rationale) + "</p><p>" + escapeHtml(analysis.recommendation.applicability) + (analysis.recommendation.tradeoff ? " · " + escapeHtml(analysis.recommendation.tradeoff) : "") + "</p>" : "<p>—</p>") + "</div><div><h4>" + escapeHtml(labels.verificationMethod) + "</h4><p>" + escapeHtml(analysis.recommendation?.verification ?? (locale === "zh-CN" ? "无强证据时不提供改善建议。" : "No verification proposal is provided without strong Evidence.")) + "</p></div></div>";
+    }
+    return "<details class=\"key-session-analysis\"" + (index === 0 ? " open" : "") + "><summary>" + escapeHtml(sessionLabel(row, locale)) + " · " + escapeHtml(labels.turn) + " " + evidencePlain(reportDerivedEvidence(sessionTurns(result, row.key).length, "count of Turn records in the Session"), locale, false) + "</summary>" + body + "<h4>" + escapeHtml(labels.turnTrajectory) + "</h4>" + renderTurnTrajectory(result, row.key, locale) + "</details>";
+  }).join("");
+  return "<section class=\"key-session-analysis-section\"><h2>" + escapeHtml(labels.keySessionAnalysis) + "</h2><p class=\"coverage-note\">" + escapeHtml(locale === "zh-CN" ? "事实、Host Agent 解读和改善提议分开显示；所有数字来自确定性 Turn Evidence。" : "Facts, Host Agent interpretation, and improvement proposals are separated; all numbers come from deterministic Turn Evidence.") + "</p>" + blocks + "</section>";
+}
+
+function renderExplainableSessions(result: AuditResult, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  const rows = result.rankings.sessions.slice(0, 10);
+  if (rows.length === 0) return emptyState(labels);
+  return "<table class=\"kami-table sortable explainable-sessions\"><thead><tr><th>" + escapeHtml(labels.session) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.turn) + "</th><th>" + escapeHtml(labels.activeTime) + "</th><th>" + escapeHtml(labels.driver) + "</th><th>" + escapeHtml(labels.evidenceCompleteness) + "</th></tr></thead><tbody>" + rows.map((row) => {
+    const turnCount = reportDerivedEvidence(sessionTurns(result, row.key).length, "count of Turn records in the Session");
+    return "<tr><th scope=\"row\">" + escapeHtml(sessionLabel(row, locale)) + "</th><td>" + tokenCell(row.value, locale) + "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(turnCount, locale) + "</td><td>" + tokenCell(sessionActiveTime(result, row.key), locale) + "</td><td>" + escapeHtml(sessionDriver(result, row.key, locale)) + "</td><td>" + percentageHtml(sessionCompleteness(result, row.key), locale) + "</td></tr>";
+  }).join("") + "</tbody></table>";
+}
+
 function renderDaily(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const rows = result.report.dailyUsage;
@@ -1078,6 +1203,7 @@ function renderModels(result: AuditResult, locale: ReportLocale): string {
 }
 
 function renderSessions(result: AuditResult, locale: ReportLocale): string {
+  if ((result.turns ?? []).length > 0) return renderExplainableSessions(result, locale);
   const labels = labelsFor(locale);
   const rows = result.rankings.sessions.slice(0, 10);
   if (rows.length === 0) return emptyState(labels);
@@ -1550,7 +1676,7 @@ details > .kami-table{margin-top:16px}
 </style>`;
 }
 
-export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US"): string {
+export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US", composition?: ReportComposition): string {
   const labels = labelsFor(locale);
   const modelBars = result.rankings.models.map((row) => ({ key: modelLabel(row.key, locale), value: row.value }));
   const parts = [
@@ -1573,6 +1699,7 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US"):
       "</div>" + renderModels(result, locale) + "</section>",
     "<section class=\"tool-impact\"><h2>" + escapeHtml(labels.tools) + "</h2><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "按工具统计工具结果被算入上下文的估算大小" : "Estimated tool-result injection by tool") + "\"></div>" + renderTools(result, locale) + "</section>",
     "<section><h2>" + escapeHtml(labels.sessionsByUsage) + "</h2>" + renderSessions(result, locale) + "</section>",
+    renderKeySessionAnalysis(result, locale, composition),
     "<section><h2>" + escapeHtml(labels.limitations) + "</h2>" +
       renderWarningList(result, locale) + "</section>",
     "<footer><strong>" + escapeHtml(labels.privacy) + "</strong><p>" + escapeHtml(labels.privacyNote) + "</p></footer>",

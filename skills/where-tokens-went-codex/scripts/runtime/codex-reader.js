@@ -181,6 +181,13 @@ function usageValues(value) {
         totalTokens,
     };
 }
+function usageTotal(usage) {
+    return usage?.totalTokens ?? null;
+}
+function completeUsageSnapshot(value) {
+    const usage = usageValues(value);
+    return usageTotal(usage) === null ? null : usage;
+}
 function callFromUsage(sessionId, callId, timestamp, model, provider, turnId, usage) {
     const totalTokens = usage.totalTokens ?? (usage.inputTokens !== null && usage.outputTokens !== null && usage.reasoningTokens !== null
         ? usage.inputTokens + usage.outputTokens + usage.reasoningTokens
@@ -249,17 +256,18 @@ const knownCodexTypes = new Set([
     "session_meta", "session_metadata", "turn_context", "event_msg", "response_item", "token_count",
     "raw_response_completed", "raw_response_completed_event", "function_call", "function_call_output",
     "custom_tool_call", "custom_tool_call_output", "shell_command", "tool_call", "tool_result", "stream_error",
+    "token_usage_record", "task_started", "task_complete", "task_completed", "item_started", "item_completed", "compacted",
     "turn_aborted", "interrupted", "error", "compaction", "subagent", "skill", "skill_input", "skill_invocation", "skill_listing", "skill-listing",
 ]);
 function accountingSensitiveCodexType(type) {
     return /usage|token|response|assistant|message|tool|call|turn|retry|interrupt|compact|subagent|error/i.test(type);
 }
 function responseUsage(record, payload) {
-    const event = firstObject(isType(record, payload, "raw_response_completed") ? payload : null, isType(record, payload, "raw_response_completed_event") ? payload : null, payload.event, record.event);
+    const event = firstObject(isType(record, payload, "raw_response_completed") ? payload : null, isType(record, payload, "raw_response_completed_event") ? payload : null, isType(record, payload, "token_usage_record") ? payload : null, payload.event, record.event);
     if (!event)
         return null;
     const eventType = stringValue(event.type, event.kind);
-    if (eventType && eventType !== "raw_response_completed" && eventType !== "raw_response_completed_event") {
+    if (eventType && eventType !== "raw_response_completed" && eventType !== "raw_response_completed_event" && eventType !== "token_usage_record") {
         return null;
     }
     const usage = usageValues(event.usage ?? event.token_usage ?? event.tokenUsage);
@@ -269,6 +277,9 @@ function responseUsage(record, payload) {
     return {
         id: stringValue(event.response_id, event.responseId, event.id),
         usage,
+        turnId: stringValue(event.turn_id, event.turnId, payload.turn_id, payload.turnId),
+        turnTokenUsage: completeUsageSnapshot(event.turn_token_usage ?? event.turnTokenUsage ?? payload.turn_token_usage ?? payload.turnTokenUsage),
+        threadTokenUsage: completeUsageSnapshot(event.thread_token_usage ?? event.threadTokenUsage ?? payload.thread_token_usage ?? payload.threadTokenUsage),
     };
 }
 function tokenCountUsage(record, payload) {
@@ -315,16 +326,18 @@ function characterLength(value) {
 }
 function toolEvent(record, payload) {
     const type = stringValue(payload.type, record.type)?.toLowerCase() ?? "";
-    const callId = stringValue(payload.call_id, payload.callId, payload.tool_call_id, payload.toolCallId);
+    const item = firstObject(payload.item, payload.tool_item, payload.toolItem);
+    const callId = stringValue(payload.call_id, payload.callId, payload.tool_call_id, payload.toolCallId, item?.call_id, item?.callId, item?.id);
     if (!callId)
         return null;
-    const isResult = type.includes("output") || type.includes("result") || type.includes("completed");
-    const isCall = type.includes("function_call") || type.includes("custom_tool_call") || type.includes("tool_call") || type.includes("shell_command");
+    const itemType = stringValue(item?.type)?.toLowerCase() ?? "";
+    const isResult = type.includes("output") || type.includes("result") || type.includes("completed") || itemType.includes("output") || itemType.includes("result");
+    const isCall = type.includes("function_call") || type.includes("custom_tool_call") || type.includes("tool_call") || type.includes("shell_command") || type === "item_started" || itemType.includes("call") || itemType.includes("command");
     if (!isCall && !isResult)
         return null;
-    const toolName = stringValue(payload.name, payload.tool_name, payload.toolName) ?? "unknown-tool";
-    const input = getNested(payload, "arguments", "input", "command", "query");
-    const output = getNested(payload, "output", "result", "content", "stdout", "stderr");
+    const toolName = stringValue(payload.name, payload.tool_name, payload.toolName, item?.name, item?.tool_name, item?.toolName) ?? "unknown-tool";
+    const input = getNested(payload, "arguments", "input", "command", "query") ?? getNested(item, "arguments", "input", "command", "query");
+    const output = getNested(payload, "output", "result", "content", "stdout", "stderr") ?? getNested(item, "output", "result", "content", "stdout", "stderr");
     return {
         kind: isResult ? "result" : "call",
         callId,
@@ -332,7 +345,7 @@ function toolEvent(record, payload) {
         inputBytes: isResult ? null : byteLength(input),
         resultBytes: isResult ? byteLength(output) : null,
         resultChars: isResult ? characterLength(output) : null,
-        isError: booleanValue(payload.is_error, payload.isError, payload.error),
+        isError: booleanValue(payload.is_error, payload.isError, payload.error, item?.is_error, item?.isError, item?.error),
     };
 }
 function sessionIdFor(file, fallbackIndex) {
@@ -384,6 +397,63 @@ function updateSessionTimes(pending, timestamp) {
     if (!pending.session.endedAt || Date.parse(pending.session.endedAt) < milliseconds) {
         pending.session.endedAt = timestamp;
     }
+}
+function ensureTurn(pending, turnId, timestamp) {
+    if (!turnId)
+        return null;
+    const existing = pending.turns.find((turn) => turn.turnId === turnId);
+    if (existing) {
+        if (timestamp && (!existing.startedAt || Date.parse(existing.startedAt) > Date.parse(timestamp)))
+            existing.startedAt = timestamp;
+        return existing;
+    }
+    const turn = {
+        sessionId: pending.session.sessionId,
+        turnId,
+        ordinal: pending.turns.length + 1,
+        startedAt: timestamp,
+        endedAt: null,
+        durationMs: null,
+        timeToFirstTokenMs: null,
+        status: "open",
+        timingProvenance: timestamp ? "reported" : "unavailable",
+    };
+    pending.turns.push(turn);
+    return turn;
+}
+function updateTurnFromTask(pending, payload, timestamp, complete) {
+    const turnId = stringValue(payload.turn_id, payload.turnId, payload.task_id, payload.taskId, payload.id);
+    const turn = ensureTurn(pending, turnId, timestamp);
+    if (!turn)
+        return;
+    const startedAt = timestampValue(payload.started_at, payload.startedAt, payload.start_time, payload.startTime);
+    const endedAt = timestampValue(payload.ended_at, payload.endedAt, payload.end_time, payload.endTime) ?? (complete ? timestamp : null);
+    if (startedAt)
+        turn.startedAt = startedAt;
+    if (endedAt)
+        turn.endedAt = endedAt;
+    const durationMs = numberValue(payload.duration_ms, payload.durationMs);
+    if (durationMs !== null) {
+        turn.durationMs = durationMs;
+        turn.timingProvenance = "reported";
+    }
+    const ttft = numberValue(payload.time_to_first_token_ms, payload.timeToFirstTokenMs);
+    if (ttft !== null) {
+        turn.timeToFirstTokenMs = ttft;
+        turn.timingProvenance = "reported";
+    }
+    if (complete) {
+        const status = stringValue(payload.status, payload.outcome, payload.stop_reason, payload.stopReason)?.toLowerCase() ?? "";
+        turn.status = /error|fail/.test(status) || payload.error ? "error" : /abort|interrupt|cancel/.test(status) ? "interrupted" : "ok";
+    }
+}
+function appendLifecycle(pending, event) {
+    const duplicate = pending.lifecycle.some((existing) => existing.kind === event.kind &&
+        existing.relatedId === event.relatedId &&
+        existing.timestamp === event.timestamp &&
+        existing.turnId === event.turnId);
+    if (!duplicate)
+        pending.lifecycle.push(event);
 }
 function subagentSource(value) {
     if (typeof value === "string")
@@ -498,6 +568,9 @@ async function readCodex(scope) {
                         rawCalls: [],
                         incrementalCalls: [],
                         finalTotal: null,
+                        turns: [],
+                        turnTokenSnapshots: new Map(),
+                        threadTokenSnapshot: null,
                         toolCalls: [],
                         lifecycle: [],
                         currentModel: null,
@@ -530,6 +603,9 @@ async function readCodex(scope) {
                 rawCalls: [],
                 incrementalCalls: [],
                 finalTotal: null,
+                turns: [],
+                turnTokenSnapshots: new Map(),
+                threadTokenSnapshot: null,
                 toolCalls: [],
                 lifecycle: [],
                 currentModel: null,
@@ -590,12 +666,24 @@ async function readCodex(scope) {
                 pending.currentModel = stringValue(payload.model, payload.model_name, payload.modelName) ?? pending.currentModel;
                 pending.currentProvider = stringValue(payload.model_provider, payload.modelProvider, payload.provider) ?? pending.currentProvider;
                 pending.currentTurnId = stringValue(payload.turn_id, payload.turnId) ?? pending.currentTurnId;
+                ensureTurn(pending, pending.currentTurnId, timestamp);
             }
+            const eventType = stringValue(payload.type, payload.event_type, payload.eventType, record.type)?.toLowerCase();
+            if (eventType === "task_started")
+                updateTurnFromTask(pending, payload, timestamp, false);
+            if (eventType === "task_complete" || eventType === "task_completed")
+                updateTurnFromTask(pending, payload, timestamp, true);
             const model = stringValue(payload.model, payload.model_name, payload.modelName) ?? pending.currentModel;
             const provider = stringValue(payload.model_provider, payload.modelProvider, payload.provider) ?? pending.currentProvider;
             const response = responseUsage(record, payload);
             if (response) {
-                const call = callFromUsage(sessionId, response.id, timestamp, model, provider, pending.currentTurnId, response.usage);
+                const responseTurnId = response.turnId ?? pending.currentTurnId;
+                ensureTurn(pending, responseTurnId, timestamp);
+                if (responseTurnId && response.turnTokenUsage)
+                    pending.turnTokenSnapshots.set(responseTurnId, response.turnTokenUsage);
+                if (response.threadTokenUsage)
+                    pending.threadTokenSnapshot = response.threadTokenUsage;
+                const call = callFromUsage(sessionId, response.id, timestamp, model, provider, responseTurnId, response.usage);
                 if (!call.timestamp)
                     pending.missingTimestamp = true;
                 const existingIndex = response.id
@@ -603,7 +691,9 @@ async function readCodex(scope) {
                     : -1;
                 if (existingIndex >= 0) {
                     const existing = pending.rawCalls[existingIndex];
-                    if (existing.totalTokens === null && call.totalTokens !== null)
+                    const existingCompleteness = Object.values(existing).filter((value) => value !== null && value !== undefined).length;
+                    const callCompleteness = Object.values(call).filter((value) => value !== null && value !== undefined).length;
+                    if (callCompleteness > existingCompleteness)
                         pending.rawCalls[existingIndex] = call;
                 }
                 else {
@@ -645,6 +735,10 @@ async function readCodex(scope) {
                         inputBytes: tool.inputBytes,
                         resultBytes: null,
                         resultChars: null,
+                        turnId: evidenceTurnId,
+                        startedAt: eventType === "item_started" ? timestamp : null,
+                        endedAt: null,
+                        durationMs: null,
                         isError: tool.isError,
                     });
                 }
@@ -654,6 +748,11 @@ async function readCodex(scope) {
                         existing.resultBytes = tool.resultBytes;
                         existing.resultChars = tool.resultChars;
                         existing.isError = tool.isError ?? existing.isError;
+                        existing.turnId = existing.turnId ?? evidenceTurnId;
+                        existing.endedAt = timestamp;
+                        const durationMs = numberValue(payload.duration_ms, payload.durationMs);
+                        if (durationMs !== null)
+                            existing.durationMs = durationMs;
                     }
                     else {
                         pending.toolCalls.push({
@@ -664,18 +763,21 @@ async function readCodex(scope) {
                             inputBytes: null,
                             resultBytes: tool.resultBytes,
                             resultChars: tool.resultChars,
+                            turnId: evidenceTurnId,
+                            startedAt: null,
+                            endedAt: timestamp,
+                            durationMs: numberValue(payload.duration_ms, payload.durationMs),
                             isError: tool.isError,
                         });
                     }
                 }
             }
-            if (isType(record, payload, "event_msg")) {
-                const eventType = stringValue(payload.type, payload.event_type, payload.eventType);
+            if (isType(record, payload, "event_msg") || eventType === "compacted" || eventType === "compaction") {
                 if (eventType === "error" || eventType === "stream_error") {
                     const last = pending.rawCalls[pending.rawCalls.length - 1] ?? pending.incrementalCalls[pending.incrementalCalls.length - 1];
                     if (last)
                         last.status = "error";
-                    pending.lifecycle.push({ sessionId, timestamp, kind: "retry", relatedId: last?.callId ?? null });
+                    appendLifecycle(pending, { sessionId, timestamp, kind: "retry", relatedId: last?.callId ?? null, turnId: evidenceTurnId });
                     if (!timestamp)
                         pending.missingTimestamp = true;
                 }
@@ -683,17 +785,17 @@ async function readCodex(scope) {
                     const last = pending.rawCalls[pending.rawCalls.length - 1] ?? pending.incrementalCalls[pending.incrementalCalls.length - 1];
                     if (last)
                         last.status = "interrupted";
-                    pending.lifecycle.push({ sessionId, timestamp, kind: "interrupted", relatedId: last?.callId ?? null });
+                    appendLifecycle(pending, { sessionId, timestamp, kind: "interrupted", relatedId: last?.callId ?? null, turnId: evidenceTurnId });
                     if (!timestamp)
                         pending.missingTimestamp = true;
                 }
                 if (eventType?.includes("subagent")) {
-                    pending.lifecycle.push({ sessionId, timestamp, kind: "subagent", relatedId: null });
+                    appendLifecycle(pending, { sessionId, timestamp, kind: "subagent", relatedId: stringValue(payload.id, payload.related_id, payload.relatedId), turnId: evidenceTurnId });
                     if (!timestamp)
                         pending.missingTimestamp = true;
                 }
-                if (eventType?.includes("compaction")) {
-                    pending.lifecycle.push({ sessionId, timestamp, kind: "compaction", relatedId: null });
+                if (eventType?.includes("compaction") || eventType === "compacted") {
+                    appendLifecycle(pending, { sessionId, timestamp, kind: "compaction", relatedId: stringValue(payload.id, payload.compaction_id, payload.compactionId), turnId: evidenceTurnId });
                     if (!timestamp)
                         pending.missingTimestamp = true;
                 }
@@ -701,12 +803,20 @@ async function readCodex(scope) {
         }
     }
     const sessions = [];
+    const turns = [];
     const modelCalls = [];
     const toolCalls = [];
     const lifecycle = [];
     const skillEvidence = [];
     let unsupportedSessions = 0;
     let missingTimestampSessions = 0;
+    let responseTotal = 0;
+    let responseComplete = true;
+    let turnTotal = 0;
+    let turnComplete = true;
+    let threadTotal = 0;
+    let threadComplete = true;
+    let selectedSessionCount = 0;
     for (const pending of pendingById.values()) {
         pending.session.title = sessionTitles.get(pending.session.sessionId) ?? null;
         const partial = pending.partial || pending.unsupported || pending.missingTimestamp;
@@ -728,7 +838,9 @@ async function readCodex(scope) {
             coverage.partialSessions += 1;
             pending.partialCoverageCounted = true;
         }
+        selectedSessionCount += 1;
         sessions.push(pending.session);
+        turns.push(...pending.turns);
         toolCalls.push(...pending.toolCalls.filter((tool) => tool.timestamp !== null && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
         lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp !== null && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
         skillEvidence.push(...pending.skillEvidence.filter((record) => record.timestamp !== null && !Number.isNaN(Date.parse(record.timestamp)) && Date.parse(record.timestamp) >= scope.since.getTime()));
@@ -744,7 +856,26 @@ async function readCodex(scope) {
                 continue;
             modelCalls.push(call);
         }
+        if (calls.length === 0 || calls.some((call) => call.totalTokens === null))
+            responseComplete = false;
+        else
+            responseTotal += calls.reduce((sum, call) => sum + call.totalTokens, 0);
+        if (pending.turnTokenSnapshots.size === 0 || [...pending.turnTokenSnapshots.values()].some((usage) => usageTotal(usage) === null))
+            turnComplete = false;
+        else
+            turnTotal += [...pending.turnTokenSnapshots.values()].reduce((sum, usage) => sum + usageTotal(usage), 0);
+        if (usageTotal(pending.threadTokenSnapshot) === null)
+            threadComplete = false;
+        else
+            threadTotal += usageTotal(pending.threadTokenSnapshot);
     }
+    const tokenAccounting = selectedSessionCount === 0 || !responseComplete
+        ? { responseTotal: responseComplete ? responseTotal : null, turnTotal: turnComplete ? turnTotal : null, threadTotal: threadComplete ? threadTotal : null, status: "unavailable", method: "single-response Usage is required before cumulative Turn/thread snapshots can reconcile" }
+        : turnComplete && responseTotal === turnTotal && (!threadComplete || responseTotal === threadTotal)
+            ? { responseTotal, turnTotal, threadTotal: threadComplete ? threadTotal : null, status: "reconciled", method: "deduplicated exact response Usage equals the latest per-Turn snapshot; thread snapshot is checked when present" }
+            : { responseTotal, turnTotal: turnComplete ? turnTotal : null, threadTotal: threadComplete ? threadTotal : null, status: "mismatch", method: "deduplicated exact response Usage did not equal the latest cumulative Turn/thread snapshot" };
+    if (tokenAccounting.status === "mismatch")
+        coverage.warnings.push("Codex response Usage did not reconcile with the latest cumulative Turn/thread snapshot; AI analysis is unavailable.");
     if (unsupportedSessions > 0) {
         coverage.warnings.push(unsupportedSessions + " Codex Session" + (unsupportedSessions === 1 ? " contains" : "s contain") +
             " unsupported accounting records; only a partial audit is reported.");
@@ -757,10 +888,12 @@ async function readCodex(scope) {
         coverage.warnings.push("No Codex rollout history was found for the selected scope.");
     return {
         sessions: sessions.sort((a, b) => a.sessionId.localeCompare(b.sessionId)),
+        turns: turns.sort((a, b) => a.sessionId.localeCompare(b.sessionId) || (a.ordinal ?? Number.MAX_SAFE_INTEGER) - (b.ordinal ?? Number.MAX_SAFE_INTEGER)),
         modelCalls,
         lifecycle,
         toolCalls,
         skillEvidence,
+        tokenAccounting,
         coverage,
     };
 }

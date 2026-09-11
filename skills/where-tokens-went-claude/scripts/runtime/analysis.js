@@ -698,6 +698,150 @@ function buildRollingWindow(calls, harness) {
         resetAt: unavailable("Provider reset time is unavailable without first-party allowance data"),
     };
 }
+function timeEvidence(value, label) {
+    return value ? { value, provenance: "reported", method: label } : unavailable(label + " was unavailable");
+}
+function numericEvidence(value, provenance, method) {
+    return value === null ? unavailable(method) : { value, provenance, method };
+}
+function turnObservedSpan(turn) {
+    if (!turn.startedAt || !turn.endedAt)
+        return unavailable("Turn observed span requires both a start and end timestamp");
+    const started = Date.parse(turn.startedAt);
+    const ended = Date.parse(turn.endedAt);
+    return Number.isNaN(started) || Number.isNaN(ended) || ended < started
+        ? unavailable("Turn observed span has unusable or reversed timestamps")
+        : { value: ended - started, provenance: "derived", method: "Turn end timestamp minus Turn start timestamp; this is an observed span, not API latency" };
+}
+function turnEvidenceId(sessionId, turnId) {
+    return "turn:" + (0, node_crypto_1.createHash)("sha256").update(sessionId + "\0" + turnId).digest("hex").slice(0, 16);
+}
+function turnCoverage(turn) {
+    const fields = [
+        turn.tokens.totalTokens.value !== null,
+        turn.startedAt.value !== null,
+        turn.endedAt.value !== null,
+        turn.durationMs.value !== null,
+        turn.timeToFirstTokenMs.value !== null,
+        turn.modelCallCount.value !== null,
+        turn.toolCallCount.value !== null,
+        turn.errorCount.value !== null,
+    ];
+    return {
+        value: Math.round((fields.filter(Boolean).length / fields.length) * 10000) / 100,
+        provenance: "derived",
+        method: "available Turn evidence fields divided by the eight Turn trajectory fields, expressed as percentage points",
+    };
+}
+function buildTurnAnalysis(read, totalTokens, harness) {
+    const sourceTurns = read.turns ?? [];
+    const callsByTurn = new Map();
+    for (const call of read.modelCalls) {
+        if (!call.turnId)
+            continue;
+        const key = call.sessionId + "\0" + call.turnId;
+        callsByTurn.set(key, [...(callsByTurn.get(key) ?? []), call]);
+    }
+    const turns = sourceTurns.map((turn) => {
+        const key = turn.sessionId + "\0" + turn.turnId;
+        const calls = callsByTurn.get(key) ?? (sourceTurns.filter((item) => item.sessionId === turn.sessionId).length === 1
+            ? read.modelCalls.filter((call) => call.sessionId === turn.sessionId && !call.turnId)
+            : []);
+        const tools = read.toolCalls.filter((tool) => tool.sessionId === turn.sessionId && tool.turnId === turn.turnId);
+        const lifecycle = read.lifecycle.filter((event) => event.sessionId === turn.sessionId && event.turnId === turn.turnId);
+        const total = calls.every((call) => callTokens(call, harness) !== null) && calls.length > 0
+            ? calls.reduce((sum, call) => sum + callTokens(call, harness), 0)
+            : null;
+        const entry = {
+            sessionId: turn.sessionId,
+            turnId: turn.turnId,
+            ordinal: numericEvidence(turn.ordinal, "reported", "source Turn ordinal"),
+            tokens: tokenBreakdown(calls, "Turn " + turn.turnId, harness),
+            sessionSharePercent: sharePercentEvidence(total ?? 0, sessionTotal(turn.sessionId, read.modelCalls, harness), "Turn " + turn.turnId, { sessionId: turn.sessionId, recordId: turn.turnId }),
+            modelCallCount: countEvidence(calls.length, "count of ModelCall records in Turn " + turn.turnId),
+            startedAt: timeEvidence(turn.startedAt, "source Turn start timestamp"),
+            endedAt: timeEvidence(turn.endedAt, "source Turn end timestamp"),
+            durationMs: numericEvidence(turn.durationMs, turn.timingProvenance, "source Turn duration"),
+            timeToFirstTokenMs: numericEvidence(turn.timeToFirstTokenMs, turn.timingProvenance, "source Turn time-to-first-token"),
+            observedSpanMs: turnObservedSpan(turn),
+            toolCallCount: countEvidence(tools.length, "count of ToolCall records in Turn " + turn.turnId),
+            pairedToolResultCount: countEvidence(tools.filter((tool) => tool.resultBytes !== null).length, "count of paired ToolCall results in Turn " + turn.turnId),
+            toolResultChars: tools.some((tool) => tool.resultChars !== null && tool.resultChars !== undefined)
+                ? numericEvidence(tools.reduce((sum, tool) => sum + (tool.resultChars ?? 0), 0), "derived", "sum of paired ToolCall Unicode result characters in Turn " + turn.turnId)
+                : unavailable("Turn " + turn.turnId + " has no paired ToolCall result character count"),
+            toolResultBytes: tools.some((tool) => tool.resultBytes !== null)
+                ? numericEvidence(tools.reduce((sum, tool) => sum + (tool.resultBytes ?? 0), 0), "derived", "sum of paired ToolCall result bytes in Turn " + turn.turnId)
+                : unavailable("Turn " + turn.turnId + " has no paired ToolCall result byte count"),
+            errorCount: numericEvidence(calls.filter((call) => call.status === "error" || call.status === "interrupted").length + tools.filter((tool) => tool.isError === true).length, "derived", "count of reported ModelCall and ToolCall errors or interruptions in Turn " + turn.turnId),
+            lifecycleMarkers: [...new Set(lifecycle.map((event) => event.kind))].sort(),
+            evidenceId: turnEvidenceId(turn.sessionId, turn.turnId),
+            method: harness === "codex"
+                ? "Codex Turn boundaries and per-response Usage grouped by source turn_id"
+                : "Claude user/assistant message boundaries grouped with capability-dependent observed timing",
+            coverage: unavailable("Turn coverage is calculated after all trajectory fields are assembled"),
+        };
+        entry.coverage = turnCoverage(entry);
+        return entry;
+    }).sort((left, right) => left.sessionId.localeCompare(right.sessionId) || (left.ordinal.value ?? Number.MAX_SAFE_INTEGER) - (right.ordinal.value ?? Number.MAX_SAFE_INTEGER));
+    const candidates = [];
+    const addCandidate = (kind, sessionId, entries, evidence, method) => {
+        if (entries.length === 0 || evidence.every((item) => item.value === null))
+            return;
+        candidates.push({
+            id: kind + ":" + (0, node_crypto_1.createHash)("sha256").update(sessionId + "\0" + entries.map((entry) => entry.turnId).join("\0")).digest("hex").slice(0, 16),
+            kind,
+            sessionId,
+            evidenceIds: entries.map((entry) => entry.evidenceId),
+            evidence,
+            method,
+            coverage: { value: Math.round((evidence.filter((item) => item.value !== null).length / Math.max(1, evidence.length)) * 10000) / 100, provenance: "derived", method: "candidate Evidence values available divided by candidate Evidence values" },
+        });
+    };
+    const sessionIds = [...new Set(turns.map((turn) => turn.sessionId))];
+    for (const sessionId of sessionIds) {
+        const sessionTurns = turns.filter((turn) => turn.sessionId === sessionId && typeof turn.tokens.totalTokens.value === "number");
+        const sorted = [...sessionTurns].sort((left, right) => right.tokens.totalTokens.value - left.tokens.totalTokens.value);
+        const sessionTotalValue = sessionTotal(sessionId, read.modelCalls, harness);
+        if (sorted.length > 0 && sessionTotalValue !== null && sessionTotalValue > 0) {
+            const top = sorted[0];
+            const topThree = sorted.slice(0, 3);
+            addCandidate("turn_concentration", sessionId, topThree, [
+                top.tokens.totalTokens,
+                sharePercentEvidence(top.tokens.totalTokens.value, sessionTotalValue, "largest Turn", { sessionId, recordId: top.turnId }),
+                sharePercentEvidence(topThree.reduce((sum, entry) => sum + entry.tokens.totalTokens.value, 0), sessionTotalValue, "largest three Turns", { sessionId }),
+            ], "rank complete Turn Token totals and divide the largest Turn and largest three Turns by the complete Session total");
+        }
+        const ordered = [...sessionTurns].sort((left, right) => (left.ordinal.value ?? 0) - (right.ordinal.value ?? 0));
+        if (ordered.length >= 4) {
+            const midpoint = Math.ceil(ordered.length / 2);
+            const first = ordered.slice(0, midpoint).map((entry) => entry.tokens.inputTokens.value).filter((value) => typeof value === "number");
+            const second = ordered.slice(midpoint).map((entry) => entry.tokens.inputTokens.value).filter((value) => typeof value === "number");
+            const firstMedian = median(first);
+            const secondMedian = median(second);
+            const ratio = firstMedian !== null && firstMedian > 0 && secondMedian !== null ? secondMedian / firstMedian : null;
+            addCandidate("input_growth", sessionId, ordered, [
+                numericEvidence(firstMedian, "derived", "median input Tokens in the first half of Turns"),
+                numericEvidence(secondMedian, "derived", "median input Tokens in the second half of Turns"),
+                numericEvidence(ratio, "derived", "second-half median input divided by first-half median input"),
+            ], "split ordered Turns into two halves and compare the medians of source-proven input Token composition");
+        }
+        const toolTurns = sessionTurns.filter((entry) => typeof entry.toolResultChars.value === "number" && entry.toolResultChars.value > 0);
+        if (toolTurns.length > 0) {
+            addCandidate("tool_result_adjacency", sessionId, toolTurns, [
+                toolTurns[0].toolResultChars,
+                toolTurns[0].tokens.totalTokens,
+            ], "report paired ToolCall result size and the adjacent Turn Token total without asserting causality");
+        }
+        const compactionTurns = sessionTurns.filter((entry) => entry.lifecycleMarkers.includes("compaction"));
+        addCandidate("compaction_change", sessionId, compactionTurns, compactionTurns.flatMap((entry) => [entry.tokens.inputTokens, entry.tokens.cachedInputTokens]), "compare the Token composition at Turns explicitly marked by a source compaction boundary");
+        const waitingTurns = sessionTurns.filter((entry) => entry.durationMs.value !== null || entry.timeToFirstTokenMs.value !== null).sort((left, right) => (Number(right.durationMs.value ?? 0) - Number(left.durationMs.value ?? 0)));
+        if (waitingTurns.length > 0)
+            addCandidate("waiting_hotspot", sessionId, waitingTurns.slice(0, 1), [waitingTurns[0].durationMs, waitingTurns[0].timeToFirstTokenMs], "select the slowest source-reported Turn duration and TTFT available in the Session");
+        const failedTurns = sessionTurns.filter((entry) => (typeof entry.errorCount.value === "number" && entry.errorCount.value > 0) || entry.lifecycleMarkers.some((marker) => marker === "retry" || marker === "interrupted"));
+        addCandidate("failed_path", sessionId, failedTurns, failedTurns.flatMap((entry) => [entry.errorCount, entry.tokens.totalTokens]), "associate only explicitly reported errors, interruptions, retries, or their ModelCall Tokens with a failed path");
+    }
+    return { turns, candidates };
+}
 function buildReportData(read, totalTokens, harness, pricing) {
     const tools = buildToolAnalysis(read);
     const apiEquivalent = apiEquivalentCost(read.modelCalls, harness, pricing);
@@ -853,6 +997,7 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
     const amplification = toolAmplification(read);
     const extraLifecycle = read.lifecycle.filter((event) => event.kind !== "compaction");
     const sessionComposition = codexSessionComposition(read, harness);
+    const trajectory = buildTurnAnalysis(read, tokenTotal.value, harness);
     const sessionProjects = new Map(read.sessions.map((session) => [session.sessionId, session.projectCwd]));
     const sessionById = new Map(read.sessions.map((session) => [session.sessionId, session]));
     const rankings = {
@@ -921,6 +1066,15 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
             },
         lifecycleCount: evidenceForCount(read.lifecycle.length, "count of retry, compaction, subagent, and interrupted lifecycle records"),
         extraLifecycleCount: evidenceForCount(extraLifecycle.length, "count of retry, interruption, and subagent lifecycle records"),
+        tokenAccountingStatus: read.tokenAccounting
+            ? { value: read.tokenAccounting.status, provenance: "derived", method: read.tokenAccounting.method }
+            : unavailable("the selected Reader did not provide a Token accounting invariant"),
+        responseUsageTotal: read.tokenAccounting && read.tokenAccounting.responseTotal !== null
+            ? { value: read.tokenAccounting.responseTotal, provenance: "reported", method: "deduplicated single-response Usage total used for accounting" }
+            : unavailable("a complete deduplicated response Usage total was unavailable"),
+        cumulativeTurnTotal: read.tokenAccounting && read.tokenAccounting.turnTotal !== null
+            ? { value: read.tokenAccounting.turnTotal, provenance: "reported", method: "latest cumulative per-Turn total used only for invariant validation" }
+            : unavailable("a cumulative per-Turn total was unavailable for invariant validation"),
     };
     const checks = automatedChecks(largest, largestCalls, tokenTotal.value, amplification, extraLifecycle, rankings, read.coverage);
     return {
@@ -933,6 +1087,8 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
         coverage: read.coverage,
         summary,
         rankings,
+        turns: trajectory.turns,
+        turnCandidates: trajectory.candidates,
         report: buildReportData(read, tokenTotal.value, harness, pricing),
         checks,
     };

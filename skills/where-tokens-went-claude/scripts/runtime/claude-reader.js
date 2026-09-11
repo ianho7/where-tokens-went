@@ -162,6 +162,8 @@ function createSession(sessionId) {
         },
         eventTimes: [],
         modelCalls: [],
+        turns: [],
+        activeTurnId: null,
         tools: [],
         lifecycle: [],
         skillEvidence: [],
@@ -169,6 +171,24 @@ function createSession(sessionId) {
         unsupported: false,
         missingTimestamp: false,
     };
+}
+function ensureTurn(pending, turnId, timestamp) {
+    const existing = pending.turns.find((turn) => turn.turnId === turnId);
+    if (existing)
+        return existing;
+    const turn = {
+        sessionId: pending.session.sessionId,
+        turnId,
+        ordinal: pending.turns.length + 1,
+        startedAt: timestamp,
+        endedAt: timestamp,
+        durationMs: null,
+        timeToFirstTokenMs: null,
+        status: "open",
+        timingProvenance: timestamp ? "derived" : "unavailable",
+    };
+    pending.turns.push(turn);
+    return turn;
 }
 function updateTime(pending, timestamp) {
     if (!timestamp)
@@ -349,6 +369,16 @@ async function readClaude(scope) {
                 }
                 continue;
             }
+            if (type === "user" || role === "user") {
+                const isToolResult = contentBlocks(message?.content ?? record.content).some((block) => stringValue(block.type) === "tool_result");
+                if (!isToolResult || !pending.activeTurnId) {
+                    pending.activeTurnId = stringValue(record.uuid, record.id, message?.uuid, message?.id) ?? `turn-${lineIndex}`;
+                    ensureTurn(pending, pending.activeTurnId, timestamp);
+                }
+                const activeTurn = pending.turns.find((turn) => turn.turnId === pending.activeTurnId);
+                if (activeTurn && timestamp)
+                    activeTurn.endedAt = timestamp;
+            }
             const sourceLocation = redactedSource(file);
             const listingNames = listedSkillNames(record.available_skills, record.availableSkills, record.skill_listing, record.skillListing, message?.available_skills, message?.availableSkills, message?.skill_listing, message?.skillListing);
             for (const skillName of listingNames)
@@ -366,6 +396,13 @@ async function readClaude(scope) {
                 const status = errorMarker || /error|abort|cancel/i.test(stopReason) ? "error" : "ok";
                 const callId = stringValue(message?.id, record.requestId, record.request_id, record.id) ?? `assistant-${lineIndex}`;
                 const call = usageCall(sessionId, callId, timestamp, stringValue(message?.model, record.model), stringValue(record.provider, record.model_provider), usage, status);
+                const turnId = pending.activeTurnId ?? `turn-${callId}`;
+                pending.activeTurnId = turnId;
+                const turn = ensureTurn(pending, turnId, timestamp);
+                turn.endedAt = timestamp ?? turn.endedAt;
+                turn.status = status === "error" ? "error" : "ok";
+                if (call)
+                    call.turnId = turnId;
                 const attribution = explicitSkillName(record.attributionSkill, record.attribution_skill, message?.attributionSkill, message?.attribution_skill);
                 if (attribution)
                     pending.skillEvidence.push(skillRecord(sessionId, attribution, "attributed", "versioned-attribution", callId, timestamp, sourceLocation, "reported"));
@@ -395,6 +432,7 @@ async function readClaude(scope) {
                                 inputBytes: byteLength(block.input),
                                 resultBytes: null,
                                 resultChars: null,
+                                turnId,
                                 isError: null,
                             });
                         }
@@ -421,36 +459,39 @@ async function readClaude(scope) {
                         tool.resultBytes = byteLength(result);
                         tool.resultChars = characterLength(result);
                         tool.isError = booleanValue(block.is_error, block.isError);
+                        tool.turnId = tool.turnId ?? pending.activeTurnId;
+                        tool.endedAt = timestamp;
                     }
                     else {
                         const result = block.content ?? block.result;
-                        pending.tools.push({ sessionId, callId: toolId, timestamp, toolName: "unknown-tool", inputBytes: null, resultBytes: byteLength(result), resultChars: characterLength(result), isError: booleanValue(block.is_error, block.isError) });
+                        pending.tools.push({ sessionId, callId: toolId, timestamp, toolName: "unknown-tool", inputBytes: null, resultBytes: byteLength(result), resultChars: characterLength(result), turnId: pending.activeTurnId, endedAt: timestamp, isError: booleanValue(block.is_error, block.isError) });
                     }
                 }
             }
             if (record.isSidechain === true || record.is_sidechain === true) {
-                pending.lifecycle.push({ sessionId, timestamp, kind: "subagent", relatedId: null });
+                pending.lifecycle.push({ sessionId, timestamp, kind: "subagent", relatedId: null, turnId: pending.activeTurnId });
                 if (!timestamp)
                     pending.missingTimestamp = true;
             }
             if (type.includes("compact") || type === "summary" || stringValue(record.subtype)?.includes("compact")) {
-                pending.lifecycle.push({ sessionId, timestamp, kind: "compaction", relatedId: null });
+                pending.lifecycle.push({ sessionId, timestamp, kind: "compaction", relatedId: null, turnId: pending.activeTurnId });
                 if (!timestamp)
                     pending.missingTimestamp = true;
             }
             if (type.includes("error") || record.error) {
-                pending.lifecycle.push({ sessionId, timestamp, kind: "retry", relatedId: null });
+                pending.lifecycle.push({ sessionId, timestamp, kind: "retry", relatedId: null, turnId: pending.activeTurnId });
                 if (!timestamp)
                     pending.missingTimestamp = true;
             }
             if (type.includes("interrupt")) {
-                pending.lifecycle.push({ sessionId, timestamp, kind: "interrupted", relatedId: null });
+                pending.lifecycle.push({ sessionId, timestamp, kind: "interrupted", relatedId: null, turnId: pending.activeTurnId });
                 if (!timestamp)
                     pending.missingTimestamp = true;
             }
         }
     }
     const sessions = [];
+    const turns = [];
     const modelCalls = [];
     const toolCalls = [];
     const lifecycle = [];
@@ -474,7 +515,9 @@ async function readClaude(scope) {
         }
         if (partial)
             coverage.partialSessions += 1;
+        pending.session.partial = partial;
         sessions.push(pending.session);
+        turns.push(...pending.turns);
         for (const call of pending.modelCalls)
             if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime())
                 modelCalls.push(call);
@@ -487,5 +530,5 @@ async function readClaude(scope) {
     }
     if (files.length === 0)
         coverage.warnings.push("No Claude Code transcript history was found for the selected scope.");
-    return { sessions, modelCalls, toolCalls, lifecycle, skillEvidence, sessionCosts, coverage };
+    return { sessions, turns, modelCalls, toolCalls, lifecycle, skillEvidence, sessionCosts, coverage };
 }
