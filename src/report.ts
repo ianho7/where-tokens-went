@@ -267,7 +267,7 @@ const ZH: Labels = {
   interpretation: "AI 解读",
   proposal: "改善提议",
   analysisUnavailable: "关键 Session 分析不可用：",
-  noStrongEvidence: "未发现足以支持主要问题的 Evidence。",
+  noStrongEvidence: "未发现需要优先处理的问题。",
 };
 
 const EN: Labels = {

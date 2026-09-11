@@ -1009,6 +1009,11 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
         models: rankContributions(read.modelCalls, (call) => call.model ?? "<unknown-model>", "model", tokenTotal.value, harness),
         timeBuckets: rankContributions(read.modelCalls, (call) => timeBucket(call.timestamp), "time bucket", tokenTotal.value, harness),
     };
+    const keySessionTokenAccounting = harness === "codex" && read.tokenAccounting
+        ? rankings.sessions.length > 0 && rankings.sessions.slice(0, 3).every((entry) => read.tokenAccounting.reconciledSessionIds.includes(entry.key))
+            ? { value: "reconciled", provenance: "derived", method: "every Token-ranked Top 3 Session has exact per-response to per-Turn reconciliation" }
+            : { value: "mismatch", provenance: "derived", method: "at least one Token-ranked Top 3 Session lacks exact per-response to per-Turn reconciliation" }
+        : unavailable("Key Session Token accounting is only available for Codex Reader results");
     const shareFraction = largest && tokenTotal.value !== null && tokenTotal.value > 0
         ? largest.tokens / tokenTotal.value
         : null;
@@ -1069,6 +1074,7 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
         tokenAccountingStatus: read.tokenAccounting
             ? { value: read.tokenAccounting.status, provenance: "derived", method: read.tokenAccounting.method }
             : unavailable("the selected Reader did not provide a Token accounting invariant"),
+        keySessionTokenAccountingStatus: keySessionTokenAccounting,
         responseUsageTotal: read.tokenAccounting && read.tokenAccounting.responseTotal !== null
             ? { value: read.tokenAccounting.responseTotal, provenance: "reported", method: "deduplicated single-response Usage total used for accounting" }
             : unavailable("a complete deduplicated response Usage total was unavailable"),

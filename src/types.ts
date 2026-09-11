@@ -133,6 +133,8 @@ export interface TokenAccountingSummary {
   responseTotal: number | null;
   turnTotal: number | null;
   threadTotal: number | null;
+  reconciledSessionIds: string[];
+  mismatchedSessionIds: string[];
   status: "reconciled" | "mismatch" | "unavailable";
   method: string;
 }

@@ -107,14 +107,19 @@ function redactedContent(value, maxChars) {
 }
 function contentValue(record, payload) {
     const message = objectValue(payload.message) ?? objectValue(record.message);
-    return payload.text ?? payload.content ?? payload.output ?? payload.result ?? payload.command ?? message?.content ?? message?.text ?? record.content ?? record.text;
+    const item = objectValue(payload.item) ?? objectValue(payload.tool_item);
+    return payload.text ?? payload.content ?? payload.output ?? payload.result ?? payload.command ?? message?.content ?? message?.text ?? item?.content ?? item?.output ?? item?.result ?? item?.text ?? item?.input ?? record.content ?? record.text;
 }
 function classify(record, payload) {
-    const type = (stringValue(record.type, payload.type, payload.item_type, payload.itemType) ?? "").toLowerCase();
-    const role = (stringValue(payload.role, objectValue(payload.message)?.role, objectValue(record.message)?.role) ?? "").toLowerCase();
+    const item = objectValue(payload.item) ?? objectValue(payload.tool_item);
+    const type = [record.type, payload.type, payload.item_type, payload.itemType, item?.type]
+        .filter((value) => typeof value === "string")
+        .join(" ")
+        .toLowerCase();
+    const role = (stringValue(payload.role, objectValue(payload.message)?.role, objectValue(record.message)?.role, item?.role) ?? "").toLowerCase();
     if (role === "user" || type.includes("user"))
         return "user";
-    if (role === "assistant" || type.includes("assistant") || type.includes("response"))
+    if (role === "assistant" || type.includes("assistant") || type.includes("agent") || type.includes("response"))
         return "assistant";
     if (type.includes("tool") || type.includes("function") || type.includes("shell") || type.includes("command") || type.includes("result") || type.includes("output"))
         return "tool";
@@ -210,11 +215,11 @@ async function readCodexEvidence(request) {
             const type = (stringValue(record.type, payload.type) ?? "").toLowerCase();
             const explicitSessionId = stringValue(record.session_id, record.sessionId, payload.session_id, payload.sessionId, payload.thread_id, payload.threadId);
             if (type === "session_meta" || type === "session_metadata") {
-                activeSessionId = stringValue(payload.id, payload.session_id, payload.sessionId, payload.thread_id, payload.threadId) ?? explicitSessionId;
+                activeSessionId = activeSessionId ?? stringValue(payload.id, payload.session_id, payload.sessionId, payload.thread_id, payload.threadId) ?? explicitSessionId;
                 if (activeSessionId)
                     cwdBySession.set(activeSessionId, stringValue(payload.cwd, payload.project_cwd, payload.projectCwd));
             }
-            const sessionId = explicitSessionId ?? activeSessionId;
+            const sessionId = activeSessionId ?? explicitSessionId;
             if (!sessionId || !selections.has(sessionId))
                 continue;
             const selection = selections.get(sessionId);

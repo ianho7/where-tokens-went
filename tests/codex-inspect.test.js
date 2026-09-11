@@ -500,7 +500,7 @@ test('progressive content Evidence stays inside the selected Top 3 Session and i
   const records = [
     { timestamp, type: 'session_meta', payload: { id: 'content-session', cwd: project } },
     { timestamp, type: 'turn_context', payload: { turn_id: 'content-turn', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
-    { timestamp, type: 'response_item', payload: { type: 'user_message', turn_id: 'content-turn', text: 'historical task context api_key=do-not-persist' } },
+    { timestamp, type: 'event_msg', payload: { type: 'item_completed', turn_id: 'content-turn', item: { type: 'UserMessage', id: 'content-item', content: 'historical task context api_key=do-not-persist' } } },
     { timestamp, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'content-response', turn_id: 'content-turn', usage: { input_tokens: 10, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 20 } } },
   ];
   await writeFile(path.join(sessions, 'rollout-content-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
@@ -620,10 +620,15 @@ test('Codex reports source-proven top-level and subagent Session counts separate
     ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
     await writeFile(path.join(sessions, 'rollout-child.jsonl'), [
       { timestamp: isoHoursAgo(2), type: 'session_meta', payload: { id: 'child', cwd: project, parent_thread_id: 'parent', source: { subagent: {} } } },
+      { timestamp: isoHoursAgo(2), type: 'session_meta', payload: { id: 'parent', session_id: 'parent', cwd: project, source: 'vscode' } },
       response('child-response', 50),
     ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
-    const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'], { CODEX_HOME: codexHome });
-    assert.match(stdout, /Sessions: 2; top-level tasks: 1; subagent Sessions: 1/);
+    const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'], { CODEX_HOME: codexHome });
+    const result = JSON.parse(stdout);
+    assert.equal(result.rankings.sessions.find((entry) => entry.key === 'parent').value.value, 100);
+    assert.equal(result.rankings.sessions.find((entry) => entry.key === 'child').value.value, 50);
+    const { stdout: text } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'], { CODEX_HOME: codexHome });
+    assert.match(text, /Sessions: 2; top-level tasks: 1; subagent Sessions: 1/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

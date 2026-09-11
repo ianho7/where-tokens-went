@@ -550,14 +550,22 @@ async function readCodex(scope) {
             const timestamp = recordTimestamp(record, payload);
             let sessionId = activeSessionId;
             if (isType(record, payload, "session_meta", "session_metadata")) {
-                sessionId = stringValue(payload.id, payload.session_id, payload.sessionId, payload.thread_id, payload.threadId)
-                    ?? sessionIdFor(file, fallbackIndex++);
-                activeSessionId = sessionId;
-                if (!pendingById.has(sessionId)) {
-                    pendingById.set(sessionId, {
+                // A subagent rollout can repeat the parent's SessionMeta after its own
+                // metadata. Keep the first Session identity for the file so child
+                // responses cannot be reattributed to the parent Session.
+                const declaredSessionId = stringValue(payload.id, payload.session_id, payload.sessionId, payload.thread_id, payload.threadId);
+                const firstSessionMeta = !activeSessionId;
+                if (firstSessionMeta) {
+                    activeSessionId = declaredSessionId
+                        ?? sessionIdFor(file, fallbackIndex++);
+                }
+                const selectedSessionId = activeSessionId;
+                sessionId = selectedSessionId;
+                if (!pendingById.has(selectedSessionId)) {
+                    pendingById.set(selectedSessionId, {
                         session: {
                             harness: "codex",
-                            sessionId,
+                            sessionId: selectedSessionId,
                             projectCwd: null,
                             startedAt: null,
                             endedAt: null,
@@ -583,7 +591,9 @@ async function readCodex(scope) {
                         partialCoverageCounted: false,
                     });
                 }
-                mergeSession(pendingById.get(sessionId), payload, timestamp);
+                if (firstSessionMeta || declaredSessionId === activeSessionId) {
+                    mergeSession(pendingById.get(selectedSessionId), payload, timestamp);
+                }
             }
             if (!sessionId) {
                 sessionId = activeSessionId ?? sessionIdFor(file, fallbackIndex++);
@@ -814,9 +824,9 @@ async function readCodex(scope) {
     let responseComplete = true;
     let turnTotal = 0;
     let turnComplete = true;
-    let threadTotal = 0;
-    let threadComplete = true;
-    let selectedSessionCount = 0;
+    let accountedSessionCount = 0;
+    const reconciledSessionIds = [];
+    const mismatchedSessionIds = [];
     for (const pending of pendingById.values()) {
         pending.session.title = sessionTitles.get(pending.session.sessionId) ?? null;
         const partial = pending.partial || pending.unsupported || pending.missingTimestamp;
@@ -838,7 +848,6 @@ async function readCodex(scope) {
             coverage.partialSessions += 1;
             pending.partialCoverageCounted = true;
         }
-        selectedSessionCount += 1;
         sessions.push(pending.session);
         turns.push(...pending.turns);
         toolCalls.push(...pending.toolCalls.filter((tool) => tool.timestamp !== null && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
@@ -856,26 +865,45 @@ async function readCodex(scope) {
                 continue;
             modelCalls.push(call);
         }
-        if (calls.length === 0 || calls.some((call) => call.totalTokens === null))
+        // A selected Session can contain only lifecycle/tool records (for example a
+        // subagent that never reached a model response). It contributes no Token
+        // total and must not make the Usage invariant unavailable for Sessions that
+        // do have exact response records.
+        if (calls.length === 0)
+            continue;
+        accountedSessionCount += 1;
+        const sessionResponseComplete = calls.every((call) => call.totalTokens !== null);
+        const sessionResponseTotal = sessionResponseComplete
+            ? calls.reduce((sum, call) => sum + call.totalTokens, 0)
+            : null;
+        const sessionTurnComplete = pending.turnTokenSnapshots.size > 0 && [...pending.turnTokenSnapshots.values()].every((usage) => usageTotal(usage) !== null);
+        const sessionTurnTotal = sessionTurnComplete
+            ? [...pending.turnTokenSnapshots.values()].reduce((sum, usage) => sum + usageTotal(usage), 0)
+            : null;
+        if (!sessionResponseComplete)
             responseComplete = false;
         else
-            responseTotal += calls.reduce((sum, call) => sum + call.totalTokens, 0);
-        if (pending.turnTokenSnapshots.size === 0 || [...pending.turnTokenSnapshots.values()].some((usage) => usageTotal(usage) === null))
+            responseTotal += sessionResponseTotal;
+        if (!sessionTurnComplete)
             turnComplete = false;
         else
-            turnTotal += [...pending.turnTokenSnapshots.values()].reduce((sum, usage) => sum + usageTotal(usage), 0);
-        if (usageTotal(pending.threadTokenSnapshot) === null)
-            threadComplete = false;
-        else
-            threadTotal += usageTotal(pending.threadTokenSnapshot);
+            turnTotal += sessionTurnTotal;
+        if (sessionResponseTotal !== null &&
+            sessionTurnTotal !== null &&
+            sessionResponseTotal !== sessionTurnTotal) {
+            mismatchedSessionIds.push(pending.session.sessionId);
+        }
+        else if (sessionResponseTotal !== null && sessionTurnTotal !== null) {
+            reconciledSessionIds.push(pending.session.sessionId);
+        }
     }
-    const tokenAccounting = selectedSessionCount === 0 || !responseComplete
-        ? { responseTotal: responseComplete ? responseTotal : null, turnTotal: turnComplete ? turnTotal : null, threadTotal: threadComplete ? threadTotal : null, status: "unavailable", method: "single-response Usage is required before cumulative Turn/thread snapshots can reconcile" }
-        : turnComplete && responseTotal === turnTotal && (!threadComplete || responseTotal === threadTotal)
-            ? { responseTotal, turnTotal, threadTotal: threadComplete ? threadTotal : null, status: "reconciled", method: "deduplicated exact response Usage equals the latest per-Turn snapshot; thread snapshot is checked when present" }
-            : { responseTotal, turnTotal: turnComplete ? turnTotal : null, threadTotal: threadComplete ? threadTotal : null, status: "mismatch", method: "deduplicated exact response Usage did not equal the latest cumulative Turn/thread snapshot" };
-    if (tokenAccounting.status === "mismatch")
-        coverage.warnings.push("Codex response Usage did not reconcile with the latest cumulative Turn/thread snapshot; AI analysis is unavailable.");
+    const tokenAccounting = accountedSessionCount === 0 || !responseComplete
+        ? { responseTotal: responseComplete ? responseTotal : null, turnTotal: turnComplete ? turnTotal : null, threadTotal: null, reconciledSessionIds, mismatchedSessionIds, status: "unavailable", method: "single-response Usage is required before cumulative per-Turn snapshots can reconcile" }
+        : turnComplete && mismatchedSessionIds.length === 0
+            ? { responseTotal, turnTotal, threadTotal: null, reconciledSessionIds, mismatchedSessionIds, status: "reconciled", method: "deduplicated exact response Usage equals the latest cumulative per-Turn snapshot within each Token-bearing Session" }
+            : { responseTotal, turnTotal: turnComplete ? turnTotal : null, threadTotal: null, reconciledSessionIds, mismatchedSessionIds, status: "mismatch", method: "deduplicated exact response Usage did not equal the latest cumulative per-Turn snapshot for every Token-bearing Session" };
+    if (mismatchedSessionIds.length > 0)
+        coverage.warnings.push("Some Codex Sessions have Turn snapshots that do not reconcile to their per-response Usage; only individually reconciled Sessions are eligible for AI analysis.");
     if (unsupportedSessions > 0) {
         coverage.warnings.push(unsupportedSessions + " Codex Session" + (unsupportedSessions === 1 ? " contains" : "s contain") +
             " unsupported accounting records; only a partial audit is reported.");
