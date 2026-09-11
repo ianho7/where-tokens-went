@@ -477,8 +477,15 @@ export interface AuditSnapshot {
   rankings: ContributionRankings;
   turns: TurnAnalysisEntry[];
   turnCandidates: TurnDiagnosticCandidate[];
+  keySessionTokenAccounting?: KeySessionTokenAccounting[];
   report: ReportData;
   checks: AutomatedCheck[];
+}
+
+export interface KeySessionTokenAccounting {
+  sessionId: string;
+  status: "reconciled" | "mismatch" | "unavailable";
+  method: string;
 }
 
 export interface WeekComparison {

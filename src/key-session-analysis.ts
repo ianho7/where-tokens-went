@@ -34,6 +34,7 @@ export function auditFingerprint(audit: AuditResult): string {
     rankings: audit.rankings,
     turns: audit.turns,
     turnCandidates: audit.turnCandidates,
+    keySessionTokenAccounting: audit.keySessionTokenAccounting,
     report: audit.report,
     checks: audit.checks,
   });
@@ -72,7 +73,8 @@ export function validateKeySessionAnalysis(
   const topSessionIds = new Set(audit.rankings.sessions.slice(0, 3).map((entry) => entry.key));
   if (!topSessionIds.has(analysis.sessionId)) errors.push("Session is outside the Token-ranked Top 3.");
   if (analysis.auditFingerprint !== expectedFingerprint) errors.push("Audit fingerprint is stale or belongs to another Audit.");
-  if (audit.scope.harness === "codex" && (audit.summary.keySessionTokenAccountingStatus?.value ?? audit.summary.tokenAccountingStatus?.value) !== "reconciled") errors.push("Codex Token accounting is not reconciled for the selected Key Session; AI conclusions are blocked.");
+  const selectedSessionAccounting = audit.keySessionTokenAccounting?.find((entry) => entry.sessionId === analysis.sessionId)?.status;
+  if (audit.scope.harness === "codex" && (selectedSessionAccounting ?? audit.summary.keySessionTokenAccountingStatus?.value ?? audit.summary.tokenAccountingStatus?.value) !== "reconciled") errors.push("Codex Token accounting is not reconciled for the selected Key Session; AI conclusions are blocked.");
   if (!nonEmpty(analysis.taskContext)) errors.push("taskContext is required.");
   if (!Array.isArray(analysis.limitations) || !analysis.limitations.every(nonEmpty)) errors.push("limitations must be a list of non-empty strings.");
   if (!analysis.evidenceRead || !strings(analysis.evidenceRead.turnIds) || !nonEmpty(analysis.evidenceRead.selectionReason) || !nonEmpty(analysis.evidenceRead.unreadScope)) errors.push("evidenceRead must describe selected Turns and unread scope.");

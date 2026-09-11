@@ -1010,10 +1010,23 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
         timeBuckets: rankContributions(read.modelCalls, (call) => timeBucket(call.timestamp), "time bucket", tokenTotal.value, harness),
     };
     const keySessionTokenAccounting = harness === "codex" && read.tokenAccounting
-        ? rankings.sessions.length > 0 && rankings.sessions.slice(0, 3).every((entry) => read.tokenAccounting.reconciledSessionIds.includes(entry.key))
+        ? rankings.sessions.slice(0, 3).map((entry) => ({
+            sessionId: entry.key,
+            status: read.tokenAccounting.reconciledSessionIds.includes(entry.key)
+                ? "reconciled"
+                : read.tokenAccounting.mismatchedSessionIds.includes(entry.key)
+                    ? "mismatch"
+                    : "unavailable",
+            method: "per-response Usage compared with the latest cumulative per-Turn snapshot for this Token-ranked Session",
+        }))
+        : [];
+    const keySessionTokenAccountingStatus = keySessionTokenAccounting.length === 0
+        ? unavailable("no Token-ranked Codex Session was available for Key Session accounting")
+        : keySessionTokenAccounting.every((entry) => entry.status === "reconciled")
             ? { value: "reconciled", provenance: "derived", method: "every Token-ranked Top 3 Session has exact per-response to per-Turn reconciliation" }
-            : { value: "mismatch", provenance: "derived", method: "at least one Token-ranked Top 3 Session lacks exact per-response to per-Turn reconciliation" }
-        : unavailable("Key Session Token accounting is only available for Codex Reader results");
+            : keySessionTokenAccounting.some((entry) => entry.status === "mismatch")
+                ? { value: "mismatch", provenance: "derived", method: "at least one Token-ranked Top 3 Session lacks exact per-response to per-Turn reconciliation" }
+                : unavailable("at least one Token-ranked Top 3 Session lacks a complete per-Turn reconciliation");
     const shareFraction = largest && tokenTotal.value !== null && tokenTotal.value > 0
         ? largest.tokens / tokenTotal.value
         : null;
@@ -1074,7 +1087,7 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
         tokenAccountingStatus: read.tokenAccounting
             ? { value: read.tokenAccounting.status, provenance: "derived", method: read.tokenAccounting.method }
             : unavailable("the selected Reader did not provide a Token accounting invariant"),
-        keySessionTokenAccountingStatus: keySessionTokenAccounting,
+        keySessionTokenAccountingStatus,
         responseUsageTotal: read.tokenAccounting && read.tokenAccounting.responseTotal !== null
             ? { value: read.tokenAccounting.responseTotal, provenance: "reported", method: "deduplicated single-response Usage total used for accounting" }
             : unavailable("a complete deduplicated response Usage total was unavailable"),
@@ -1095,6 +1108,7 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
         rankings,
         turns: trajectory.turns,
         turnCandidates: trajectory.candidates,
+        keySessionTokenAccounting,
         report: buildReportData(read, tokenTotal.value, harness, pricing),
         checks,
     };

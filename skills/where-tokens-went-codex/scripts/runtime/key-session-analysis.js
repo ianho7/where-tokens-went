@@ -21,6 +21,7 @@ function auditFingerprint(audit) {
         rankings: audit.rankings,
         turns: audit.turns,
         turnCandidates: audit.turnCandidates,
+        keySessionTokenAccounting: audit.keySessionTokenAccounting,
         report: audit.report,
         checks: audit.checks,
     });
@@ -53,7 +54,8 @@ function validateKeySessionAnalysis(audit, analysis, packets) {
         errors.push("Session is outside the Token-ranked Top 3.");
     if (analysis.auditFingerprint !== expectedFingerprint)
         errors.push("Audit fingerprint is stale or belongs to another Audit.");
-    if (audit.scope.harness === "codex" && (audit.summary.keySessionTokenAccountingStatus?.value ?? audit.summary.tokenAccountingStatus?.value) !== "reconciled")
+    const selectedSessionAccounting = audit.keySessionTokenAccounting?.find((entry) => entry.sessionId === analysis.sessionId)?.status;
+    if (audit.scope.harness === "codex" && (selectedSessionAccounting ?? audit.summary.keySessionTokenAccountingStatus?.value ?? audit.summary.tokenAccountingStatus?.value) !== "reconciled")
         errors.push("Codex Token accounting is not reconciled for the selected Key Session; AI conclusions are blocked.");
     if (!nonEmpty(analysis.taskContext))
         errors.push("taskContext is required.");
