@@ -1,6 +1,6 @@
 # where-tokens-went MVP：Claude Code 与 Codex 的历史数据源与 Reader 约定
 
-> 调研快照：2026-09-10。当前实现仅支持 Claude Code 和 OpenAI Codex。Pi（`earendil-works/pi`）与 DeepSeek Harness 的 Reader 暂停支持；下方对应章节保留为未来恢复参考，不代表当前 CLI、Skill 或安装脚本仍支持它们。目标是：工具由哪个 Harness 调用，就只读取该 Harness、当前项目的既有本地历史；不默认扫描其他 Harness，也不把实时采集放进 MVP。
+> 调研快照：2026-09-11。当前实现仅支持 Claude Code 和 OpenAI Codex。Pi（`earendil-works/pi`）与 DeepSeek Harness 的 Reader 暂停支持；下方对应章节保留为未来恢复参考，不代表当前 CLI、Skill 或安装脚本仍支持它们。目标是：工具由哪个 Harness 调用，就只读取该 Harness、当前项目的既有本地历史；不默认扫描其他 Harness，也不把实时采集放进 MVP。
 
 ## 结论先行
 
@@ -112,7 +112,9 @@ Codex 有两个可用面：
 - `SessionMeta` 包含 root `session_id`、thread `id`、`forked_from_id`、`parent_thread_id`、timestamp、cwd、originator、CLI version、source、model provider，以及子 Agent nickname/role/path 等可选字段。[当前 `SessionMeta` 定义](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs#L2822-L2858)
 - response/item 与 event records 能表达 user/assistant message、reasoning、function/custom/MCP/shell/apply-patch 等工具过程、stdout/stderr/exit status、错误、turn start/end/abort。[当前事件定义](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs#L1302-L1434)
 - `TokenUsage` 当前包含 input、cached input、cache-write input、output、reasoning output、total；`TokenUsageInfo` 同时包含累计的 `total_token_usage` 和本次增量 `last_token_usage`。源码明确后者被追加到前者，因此 Reader 应加总 `last_token_usage`，或直接取最终累计值，不能把累计值逐行求和。[当前 token 类型与累加语义](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs#L2061-L2129)
+- 当前 rollout 还可出现独立 `token_usage_record`，同时保留 `response_id`、`turn_id`、单响应 Usage、Turn 累计和 thread 累计。关键 Session 分析优先使用其单响应 Usage，并用 Turn / thread 累计作为 reconciliation invariant，而不将三个层级相加。[当前 `TokenUsageRecord`](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs#L2081-L2113)
 - 新版事件还定义了 `RawResponseCompleted`，表示“一次上游 Responses API 完成事件的精确 usage，非累计、非估算、非 replay”；存在时应优先使用它并按 `response_id` 去重。[当前 `RawResponseCompletedEvent`](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs#L1786-L1793)
+- `TurnStartedEvent` / `TurnCompleteEvent` 可提供 `turn_id`、起止、`duration_ms`、`time_to_first_token_ms` 和终止错误；`ItemStartedEvent` / `ItemCompletedEvent` 可提供工具或其他 Turn item 的毫秒边界。老记录缺失边界时保持 `unavailable`。[当前 Turn 与 item 时间定义](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs#L1802-L1824)
 - Codex 的本地 `session_index.jsonl` 维护 Session 的 `id`、`thread_name` 和更新时间；Reader 可用同一 `id` 的最新 `thread_name` 作为可读标题，但标题缺失时必须回退到 ID，不从 rollout 内容猜测。[当前 Session index 实现](https://github.com/openai/codex/blob/main/codex-rs/rollout/src/session_index.rs)
 - compaction、stream error/断线、too-many-attempts 等均可观察；`SessionMeta.parent_thread_id` 和 subagent source 提供父子关系。[当前错误与 lineage 定义](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs#L1720-L1778)
 - `turn_context` 提供可用于保守 Skill 边界匹配的 turn id；结构化 Skill 输入是最强的调用证据。对 `skills/<name>/SKILL.md` 的资源读取或该 Skill `scripts/` 下的脚本执行，只有在同一 turn/调用关系可验证时才记录为 `invoked`；普通文字、目录列表或未知字段不升级状态。[Codex Skill invocation source](https://github.com/openai/codex/blob/main/codex-rs/core/src/skills.rs)
@@ -125,7 +127,8 @@ Codex 有两个可用面：
 |---|---|
 | session / project / timestamp | 有；`session_meta` / `turn_context` |
 | model / provider | 有，但 model 可能按 turn 变化，应读 turn context，而非只看 session meta |
-| token / cache / reasoning | 有；优先单响应 `RawResponseCompleted`，其次 `last_token_usage` |
+| token / cache / reasoning | 有；优先带稳定 `response_id` 的单响应精确 Usage（`RawResponseCompleted` 或 `token_usage_record`），缺失时才用 `last_token_usage`；累计值只用于校验 |
+| turn / timing / TTFT | 当前有 `turn_id`、Turn start/complete、`duration_ms`、`time_to_first_token_ms` 和 item 时间；老记录必须降级 |
 | cost | rollout 未定义通用 reported cost；Codex API 等价成本默认查询 LiteLLM 精确目录项；有可计价 Usage 时按已定价子集给出 `estimated` 金额并暴露覆盖率，没有任何可计价 Usage 时才返回 `unavailable` |
 | tool call / result / error | 有；不同工具有不同 item/event 类型 |
 | retry | stream error 可见；精确 attempt 数在 OTel 更明确，纯历史需保守推断 |
@@ -137,13 +140,13 @@ Codex 有两个可用面：
 1. 根目录取 `CODEX_HOME`，否则取用户目录下 `.codex`；只枚举 `sessions`，默认不包含 `archived_sessions`。
 2. 由入口传入当前 cwd；快速读取每个候选的首个 `session_meta` 或使用日期目录/mtime 先裁剪，再精确匹配规范化后的 cwd。
 3. 记录 `cli_version`，按 envelope `type` 分派；未知 type 跳过并计数。不要依赖 SQLite 私有表。
-4. usage 优先级：`raw_response_completed(response_id)` > 每次 `token_count.info.last_token_usage` > 最终 `total_token_usage`。选定一种来源后不要混加。
+4. usage 优先级：带稳定 `response_id` 的单响应精确 Usage（`raw_response_completed` 或当前 `token_usage_record.usage`）> 每次 `token_count.info.last_token_usage` > 最终 `total_token_usage`。选定一种来源后不要混加，并用 Turn / thread 累计检查对账。
 5. 工具统一从 item lifecycle 的 started/completed 配对；输出大小从 completed item 的 stdout/stderr/content 计算。只保留摘要，不回显正文。
 6. 若未来格式变化导致 rollout 解析失败，切换到与本机版本匹配的 app-server schema，而不是永久兼容所有内部 variant。
 
 ### 缓存、首次请求与 Skill 证据边界
 
-Codex 的 `input` 可能已经包含 cache-read/cache-write 子集，不能把三个桶再次相加；Reader 保留源字段，shared analysis 负责拆出 ordinary input 并在不一致时返回 `unavailable`。Claude Code 的四个 usage 桶按互斥组成计算总量。两个 Reader 都只返回元数据和计数，不返回 Skill body、Prompt、回复、源码或工具结果。价格默认且仅按需 GET LiteLLM 模型目录，只提交 Provider/model 标识；若源记录缺少 Provider，则按 Codex→`openai`、Claude Code→`anthropic` 的 Harness 映射查询，显式冲突的 Provider 不强行转换。保留目录来源和查询时间，金额标为 `estimated`；只要有可计价 Usage，就按已定价子集显示部分估算并暴露覆盖率，未定价或不兼容 Usage 明确排除。只有没有任何精确匹配、网络失败或可用价格维度的 Usage 时金额才为 `unavailable`，不抹掉 Token 结果。
+Codex 的 `input` 可能已经包含 cache-read/cache-write 子集，不能把三个桶再次相加；Reader 保留源字段，shared analysis 负责拆出 ordinary input 并在不一致时返回 `unavailable`。Claude Code 的四个 usage 桶按互斥组成计算总量。两个 Reader 的默认投影只返回元数据和计数，不返回 Skill body、Prompt、回复、源码或工具结果；只有明确的关键 Session 分析工作流可在原 Audit Scope 内逐步读取内容，该内容不写入报告或默认输出。价格默认且仅按需 GET LiteLLM 模型目录，只提交 Provider/model 标识；若源记录缺少 Provider，则按 Codex→`openai`、Claude Code→`anthropic` 的 Harness 映射查询，显式冲突的 Provider 不强行转换。保留目录来源和查询时间，金额标为 `estimated`；只要有可计价 Usage，就按已定价子集显示部分估算并暴露覆盖率，未定价或不兼容 Usage 明确排除。只有没有任何精确匹配、网络失败或可用价格维度的 Usage 时金额才为 `unavailable`，不抹掉 Token 结果。
 
 首次请求是每个选定 Session 最早有效 ModelCall 的观测负担。Skill 证据状态分为 `available`、`invoked`、`attributed`、`unavailable`；listing 只说明可用，不能推断已调用。直接资源足迹、观测关联和因果影响分别报告，当前没有足以证明因果影响的反事实，因此后者保持 `unavailable`。
 

@@ -56,6 +56,10 @@ _Avoid_: Finding, recommendation, verdict
 A Host Agent-owned prioritized explanation of an observed usage pattern supported by Evidence.
 _Avoid_: Alert, metric
 
+**关键 Session 分析**:
+Host Agent 对一个高贡献 Session 生成的证据化解读；它选择一个主要 Finding，说明可能机制与替代解释，并给出一项改善行动及验证方法。它必须区分事实、解读和建议，不改写 Evidence，也不把时间相关性表述为已证实因果。
+_Avoid_: AI 诊断, 导师分析
+
 **Provenance**:
 The origin class of a value: `reported`, `derived`, `estimated`, or `unavailable`.
 _Avoid_: Confidence

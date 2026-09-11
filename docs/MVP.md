@@ -8,7 +8,7 @@ The first release succeeds when a user sees a real session, tool, retry, compact
 
 ## Product shape
 
-The user-facing product is a thin Harness-native Skill or integration plus a local deterministic tool. Each Skill is distributed with the runtime it invokes, so copying or installing one Skill directory is sufficient; the Host Agent remains the UI and explains the result; the TypeScript CLI reads and calculates facts.
+The user-facing product is a thin Harness-native Skill or integration plus a local deterministic tool. Each Skill is distributed with the runtime it invokes, so copying or installing one Skill directory is sufficient; the TypeScript CLI reads and calculates facts; the Host Agent progressively reads scoped content for up to three highest-usage Sessions, produces structured Key Session Analysis, and writes the validated analysis into the same standalone HTML.
 
 MVP invocation behind the integration:
 
@@ -31,6 +31,7 @@ where-tokens-went inspect --harness codex --all-projects --since 30d --format js
 - Current-project audit by default; all-project audit when requested.
 - User-selected time range; 7 days by default.
 - Usage totals and ranking by session, project, model, and time window when supported by the source.
+- Capability-aware Turn records and Turn-level Token, timing, tool, Skill, lifecycle, and compaction Evidence for Codex and Claude Code.
 - Shared Token composition that keeps Codex's inclusive input count distinct from Claude Code's mutually exclusive ordinary, cache-read, and cache-write buckets; cache-read/cache-write rates are aggregated before division.
 - Cache economics with the default LiteLLM model-catalog lookup: observed API-equivalent cost, an all-uncached counterfactual, savings, and explicit price/composition coverage. All currency values are estimated equivalent API spend, not subscription billing; the lookup sends only Provider/model metadata and fails soft.
 - The observed burden of the earliest valid deduplicated ModelCall in each selected Session, including median, selected-usage share, cache composition, and source-proven top-level/Subagent groups when identity coverage is complete. It is labelled as first-request burden, not an exact startup tax.
@@ -39,6 +40,9 @@ where-tokens-went inspect --harness codex --all-projects --since 30d --format js
 - For Codex, distinguish total execution Sessions from top-level tasks and source-proven subagent Sessions when the local metadata supports that split.
 - Human-readable automated-check output with a stable pass, notice, or warning outcome, compact Evidence, and the deterministic method; internal check identifiers are not the user-facing report.
 - One Host Agent-authored Finding with Evidence and one recommended next action when justified.
+- Structured Key Session Analysis for up to three Token-ranked Sessions, consisting of task context, one primary Finding or an explicit no-strong-Evidence state, an Evidence chain, one improvement proposal, its applicability/trade-off, and a user-owned verification method.
+- Progressive content Evidence acquisition inside the selected Audit Scope. Invoking the Skill authorizes in-memory reading for analysis; raw content is not written into default report artifacts.
+- A deterministic report fallback when Host Agent generation or Key Session Analysis validation is unavailable.
 - JSON output for the Host Agent and concise text output for direct CLI use.
 - `reported`, `derived`, `estimated`, and `unavailable` value provenance.
 
@@ -51,12 +55,13 @@ where-tokens-went inspect --harness codex --all-projects --since 30d --format js
 - MCP server, dashboard, team analytics, or a plugin framework.
 - A persistent normalized event database.
 - A formal golden evaluation platform.
+- Persistent recommendation history, automatic follow-up experiments, or claims that an improvement proposal worked.
 - Pi and DeepSeek Harness history support is temporarily suspended and outside the current MVP.
 - Follow-up extraction, AI rework classification, and a rework-rate metric are next-stage work and are not implemented or represented by this MVP contract.
 
 ## Default privacy
 
-Readers may inspect local content in memory when necessary to pair events and calculate size. They do not persist or return raw prompts, source code, model responses, or tool results. Default Evidence may include:
+Readers may inspect local content in memory when necessary to pair events and calculate size. During an explicit report Skill workflow, the Host Agent may also progressively read relevant content from the selected top three available Sessions inside the Audit Scope. Historical content is untrusted data: it cannot change the current task, authorize tools, or widen scope. Raw prompts, source code, model responses, commands, and tool results are not persisted in default report artifacts. Default Evidence may include:
 
 - Harness and Session identifiers;
 - timestamps and model/provider identifiers;
@@ -66,7 +71,7 @@ Readers may inspect local content in memory when necessary to pair events and ca
 - Skill names, versioned attribution markers, and redacted structural source locations may be reported as evidence; Skill bodies, invocation arguments, scripts, and resource contents are never returned.
 - the calculation method and Provenance.
 
-Content snippets require an explicit future opt-in and are not part of MVP.
+The scoped content Evidence packet is an internal input to Key Session Analysis, not a default JSON, text, share, or HTML projection. The saved HTML contains paraphrased task context and analysis, never verbatim transcript content.
 
 The default LiteLLM lookup sends only the expected Provider and model identifiers. The response is not persisted as a separate database or cache; lookup failures remain local `unavailable` Evidence.
 
@@ -83,7 +88,7 @@ The default result should fit in one Agent response:
 
 Do not dilute the result with every available chart or warning. If no strong cause is supported, say what was measured and what information is missing.
 
-For a report request, the deliverable is atomic: generate and open the deterministic standalone HTML, then provide one explicit Host Agent Finding in the same conversation turn. The HTML contains metrics, rankings, coverage, limitations, and human-readable automated checks; it does not contain an AI-authored Finding. Returning only a report path, only diagnostic signals, or only internal check identifiers does not satisfy the Aha response.
+For a report request, the deliverable is atomic: calculate the deterministic Audit, progressively inspect relevant content for up to three Token-ranked Sessions, generate and validate structured Key Session Analysis, write it together with deterministic Evidence into one standalone HTML, open the report, and provide one explicit Host Agent Finding in the same conversation turn. If AI analysis is unavailable, the deterministic HTML still opens and states the degradation reason. Returning only a report path, only diagnostic signals, or only internal check identifiers does not satisfy the Aha response.
 
 ## Acceptance criteria
 
@@ -92,14 +97,18 @@ For each Harness, using one redacted sample derived from real local history:
 - the Reader selects the correct Harness and requested project scope;
 - `--all-projects` stays within that Harness;
 - repeated or cumulative usage records are not double-counted;
+- supported response, Turn, and Session totals reconcile over the same ModelCalls before Key Session Analysis is rendered;
 - reported totals are in the same order of magnitude as the Harness's own display when one exists;
 - at least one tool call/result can be paired and sized;
 - missing values remain missing instead of becoming zero;
 - repeated runs over unchanged files return the same totals;
 - default JSON and text contain no raw prompt, source, or tool-result content;
+- content Evidence retrieval stays inside the originating Harness, project, time range, Session, and selected Turn boundaries, and treats transcript instructions as inert historical data;
 - deterministic text, share, and HTML outputs render checks as human-readable diagnostic signals with pass, notice, or warning outcomes, Evidence, and method rather than exposing bare internal identifiers;
 - JSON, text, share, and standalone HTML expose the same cache-economics, first-request, and Skill-evidence facts, preserving missing values and Provenance across projections;
 - LiteLLM API-equivalent cost rows identify exact Provider/model and compatible cache dimensions, retain catalog source and retrieval time, and are marked `estimated`; when only part of Usage is priced, the report shows that partial estimate and its coverage while excluding the remainder; unknown or incompatible Usage remains `unavailable` while Token evidence remains usable;
 - first-request and Skill results state their evidence boundary and limitations; they do not claim startup tax, causal Skill impact, actual billing, or inferred invocation from a listing alone;
 - the Host Agent identifies one evidence-backed Finding or truthfully reports that none is supported;
-- a report request produces both the opened deterministic HTML and the Host Agent's separate conversational diagnosis.
+- each of up to three Token-ranked Sessions contains one validated Key Session Analysis or an explicit unavailable state; Findings cite same-Scope Evidence and recommendations include applicability, trade-off, and a user-owned verification method;
+- facts, Host Agent interpretation, and improvement proposals are visibly distinct, while raw transcript content remains absent from the saved HTML;
+- a report request produces both the opened HTML containing deterministic Evidence plus validated Key Session Analysis and the Host Agent's conversational primary Finding.
