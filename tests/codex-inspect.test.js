@@ -711,7 +711,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.equal(result.report.rollingWindow.observedTokens.value, 126000000);
     assert.match(html, /where-tokens-went 诊断报告/);
     assert.match(html, /class="metric-main"[^>]*>1\.26亿</);
-    assert.match(html, /title="精确值：126,000,000；证据来源：已报告"/);
+    assert.match(html, /title="精确值：126,000,000；证据来源：记录值"/);
     assert.match(html, /id="token-trend" class="echart"/);
     assert.match(html, /renderer:'svg'/);
     assert.match(html, /table class="kami-table compact sortable"/);
@@ -724,12 +724,12 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.match(html, /class="percentage"[^>]*>100%</);
     assert.equal(/2026-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z/.test(html), false);
     assert.doesNotMatch(html, /证据标识|Evidence markers/);
-    assert.match(html, /一个工具结果可能在后续上下文中延续；暴露估算/);
+    assert.match(html, /注入估算表示工具结果被算入上下文的大小；后续暴露估算/);
     assert.match(html, /方法：/);
     assert.equal(html.includes('long_session'), false);
-    assert.equal((html.match(/2 个 Codex Session 包含尚未支持的计量记录/g) ?? []).length, 1);
+    assert.equal((html.match(/2 个 Codex Session 包含本报告暂时无法解析的用量记录/g) ?? []).length, 1);
     assert.equal(html.includes('A Codex Session contains unsupported accounting records'), false);
-    assert.match(html, /Provider 额度/);
+    assert.doesNotMatch(html, /Provider 额度|重置时间|没有该工具官方提供的额度数据/);
     assert.equal(html.includes('PRIVATE_ARGS'), false);
     assert.equal(html.includes('PRIVATE_RESULT'), false);
     assert.equal(html.includes('PRIVATE_FUTURE_ACCOUNTING'), false);
@@ -771,9 +771,8 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
       ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--locale', 'zh-CN', '--view', 'window', '--format', 'text'],
       { CODEX_HOME: codexHome },
     );
-    assert.match(windowText, /Provider 额度/);
-    assert.match(windowText, /—/);
-    assert.match(windowText, /不是 Provider 额度/);
+    assert.doesNotMatch(windowText, /Provider 额度|重置时间|没有该工具官方提供的额度数据/);
+    assert.doesNotMatch(windowText, /不是该工具官方提供的额度/);
 
     const { stdout: toolsText } = await runAudit(
       ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--view', 'tools', '--format', 'text'],
@@ -1059,9 +1058,9 @@ test('API-equivalent cache cost uses exact Provider/model/TTL dimensions and exp
   assert.equal(mixed.report.cacheEconomics.cacheSavingsPercent.value, 6.2);
   assert.match(mixed.report.apiEquivalentCost.limitations.join(' '), /priced Usage|unpriced.*excluded/i);
   const mixedChineseText = renderText(mixed, 'zh-CN');
-  assert.match(mixedChineseText, /定价时根据所选 Harness 推导 Provider：anthropic/);
+  assert.match(mixedChineseText, /定价时根据所选 Harness 推断 Provider：anthropic/);
   assert.match(mixedChineseText, /Provider 与所选 Harness 不匹配：other-provider/);
-  assert.match(mixedChineseText, /未解析到 other-provider\/claude-sonnet-5-preview 的价格条目/);
+  assert.match(mixedChineseText, /没有找到 other-provider\/claude-sonnet-5-preview 的价格条目/);
   assert.match(mixedChineseText, /方法：缓存读取 Token 总量除以分母/);
   assert.doesNotMatch(mixedChineseText, /Provider was derived|no resolved price entry|cache-read Token count numerator/);
 
@@ -1069,9 +1068,9 @@ test('API-equivalent cache cost uses exact Provider/model/TTL dimensions and exp
   const lowCoverage = analyseAudit(scope, readFor(lowCoverageCalls), 'claude', mixedPricing);
   assert.equal(lowCoverage.report.apiEquivalentCost.coveragePercent.value, 11.45);
   const lowCoverageHtml = renderHtml(lowCoverage, 'zh-CN');
-  assert.match(lowCoverageHtml, /API 等价估算（USD）/);
+  assert.match(lowCoverageHtml, /API 折算/);
   assert.match(lowCoverageHtml, /\$0\.000469/);
-  assert.match(lowCoverageHtml, /首次请求中位数（Token）/);
+  assert.match(lowCoverageHtml, /首次请求 Token 中位数/);
   assert.match(lowCoverageHtml, /costVisible":true/);
 });
 
@@ -1105,8 +1104,8 @@ test('Chinese presentation localizes first-request limitations', () => {
     { source: { kind: 'litellm', version: 'litellm-model-catalog', retrievedAt: timestamp, effectiveDate: null, currency: 'USD', unit: 'USD per 1M tokens' }, rates: [], limitations: [] },
   );
   const text = renderText(result, 'zh-CN');
-  assert.match(text, /首次请求负担是观测到的最早请求大小，不是可精确移除的启动税/);
-  assert.match(text, /没有带时间戳有效 ModelCall 的 Session 已排除在首次请求覆盖率之外/);
+  assert.match(text, /首次请求 Token 量是观测到的最早请求大小，不是可以精确剥离的启动成本/);
+  assert.match(text, /没有有效时间戳的 Session，不计入首次请求完整度/);
   assert.doesNotMatch(text, /Sessions without a timestamped valid ModelCall|is an observed earliest request size/);
 });
 
@@ -1210,12 +1209,12 @@ test('first-request burden selects one earliest deduplicated call and separates 
     assert.equal(first.identityCoveragePercent.value, 100);
 
     const { stdout: textOutput } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text', '--locale', 'zh-CN', '--view', 'usage'], env);
-    assert.match(textOutput, /首次请求负担/);
+    assert.match(textOutput, /首次请求 Token 量/);
     assert.match(textOutput, /160/);
     await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--html', htmlPath], env);
     await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--share', sharePath], env);
-    assert.match(await readFile(htmlPath, 'utf8'), /首次请求负担|first-request burden/);
-    assert.match(await readFile(sharePath, 'utf8'), /首次请求负担|First-request burden/);
+    assert.match(await readFile(htmlPath, 'utf8'), /首次请求 Token 量|First-request burden/);
+    assert.match(await readFile(sharePath, 'utf8'), /首次请求 Token 量|First-request burden/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -37,5 +37,5 @@ const echarts = __importStar(require("echarts/core"));
 const charts_1 = require("echarts/charts");
 const components_1 = require("echarts/components");
 const renderers_1 = require("echarts/renderers");
-echarts.use([charts_1.LineChart, charts_1.BarChart, charts_1.HeatmapChart, components_1.AriaComponent, components_1.DatasetComponent, components_1.GridComponent, components_1.LegendComponent, components_1.TooltipComponent, components_1.VisualMapComponent, renderers_1.SVGRenderer]);
+echarts.use([charts_1.LineChart, charts_1.BarChart, charts_1.HeatmapChart, charts_1.PieChart, components_1.AriaComponent, components_1.DatasetComponent, components_1.GridComponent, components_1.LegendComponent, components_1.TooltipComponent, components_1.VisualMapComponent, renderers_1.SVGRenderer]);
 globalThis.echarts = echarts;

@@ -266,7 +266,9 @@ async function main(args = process.argv.slice(2)) {
         const shouldWriteHtml = options.htmlPath !== null || options.view === "full" || options.view === "report" || options.view === "question";
         if (shouldWriteHtml) {
             const target = options.htmlPath ?? defaultOutputPath(options.harness, "report", ".html");
-            await writeLocalFile(target, (0, report_1.renderHtml)(result, options.locale));
+            const projectName = options.cwd ? (0, report_1.resolveReportProjectName)(options.cwd) : null;
+            const htmlResult = projectName ? { ...result, projectName } : result;
+            await writeLocalFile(target, (0, report_1.renderHtml)(htmlResult, options.locale));
             outputKinds.push("local HTML report");
         }
         if (options.sharePath !== null || options.view === "share") {

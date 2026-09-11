@@ -7,7 +7,7 @@ import { analyseAudit } from "./analysis";
 import { readClaude } from "./claude-reader";
 import { readCodex } from "./codex-reader";
 import { resolveApiPricing, type PricingMode } from "./rates";
-import { normalizeLocale, renderHtml, renderShare, renderText, renderWeekText } from "./report";
+import { normalizeLocale, renderHtml, renderShare, renderText, renderWeekText, resolveReportProjectName } from "./report";
 import type { AuditResult, AuditSnapshot, AuditView, EvidenceValue, Harness, ReadResult, ReadScope, ReportLocale, WeekComparison, WeekStructureChange } from "./types";
 
 interface CliOptions {
@@ -249,7 +249,9 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     const shouldWriteHtml = options.htmlPath !== null || options.view === "full" || options.view === "report" || options.view === "question";
     if (shouldWriteHtml) {
       const target = options.htmlPath ?? defaultOutputPath(options.harness, "report", ".html");
-      await writeLocalFile(target, renderHtml(result, options.locale));
+      const projectName = options.cwd ? resolveReportProjectName(options.cwd) : null;
+      const htmlResult = projectName ? { ...result, projectName } : result;
+      await writeLocalFile(target, renderHtml(htmlResult, options.locale));
       outputKinds.push("local HTML report");
     }
     if (options.sharePath !== null || options.view === "share") {

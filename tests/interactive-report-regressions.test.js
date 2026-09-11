@@ -4,6 +4,9 @@ const vm = require('node:vm');
 
 const { analyseAudit } = require('../dist/src/analysis.js');
 const { renderHtml } = require('../dist/src/report.js');
+const { snapshotHtml } = require('../scripts/kami-report-content-snapshot.js');
+const { scoreHtml } = require('../scripts/score-kami-report.js');
+const contentBaseline = require('./fixtures/kami-report-content-baseline.json');
 
 function evidenceRead(isError = null) {
   const timestamp = '2026-09-08T08:00:00.000Z';
@@ -71,6 +74,94 @@ test('every inline report script parses', () => {
   assert.match(scripts.at(-1), /DOMContentLoaded/);
 });
 
+test('Kami restyle preserves the normalized bilingual content contract', () => {
+  for (const locale of ['en-US', 'zh-CN']) {
+    assert.deepEqual(snapshotHtml(renderHtml(result(), locale)), contentBaseline[locale], locale);
+  }
+});
+
+test('cache pricing limitations are reduced to one actionable visible explanation while raw text keeps detail', () => {
+  const html = renderHtml(result(), 'zh-CN');
+  const { renderText } = require('../dist/src/report.js');
+  const cacheSection = html.match(/<section class="cache-economics">[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.match(cacheSection, /金额仅按能匹配精确单价的用量估算；仍有部分模型无法匹配价格，因此金额可能低于完整用量对应成本。/);
+  assert.doesNotMatch(cacheSection, /LiteLLM 没有找到|没有找到 openai\/|定价时根据所选 Harness/);
+  assert.match(renderText(result(), 'zh-CN'), /没有找到 openai\/gpt-4\.1 的价格条目/);
+});
+
+test('Skill evidence keeps only actionable usage and cost columns', () => {
+  const report = result();
+  report.report.skills = [{
+    name: 'sample-skill', state: 'attributed',
+    availableSessions: { value: 2, provenance: 'derived' },
+    invocationCount: { value: 3, provenance: 'derived' },
+    sessionCount: { value: 2, provenance: 'derived' },
+    firstObservedAt: { value: '2026-09-08T08:00:00.000Z', provenance: 'reported' },
+    lastObservedAt: { value: '2026-09-08T09:00:00.000Z', provenance: 'reported' },
+    attributedTokens: { value: 12345, provenance: 'derived' },
+    attributedApiEquivalentCost: { value: 31.51641688, provenance: 'estimated' },
+    evidenceCoveragePercent: { value: 100, provenance: 'derived' },
+    directResourceFootprint: { value: 3, provenance: 'derived' },
+    observedAssociation: { value: null, provenance: 'unavailable' },
+    causalImpact: { value: null, provenance: 'unavailable' },
+    evidenceTypes: ['explicit-input'], sourceLocations: [],
+  }];
+  const html = renderHtml(report, 'zh-CN');
+  const skillSection = html.match(/<section class="skill-evidence">[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.match(skillSection, /调用次数/);
+  assert.match(skillSection, /调用 Session/);
+  assert.match(skillSection, /约 \$31\.52/);
+  assert.match(skillSection, /精确值：\$31\.51641688/);
+  assert.match(skillSection, /API 折算金额只统计能够明确关联到该 Skill 的用量/);
+  assert.doesNotMatch(skillSection, /状态|有据可查比例|首次观察|最近观察|时间上相关|有因果证明/);
+});
+
+test('unavailable provider quota fields are omitted while available quota fields remain visible', () => {
+  const report = result();
+  const unavailableHtml = renderHtml(report, 'zh-CN');
+  const unavailableRolling = unavailableHtml.match(/<div class="ivory-group rolling-activity">[\s\S]*?<\/div><\/section>/)?.[0] ?? unavailableHtml;
+  assert.doesNotMatch(unavailableRolling, /Provider 额度|重置时间|没有该工具官方提供的额度数据/);
+
+  report.report.rollingWindow.providerQuota = { value: 42, provenance: 'reported' };
+  report.report.rollingWindow.resetAt = { value: '2026.09.11T12:00', provenance: 'reported' };
+  const availableHtml = renderHtml(report, 'zh-CN');
+  assert.match(availableHtml, /Provider 额度/);
+  assert.match(availableHtml, /重置时间/);
+  assert.match(availableHtml, /42/);
+});
+
+test('model distribution adds a donut chart for small model sets without changing the table', () => {
+  const html = renderHtml(result(), 'zh-CN');
+  assert.match(html, /id="model-share-chart" class="echart"/);
+  assert.match(html, /type:'pie'/);
+  assert.match(html, /d\.models\.length<=6/);
+  assert.match(html, /按模型查看 Token 占比/);
+});
+
+test('model distribution keeps the bar-only layout for larger model sets', () => {
+  const report = result();
+  report.rankings.models = Array.from({ length: 7 }, (_, index) => ({
+    ...report.rankings.models[0],
+    key: `model-${index}`,
+    sharePercent: { value: 100 / 7, provenance: 'derived' },
+  }));
+  const html = renderHtml(report, 'zh-CN');
+  assert.doesNotMatch(html, /id="model-share-chart"/);
+});
+
+test('Kami shell embeds the authorized W04/W05 font contract', () => {
+  const html = renderHtml(result(), 'zh-CN');
+  const head = html.slice(0, html.indexOf('</head>'));
+  assert.match(head, /authorized TsangerJinKai02-W04/);
+  assert.match(head, /authorized TsangerJinKai02-W05/);
+  assert.match(head, /data:font\/ttf;base64,/);
+  assert.doesNotMatch(head, /src:url\(["']assets\/fonts|https?:\/\//i);
+  assert.match(html, /main\{padding:88px 64px 120px\}/);
+  assert.match(html, /\.report-header__project\{font-size:64px;font-weight:500/);
+  assert.match(html, /\.report-deck\{max-width:820px;font-size:18px/);
+  assert.match(html, /@media\(max-width:480px\).*\.report-header__project\{font-size:46px/s);
+});
+
 test('analysis returns deterministic automated checks', () => {
   assert.deepEqual(result().checks, result().checks);
   assert.ok(result().checks.length >= 2);
@@ -126,8 +217,8 @@ test('exact values are hover titles instead of visible secondary lines', () => {
   const text = require('../dist/src/report.js').renderText(result(), 'zh-CN');
   assert.doesNotMatch(html, /class="metric-exact"/);
   assert.match(html, /title="精确值：/);
-  assert.equal((html.match(/估算值仅作参考，不代表实际账单；“—”表示数据不可用。/g) ?? []).length, 1);
-  assert.match(text, /^估算值仅作参考，不代表实际账单；“—”表示数据不可用。/);
+  assert.equal((html.match(/估算值仅作参考，不代表实际账单；“—”表示暂时没有数据。/g) ?? []).length, 1);
+  assert.match(text, /^估算值仅作参考，不代表实际账单；“—”表示暂时没有数据。/);
   assert.match(html, /data-provenance="reported"/);
   assert.match(html, /data-provenance="derived"/);
   assert.match(html, /data-provenance="estimated"/);
@@ -160,7 +251,7 @@ test('Findings keep values quiet and describe estimates naturally', () => {
   assert.doesNotMatch(toolFinding, /[●◆≈]/);
   assert.match(toolFinding, /characters/);
   const chineseText = require('../dist/src/report.js').renderText(finding, 'zh-CN');
-  assert.match(chineseText, /暴露估算约 10/);
+  assert.match(chineseText, /估算暴露量为 约 10/);
   assert.doesNotMatch(chineseText, /[●◆≈]|证据标识/);
   assert.doesNotMatch(html, /complete tokens/i);
   assert.doesNotMatch(text, /complete tokens/i);
@@ -214,20 +305,22 @@ test('time presentation uses numeric editorial dates and yearless chart labels',
   const { renderText } = require('../dist/src/report.js');
   const chineseHtml = renderHtml(report, 'zh-CN');
   const englishHtml = renderHtml(report, 'en-US');
-  assert.match(chineseHtml, /2026\.09\.01 \d{2}:\d{2}/);
-  assert.match(chineseHtml, /<text[^>]*class="chart-label">09\.08<\/text>/);
+  const chineseVisible = chineseHtml.replace(/<(?:style|script)\b[\s\S]*?<\/(?:style|script)>/gi, '');
+  const englishVisible = englishHtml.replace(/<(?:style|script)\b[\s\S]*?<\/(?:style|script)>/gi, '');
+  assert.match(chineseVisible, /2026\.09\.01 \d{2}:\d{2}/);
+  assert.match(chineseVisible, /<text[^>]*class="chart-label">09\.08<\/text>/);
   assert.match(chineseHtml, /"time":"09\.08"/);
-  assert.match(chineseHtml, /2026\.09\.08 \d{2}:\d{2}/);
-  assert.doesNotMatch(chineseHtml, /GMT|\d{4}年\d{1,2}月\d{1,2}日/);
-  assert.match(englishHtml, /2026\.09\.01 \d{2}:\d{2}/);
-  assert.doesNotMatch(englishHtml, /GMT|Sep \d/);
+  assert.match(chineseVisible, /2026\.09\.08 \d{2}:\d{2}/);
+  assert.doesNotMatch(chineseVisible, /GMT|\d{4}年\d{1,2}月\d{1,2}日/);
+  assert.match(englishVisible, /2026\.09\.01 \d{2}:\d{2}/);
+  assert.doesNotMatch(englishVisible, /GMT|Sep \d/);
   assert.match(renderText(report, 'zh-CN'), /2026\.09\.01 \d{2}:\d{2}/);
 });
 
 test('daily token trend uses the Kami contrast ladder and redundant line encodings', () => {
   const html = renderHtml(result(), 'zh-CN');
   assert.doesNotMatch(html, /stack:'tokens'/);
-  assert.match(html, /#2d5a8a/);
+  assert.match(html, /#2d4e7a/);
   assert.match(html, /getComputedStyle\(document\.documentElement\)\.getPropertyValue\('--serif'\)/);
   assert.match(html, /lineType,symbol,focus/);
   assert.match(html, /lineStyle:\{color,width:focus\?2\.5:2,opacity:focus\?1:\.92,type:lineType\}/);
@@ -235,6 +328,24 @@ test('daily token trend uses the Kami contrast ladder and redundant line encodin
   assert.match(html, /areaStyle:\{color,opacity:\.1\}/);
   assert.match(html, /areaStyle:\{color,opacity:\.12\}/);
   assert.doesNotMatch(html, /areaStyle:\{color,opacity:\.18\}/);
+});
+test('Kami data surfaces preserve tables, local scrolling, print output, and no-JS details', () => {
+  const html = renderHtml(result(), 'zh-CN');
+  assert.match(html, /<table class="kami-table sortable"><thead>/);
+  assert.match(html, /@media\(scripting:none\)\{details > :not\(summary\)\{display:block\}\}/);
+  assert.match(html, /@media print\{\.echart\{display:none\}details > :not\(summary\)\{display:block\}/);
+  assert.match(html, /html,body\{overflow-x:clip\}/);
+  assert.match(html, /\.kami-table\{display:block;width:max-content;min-width:100%;max-width:100%;overflow-x:auto;white-space:nowrap\}/);
+  assert.match(html, /\.kami-table th,\.kami-table td\{padding-top:10px;padding-bottom:10px\}/);
+  assert.match(html, /textStyle:\{fontFamily:serifFont/);
+  assert.doesNotMatch(html, /brandLight: "#2d5a8a"/);
+});
+test('Kami fidelity score separates static contract from unavailable browser proof', () => {
+  const scored = scoreHtml(renderHtml(result(), 'zh-CN'));
+  assert.equal(scored.browser.status, 'unavailable');
+  assert.equal(scored.overall.status, 'unavailable');
+  assert.ok(scored.automated.checks.every((check) => check.status === 'passed'));
+  assert.match(scored.unavailable.join('|'), /actual font|computed style|bounding boxes|page overflow|fixed-viewport screenshots/);
 });
 test('automated checks are stable, evidence-backed, private, and shared by formatters', () => {
   const first = result();
