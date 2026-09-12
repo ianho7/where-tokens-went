@@ -1,6 +1,9 @@
 node_modules/
 dist/
 
+# Generated HTML reports; keep local copies out of repository language stats.
+/*.html
+
 # Generated project-native Skill copies; canonical sources live under skills/.
 .agents/skills/where-tokens-went-deepseek/
 .agents/skills/where-tokens-went-codex/
