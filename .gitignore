@@ -15,3 +15,15 @@ dist/
 .agents/skills/agent-audit-codex/
 .claude/skills/agent-audit-claude/
 .pi/skills/agent-audit-pi/
+
+# Local Session and task work
+/.scratch/
+/issues/
+/docs/handoff/
+/docs/plans/
+/docs/research/
+/docs/specs/
+/where-tokens-went-项目中文文案修改清单.md
+
+# Local-only font experiment
+/assets/fonts/仓耳今楷02-W02.ttf
