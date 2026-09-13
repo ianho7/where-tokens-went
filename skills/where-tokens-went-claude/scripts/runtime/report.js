@@ -119,21 +119,36 @@ const ZH = {
     observedAssociation: "时间上相关（ModelCall）",
     causalImpact: "有因果证明",
     noSkillEvidence: "所选历史中没有足够证据确认 Skill 列表、调用或资源使用情况。",
-    turn: "Turn",
-    activeTime: "活跃耗时",
+    turn: "轮次",
+    activeTime: "本轮耗时",
     driver: "主要驱动",
     evidenceCompleteness: "证据完整度",
-    turnTrajectory: "Turn Token 轨迹",
+    turnTrajectory: "轮次轨迹",
     keySessionAnalysis: "关键 Session 分析",
-    taskContext: "任务背景",
-    primaryFinding: "主要问题",
+    taskContext: "Session 摘要",
+    primaryFinding: "核心判断",
     evidenceChain: "证据链",
-    improvementAction: "改善行动",
-    verificationMethod: "验证方法",
+    improvementAction: "改善提议",
+    verificationMethod: "如何验证",
     interpretation: "AI 解读",
     proposal: "改善提议",
     analysisUnavailable: "关键 Session 分析不可用：",
     noStrongEvidence: "未发现需要优先处理的问题。",
+    roundCount: "轮次",
+    totalDuration: "总耗时",
+    roundDuration: "本轮耗时",
+    processEvents: "过程事件",
+    resultSize: "结果大小",
+    toolCalls: "工具调用",
+    sessionToken: "Session Token",
+    firstUserMessage: "第一条真实用户消息",
+    chartHint: "点击或悬停数据点，查看完整真实 Prompt",
+    noUserMessage: "日志未记录本轮独立的用户消息",
+    allRoundDetails: "查看全部",
+    detailNote: "审计附录 · 默认折叠 · 缺失值保留为 —",
+    moduleDeck: "从 Token 排名进入单个 Session，按轮次追踪消耗集中、过程事件与真实用户消息。",
+    trajectoryIntro: "柱形表示 Token 占比，折线表示本轮耗时。深色高点可直接点按或悬停；同一个 Tooltip 先给出证据，再显示该轮第一条真实用户消息。",
+    noTrajectory: "没有可用的轮次证据。",
 };
 const EN = {
     title: "where-tokens-went diagnostic report",
@@ -244,21 +259,36 @@ const EN = {
     observedAssociation: "associated ModelCalls",
     causalImpact: "causal impact",
     noSkillEvidence: "The selected history has no verifiable Skill listing, invocation, or resource-use evidence.",
-    turn: "Turns",
-    activeTime: "active time",
+    turn: "Rounds",
+    activeTime: "round duration",
     driver: "main driver",
     evidenceCompleteness: "Evidence completeness",
-    turnTrajectory: "Turn Token trajectory",
+    turnTrajectory: "Round Token trajectory",
     keySessionAnalysis: "Key Session Analysis",
-    taskContext: "Task context",
-    primaryFinding: "Primary problem",
+    taskContext: "Session summary",
+    primaryFinding: "Core judgment",
     evidenceChain: "Evidence chain",
-    improvementAction: "Improvement action",
-    verificationMethod: "Verification method",
+    improvementAction: "Improvement proposal",
+    verificationMethod: "How to verify",
     interpretation: "Host Agent interpretation",
     proposal: "Improvement proposal",
     analysisUnavailable: "Key Session Analysis unavailable: ",
     noStrongEvidence: "No Evidence supports a strong primary problem.",
+    roundCount: "rounds",
+    totalDuration: "total duration",
+    roundDuration: "round duration",
+    processEvents: "process events",
+    resultSize: "result size",
+    toolCalls: "tool calls",
+    sessionToken: "Session Tokens",
+    firstUserMessage: "first real user message",
+    chartHint: "Click or hover a point to inspect the complete real Prompt",
+    noUserMessage: "No independent user message was recorded for this round",
+    allRoundDetails: "View all",
+    detailNote: "Audit appendix · collapsed by default · missing values remain —",
+    moduleDeck: "Enter a single Session from the Token ranking and follow concentration, process events, and real user messages by round.",
+    trajectoryIntro: "Bars show Token share and the line shows round duration. Dark points mark hotspots; the same Tooltip gives evidence first, then the round's first real user message.",
+    noTrajectory: "No round Evidence is available.",
 };
 function normalizeLocale(value) {
     return value && value.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
@@ -984,8 +1014,8 @@ function sessionDriver(result, sessionId, locale) {
     if (!candidate)
         return "—";
     const labels = locale === "zh-CN"
-        ? { turn_concentration: "Turn 集中", input_growth: "输入增长", tool_result_adjacency: "大工具结果邻接", compaction_change: "压缩边界", waiting_hotspot: "等待热点", failed_path: "失败路径" }
-        : { turn_concentration: "Turn concentration", input_growth: "input growth", tool_result_adjacency: "tool-result adjacency", compaction_change: "compaction boundary", waiting_hotspot: "waiting hotspot", failed_path: "failed path" };
+        ? { turn_concentration: "轮次集中", input_growth: "输入增长", tool_result_adjacency: "大工具结果邻接", compaction_change: "压缩边界", waiting_hotspot: "等待热点", failed_path: "失败路径" }
+        : { turn_concentration: "round concentration", input_growth: "input growth", tool_result_adjacency: "tool-result adjacency", compaction_change: "compaction boundary", waiting_hotspot: "waiting hotspot", failed_path: "failed path" };
     return labels[candidate.kind] ?? candidate.kind;
 }
 function sessionCompleteness(result, sessionId) {
@@ -994,48 +1024,204 @@ function sessionCompleteness(result, sessionId) {
         return { value: null, provenance: "unavailable", method: "Session has no Turn trajectory" };
     return reportDerivedEvidence(Math.round((turns.reduce((sum, turn) => sum + Number(turn.coverage.value ?? 0), 0) / turns.length) * 100) / 100, "mean of Turn evidence completeness percentages");
 }
+function sessionTitle(row, locale) {
+    const displayName = row.displayName?.trim();
+    if (displayName && displayName !== row.key) {
+        const suffix = " (" + row.key + ")";
+        return displayName.endsWith(suffix) ? displayName.slice(0, -suffix.length) : displayName;
+    }
+    return locale === "zh-CN" ? "未命名 Session" : "Untitled Session";
+}
+function keyValueText(value, locale, compact = true) {
+    if (value.value === null)
+        return "—";
+    return typeof value.value === "number"
+        ? (compact ? formatCompact(value.value, locale) : formatExact(value.value, locale))
+        : String(value.value);
+}
+function keyMetricHtml(value, locale, className = "", compact = true) {
+    const classes = className ? " " + className : "";
+    if (value.value === null)
+        return "<span class=\"key-value unavailable" + classes + "\" aria-label=\"" + escapeHtml(labelsFor(locale).unavailable) + "\">—</span>";
+    const display = keyValueText(value, locale, compact);
+    const sort = typeof value.value === "number" ? " data-sort=\"" + String(value.value) + "\"" : "";
+    return "<span class=\"key-value" + classes + "\" data-provenance=\"" + escapeHtml(value.provenance) + "\"" + sort + " aria-label=\"" + escapeHtml(display) + "\">" + escapeHtml(display) + "</span>";
+}
+function keyPercentageHtml(value, locale, className = "") {
+    if (value.value === null)
+        return keyMetricHtml(value, locale, className, false);
+    const display = keyValueText(value, locale, false) + "%";
+    const sort = typeof value.value === "number" ? " data-sort=\"" + String(value.value) + "\"" : "";
+    return "<span class=\"key-value" + (className ? " " + className : "") + "\" data-provenance=\"" + escapeHtml(value.provenance) + "\"" + sort + " aria-label=\"" + escapeHtml(display) + "\">" + escapeHtml(display) + "</span>";
+}
+function durationText(value, locale) {
+    if (typeof value.value !== "number" || !Number.isFinite(value.value))
+        return "—";
+    const totalSeconds = Math.max(0, Math.round(value.value / 1000));
+    const seconds = totalSeconds % 60;
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const minutes = totalMinutes % 60;
+    const hours = Math.floor(totalMinutes / 60);
+    if (locale === "zh-CN") {
+        if (hours > 0)
+            return hours + "小时" + (minutes > 0 ? minutes + "分钟" : "") + (seconds > 0 ? seconds + "秒" : "");
+        if (totalMinutes > 0)
+            return totalMinutes + "分钟" + (seconds > 0 ? seconds + "秒" : "");
+        return seconds + "秒";
+    }
+    if (hours > 0)
+        return hours + "h" + (minutes > 0 ? " " + minutes + "m" : "") + (seconds > 0 ? " " + seconds + "s" : "");
+    if (totalMinutes > 0)
+        return totalMinutes + "m" + (seconds > 0 ? " " + seconds + "s" : "");
+    return seconds + "s";
+}
+function keyDurationHtml(value, locale, className = "") {
+    if (value.value === null)
+        return keyMetricHtml(value, locale, className, false);
+    const display = durationText(value, locale);
+    const sort = typeof value.value === "number" ? " data-sort=\"" + String(value.value) + "\"" : "";
+    return "<span class=\"key-value" + (className ? " " + className : "") + "\" data-provenance=\"" + escapeHtml(value.provenance) + "\"" + sort + " aria-label=\"" + escapeHtml(display) + "\">" + escapeHtml(display) + "</span>";
+}
+function resultSizeText(turn, locale) {
+    const chars = numericValue(turn.toolResultChars);
+    if (chars !== null)
+        return formatCompact(chars, locale) + (locale === "zh-CN" ? " 字符" : " chars");
+    const bytes = numericValue(turn.toolResultBytes);
+    return bytes === null ? "—" : formatCompact(bytes, locale) + " B";
+}
+function processEvents(turn, locale) {
+    const labels = locale === "zh-CN"
+        ? { retry: "重试", compaction: "自动压缩上下文", subagent: "Subagent", interrupted: "中断" }
+        : { retry: "retry", compaction: "automatic context compaction", subagent: "Subagent", interrupted: "interrupted" };
+    const events = turn.lifecycleMarkers.map((marker) => labels[marker]).filter((marker) => Boolean(marker));
+    if (typeof turn.errorCount.value === "number" && turn.errorCount.value > 0)
+        events.push(locale === "zh-CN" ? "错误" : "error");
+    for (const skill of turn.skillMarkers ?? [])
+        events.push("Skill: " + skill);
+    return [...new Set(events)];
+}
+function roundLabel(turn, locale) {
+    const ordinal = numericValue(turn.ordinal);
+    if (ordinal === null)
+        return shortenedId(turn.turnId);
+    return locale === "zh-CN" ? "第 " + formatExact(ordinal, locale) + " 轮" : "Round " + formatExact(ordinal, locale);
+}
+function hotTurnIds(turns) {
+    const byTokens = [...turns].filter((turn) => numericValue(turn.tokens.totalTokens) !== null)
+        .sort((left, right) => numericValue(right.tokens.totalTokens) - numericValue(left.tokens.totalTokens))
+        .slice(0, 5).map((turn) => turn.turnId);
+    const byDuration = [...turns].filter((turn) => numericValue(turn.durationMs) !== null)
+        .sort((left, right) => numericValue(right.durationMs) - numericValue(left.durationMs))
+        .slice(0, 3).map((turn) => turn.turnId);
+    return new Set([...byTokens, ...byDuration]);
+}
+function fixedPercent(value, locale) {
+    return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value) + "%";
+}
+function concentrationText(turns, sessionTotal, locale) {
+    const denominator = numericValue(sessionTotal);
+    const valued = turns.filter((turn) => numericValue(turn.tokens.totalTokens) !== null)
+        .sort((left, right) => numericValue(right.tokens.totalTokens) - numericValue(left.tokens.totalTokens));
+    if (denominator === null || denominator <= 0 || valued.length === 0)
+        return locale === "zh-CN" ? "前 5 轮合计占比不可用" : "Top 5 round share is unavailable";
+    const count = Math.min(5, valued.length);
+    const numerator = valued.slice(0, count).reduce((sum, turn) => sum + numericValue(turn.tokens.totalTokens), 0);
+    const percent = Math.round((numerator / denominator) * 10000) / 100;
+    return locale === "zh-CN" ? "前 " + count + " 轮合计占 " + fixedPercent(percent, locale) : "Top " + count + " rounds account for " + fixedPercent(percent, locale);
+}
+function keySessionUnavailableReason(reason, locale) {
+    if (!reason)
+        return locale === "zh-CN" ? "未返回合法的结构化分析。" : "No valid structured analysis was returned.";
+    if (locale !== "zh-CN")
+        return reason;
+    if (reason === "未提供 Host Agent 结构化分析。")
+        return reason;
+    if (reason.includes("Codex Token accounting"))
+        return "Codex Token 口径尚未完成核对。";
+    if (reason.includes("Audit fingerprint"))
+        return "结构化分析与当前审计不匹配。";
+    if (reason.includes("Turn outside"))
+        return "分析引用了当前 Session 之外的轮次。";
+    if (reason.includes("primaryFinding"))
+        return "核心判断没有通过内容或证据校验。";
+    if (reason.includes("recommendation"))
+        return "改善提议没有通过内容或证据校验。";
+    if (reason.includes("evidenceRead"))
+        return "分析没有说明读取的轮次范围。";
+    return "Host Agent 返回的结构化分析未通过校验。";
+}
 function renderTurnTrajectory(result, sessionId, locale) {
     const labels = labelsFor(locale);
     const turns = sessionTurns(result, sessionId);
     if (turns.length === 0)
-        return emptyState(labels, locale === "zh-CN" ? "没有可用的 Turn Evidence。" : "No Turn Evidence is available.");
-    const rows = turns.map((turn) => "<tr><th scope=\"row\">" + escapeHtml(turn.ordinal.value === null ? turn.turnId : String(turn.ordinal.value)) + "</th><td>" + tokenCell(turn.tokens.totalTokens, locale) + "</td><td>" + percentageHtml(turn.sessionSharePercent, locale) + "</td><td>" + tokenCell(turn.tokens.inputTokens, locale) + " / " + tokenCell(turn.tokens.cachedInputTokens, locale) + " / " + tokenCell(turn.tokens.outputTokens, locale) + "</td><td>" + tokenCell(turn.durationMs, locale) + " / " + tokenCell(turn.timeToFirstTokenMs, locale) + "</td><td>" + tokenCell(turn.toolCallCount, locale) + " / " + tokenCell(turn.toolResultChars, locale) + "</td><td>" + escapeHtml(turn.lifecycleMarkers.join(", ") || "—") + "</td></tr>").join("");
-    return "<table class=\"kami-table compact turn-trajectory\"><caption class=\"sr-only\">" + escapeHtml(labels.turnTrajectory) + "</caption><thead><tr><th scope=\"col\">" + escapeHtml(labels.turn) + "</th><th scope=\"col\">" + escapeHtml(labels.tokens) + "</th><th scope=\"col\">" + escapeHtml(labels.share) + "</th><th scope=\"col\">" + escapeHtml(labels.input) + " / " + escapeHtml(labels.cachedInput) + " / " + escapeHtml(labels.output) + "</th><th scope=\"col\">" + escapeHtml(labels.activeTime) + " / TTFT</th><th scope=\"col\">Tool / result</th><th scope=\"col\">Lifecycle</th></tr></thead><tbody>" + rows + "</tbody></table>";
+        return emptyState(labels, labels.noTrajectory);
+    const hot = hotTurnIds(turns);
+    const rows = turns.map((turn) => {
+        const events = processEvents(turn, locale);
+        const className = hot.has(turn.turnId) ? " class=\"hot-row\"" : "";
+        const composition = [turn.tokens.inputTokens, turn.tokens.cachedInputTokens, turn.tokens.outputTokens]
+            .map((value) => keyValueText(value, locale)).join(" / ");
+        return "<tr" + className + "><th scope=\"row\" class=\"turn-number\"><span>" + escapeHtml(roundLabel(turn, locale)) + "</span></th><td>" + keyMetricHtml(turn.tokens.totalTokens, locale, "turn-token") + "</td><td>" + keyPercentageHtml(turn.sessionSharePercent, locale, "turn-share") + "</td><td class=\"composition\">" + escapeHtml(composition) + "</td><td>" + keyDurationHtml(turn.durationMs, locale, "turn-duration") + "</td><td class=\"tool-result\"><span data-sort=\"" + (numericValue(turn.toolCallCount) ?? "") + "\">" + escapeHtml(keyValueText(turn.toolCallCount, locale, false)) + " / " + escapeHtml(resultSizeText(turn, locale)) + "</span></td><td class=\"event\">" + escapeHtml(events.join(" · ") || "—") + "</td></tr>";
+    }).join("");
+    return "<table class=\"kami-table compact sortable turn-detail-table\"><caption class=\"sr-only\">" + escapeHtml(labels.turnTrajectory) + "</caption><thead><tr><th scope=\"col\">" + escapeHtml(labels.turn) + "</th><th scope=\"col\">" + escapeHtml(labels.tokens) + "</th><th scope=\"col\">" + escapeHtml(labels.share) + "</th><th scope=\"col\">" + escapeHtml(labels.input) + " / " + escapeHtml(labels.cachedInput) + " / " + escapeHtml(labels.output) + "</th><th scope=\"col\">" + escapeHtml(labels.roundDuration) + "</th><th scope=\"col\">" + escapeHtml(labels.toolCalls) + " / " + escapeHtml(labels.resultSize) + "</th><th scope=\"col\">" + escapeHtml(labels.processEvents) + "</th></tr></thead><tbody>" + rows + "</tbody></table>";
 }
-function renderKeySessionAnalysis(result, locale, composition) {
+function renderKeySessionAnalysis(result, locale, composition, localFirstUserMessages) {
     const labels = labelsFor(locale);
     const topSessions = result.rankings.sessions.slice(0, 3);
-    if (topSessions.length === 0 || (result.turns ?? []).length === 0)
+    if (topSessions.length === 0)
         return "";
+    const promptRecords = localFirstUserMessages ?? composition?.firstUserMessages ?? [];
+    const promptByTurn = new Map(promptRecords.map((record) => [record.sessionId + "\0" + record.turnId, record]));
     const validated = composition
         ? (0, key_session_analysis_1.composeKeySessionAnalyses)(result, composition.keySessionAnalyses)
         : { analyses: [], unavailable: [locale === "zh-CN" ? "未提供 Host Agent 结构化分析。" : "No Host Agent composition was provided."] };
     const bySession = new Map(validated.analyses.map((analysis) => [analysis.sessionId, analysis]));
     const blocks = topSessions.map((row, index) => {
+        const turns = sessionTurns(result, row.key);
         const analysis = bySession.get(row.key);
-        const unavailableReason = validated.unavailable.find((reason) => reason.startsWith(row.key + ":")) ?? validated.unavailable[0];
-        let body = "";
-        if (!analysis) {
-            body = "<p class=\"analysis-unavailable\">" + escapeHtml(labels.analysisUnavailable + (unavailableReason ?? (locale === "zh-CN" ? "未返回合法结构。" : "No valid structured analysis was returned."))) + "</p>";
-        }
-        else {
-            const evidenceIds = [...new Set([...(analysis.primaryFinding?.evidenceIds ?? []), ...(analysis.recommendation?.targetEvidenceIds ?? [])])];
-            const evidenceRows = evidenceIds.map((evidenceId) => {
-                const turn = (result.turns ?? []).find((candidate) => candidate.evidenceId === evidenceId);
-                return turn ? "<tr><th scope=\"row\">" + escapeHtml(evidenceId) + "</th><td>Turn " + escapeHtml(turn.turnId) + "</td><td>" + tokenCell(turn.tokens.totalTokens, locale) + "</td><td>" + percentageHtml(turn.sessionSharePercent, locale) + "</td></tr>" : "";
-            }).join("");
-            body = "<div class=\"analysis-grid\"><div><h4>" + escapeHtml(labels.taskContext) + "</h4><p>" + escapeHtml(analysis.taskContext) + "</p></div><div><h4>" + escapeHtml(labels.primaryFinding) + "</h4>" + (analysis.primaryFinding ? "<p><strong>" + escapeHtml(analysis.primaryFinding.observation) + "</strong></p><p class=\"analysis-interpretation\"><span class=\"analysis-label\">" + escapeHtml(labels.interpretation) + "</span> " + escapeHtml(analysis.primaryFinding.interpretation) + "</p><p>" + escapeHtml(analysis.primaryFinding.alternativeExplanations.join("; ")) + "</p>" : "<p>" + escapeHtml(labels.noStrongEvidence) + "</p>") + "</div><div><h4>" + escapeHtml(labels.evidenceChain) + "</h4>" + (evidenceRows ? "<table class=\"kami-table compact\"><thead><tr><th>Evidence ID</th><th>Turn</th><th>Token</th><th>Share</th></tr></thead><tbody>" + evidenceRows + "</tbody></table>" : "<p>—</p>") + "</div><div><h4>" + escapeHtml(labels.improvementAction) + "</h4>" + (analysis.recommendation ? "<p><span class=\"analysis-label\">" + escapeHtml(labels.proposal) + "</span> " + escapeHtml(analysis.recommendation.action) + "</p><p>" + escapeHtml(analysis.recommendation.rationale) + "</p><p>" + escapeHtml(analysis.recommendation.applicability) + (analysis.recommendation.tradeoff ? " · " + escapeHtml(analysis.recommendation.tradeoff) : "") + "</p>" : "<p>—</p>") + "</div><div><h4>" + escapeHtml(labels.verificationMethod) + "</h4><p>" + escapeHtml(analysis.recommendation?.verification ?? (locale === "zh-CN" ? "无强证据时不提供改善建议。" : "No verification proposal is provided without strong Evidence.")) + "</p></div></div>";
-        }
-        return "<details class=\"key-session-analysis\"" + (index === 0 ? " open" : "") + "><summary>" + escapeHtml(sessionLabel(row, locale)) + " · " + escapeHtml(labels.turn) + " " + evidencePlain(reportDerivedEvidence(sessionTurns(result, row.key).length, "count of Turn records in the Session"), locale, false) + "</summary>" + body + "<h4>" + escapeHtml(labels.turnTrajectory) + "</h4>" + renderTurnTrajectory(result, row.key, locale) + "</details>";
+        const unavailableReason = validated.unavailable.find((reason) => reason.startsWith(row.key + ":"))
+            ?? validated.unavailable.find((reason) => !topSessions.some((session) => reason.startsWith(session.key + ":")));
+        const title = sessionTitle(row, locale);
+        const titleId = "key-session-title-" + index;
+        const chartId = "key-session-chart-" + index;
+        const totalDuration = sessionActiveTime(result, row.key);
+        const concentration = concentrationText(turns, row.value, locale);
+        const topDuration = [...turns].filter((turn) => numericValue(turn.durationMs) !== null).sort((left, right) => numericValue(right.durationMs) - numericValue(left.durationMs))[0];
+        const fact = topDuration
+            ? concentration + "。" + roundLabel(topDuration, locale) + (locale === "zh-CN" ? "本轮耗时 " : " has a round duration of ") + durationText(topDuration.durationMs, locale) + (locale === "zh-CN" ? "。" : ".")
+            : concentration + (locale === "zh-CN" ? "。" : ".");
+        const primaryFinding = analysis?.primaryFinding;
+        const supportLabel = primaryFinding
+            ? (locale === "zh-CN" ? { strong: "强", moderate: "中", limited: "有限" }[primaryFinding.support] : primaryFinding.support)
+            : "";
+        const finding = !analysis
+            ? "<article class=\"finding\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.interpretation) + "</span></div><p class=\"analysis-unavailable\">" + escapeHtml(labels.analysisUnavailable + keySessionUnavailableReason(unavailableReason, locale)) + "</p><p class=\"quiet\">" + escapeHtml(locale === "zh-CN" ? "确定性轮次轨迹仍保留。" : "The deterministic round trajectory remains available.") + "</p></article>"
+            : "<article class=\"finding\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.interpretation) + "</span>" + (primaryFinding ? "<span class=\"evidence-strength\">" + escapeHtml(locale === "zh-CN" ? "证据强度 · " + supportLabel : "Evidence strength · " + supportLabel) + "</span>" : "") + "</div>" + (primaryFinding
+                ? "<p class=\"finding-lead\">" + escapeHtml(primaryFinding.observation) + "</p><p class=\"fact-line\"><strong>" + escapeHtml(fact) + "</strong></p><p class=\"quiet\">" + escapeHtml([primaryFinding.interpretation, ...primaryFinding.alternativeExplanations].filter(Boolean).join(locale === "zh-CN" ? "；" : " ")) + "</p>"
+                : "<p class=\"finding-lead\">" + escapeHtml(labels.noStrongEvidence) + "</p><p class=\"fact-line\"><strong>" + escapeHtml(fact) + "</strong></p>") + "</article>";
+        const action = analysis?.recommendation
+            ? "<article class=\"action\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.improvementAction) + "</span></div><h4>" + escapeHtml(analysis.recommendation.action) + "</h4><p class=\"action-copy\">" + escapeHtml(analysis.recommendation.rationale) + "</p><p class=\"applicability\">" + escapeHtml(analysis.recommendation.applicability) + (analysis.recommendation.tradeoff ? " · " + escapeHtml(analysis.recommendation.tradeoff) : "") + "</p><p class=\"verify\"><span class=\"analysis-label\">" + escapeHtml(labels.verificationMethod) + "</span>" + escapeHtml(analysis.recommendation.verification) + "</p></article>"
+            : "";
+        const taskContext = analysis?.taskContext ?? (locale === "zh-CN" ? "Host Agent 解读不可用；保留确定性轨迹。" : "Host Agent interpretation is unavailable; the deterministic trajectory remains.");
+        const metrics = "<div class=\"key-session-metrics\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "Session 摘要" : "Session summary") + "\"><div class=\"key-session-metric\"><span class=\"key-session-metric-value\">" + escapeHtml(durationText(totalDuration, locale)) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(labels.totalDuration) + "</span></div><div class=\"key-session-metric\"><span class=\"key-session-metric-value\" data-sort=\"" + String(turns.length) + "\">" + escapeHtml(String(turns.length)) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(labels.roundCount) + "</span></div><div class=\"key-session-metric\"><span class=\"key-session-metric-value\">" + escapeHtml(concentration) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(locale === "zh-CN" ? "前 5 轮 Token 占比" : "Top 5 round Token share") + "</span></div></div>";
+        const sessionTotal = keyValueText(row.value, locale);
+        const trajectoryNote = labels.trajectoryIntro;
+        const promptCount = turns.filter((turn) => promptByTurn.get(row.key + "\0" + turn.turnId)?.content !== null && promptByTurn.has(row.key + "\0" + turn.turnId)).length;
+        const promptNote = promptCount > 0
+            ? (locale === "zh-CN" ? "本地 Tooltip 可查看 " + promptCount + " 个轮次的完整首条用户消息。" : "Local Tooltips include the complete first user message for " + promptCount + " rounds.")
+            : (locale === "zh-CN" ? "首条用户消息不可用时会保留诚实的缺失说明。" : "Missing first user messages remain explicitly unavailable.");
+        const detailSummary = labels.allRoundDetails + " " + turns.length + (locale === "zh-CN" ? " 个轮次明细" : " round details");
+        const trajectory = "<section class=\"key-session-section key-session-trajectory\" aria-labelledby=\"" + chartId + "-title\"><div class=\"key-session-section-head\"><h4 id=\"" + chartId + "-title\">" + escapeHtml(labels.turnTrajectory) + "</h4><p>" + escapeHtml(trajectoryNote) + "</p></div><figure class=\"key-session-chart-frame\" aria-labelledby=\"" + chartId + "-caption\"><div class=\"key-session-chart-toolbar\"><div><strong>" + escapeHtml(String(turns.length) + (locale === "zh-CN" ? " 个轮次 · Token 占比 / 本轮耗时" : " rounds · Token share / round duration")) + "</strong><small>" + escapeHtml(labels.chartHint) + "</small></div><div class=\"key-session-legend\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "图例" : "Legend") + "\"><span class=\"hot\">" + escapeHtml(locale === "zh-CN" ? "高用量轮次" : "Token hotspots") + "</span><span>" + escapeHtml(locale === "zh-CN" ? "其他轮次" : "Other rounds") + "</span><span class=\"time\">" + escapeHtml(labels.roundDuration) + "</span></div></div><div id=\"" + chartId + "\" class=\"echart key-session-chart\" role=\"img\" aria-label=\"" + escapeHtml(String(turns.length) + (locale === "zh-CN" ? " 个轮次的 Token 占比和本轮耗时轨迹" : " rounds of Token share and round duration")) + "\"></div><figcaption id=\"" + chartId + "-caption\" class=\"key-session-chart-note\"><strong>" + escapeHtml(locale === "zh-CN" ? "重点：" : "Focus: ") + "</strong>" + escapeHtml(fact) + "</figcaption><p class=\"key-session-prompt-note\">" + escapeHtml(promptNote) + "</p><noscript><p class=\"key-session-chart-note\">" + escapeHtml(locale === "zh-CN" ? "图表需要 JavaScript；请展开下方完整轮次明细查看相同数据。" : "The chart needs JavaScript; expand the complete round details below for the equivalent data.") + "</p></noscript></figure><details class=\"key-session-appendix\"><summary><span>" + escapeHtml(detailSummary) + "</span><small>" + escapeHtml(labels.detailNote) + "</small></summary><div class=\"table-scroll\">" + renderTurnTrajectory(result, row.key, locale) + "</div></details></section>";
+        return "<details class=\"key-session-entry" + (index === 0 ? " key-session-entry--primary\" open" : "\"") + "><summary aria-controls=\"" + titleId + "\"><span class=\"key-session-summary\"><span class=\"session-summary-main\"><span class=\"session-summary-title\">" + escapeHtml(title) + "</span><span class=\"session-summary-id\">" + escapeHtml(shortenedId(row.key)) + " · " + escapeHtml(String(turns.length)) + " " + escapeHtml(locale === "zh-CN" ? "轮" : "rounds") + "</span></span><small>" + escapeHtml(index === 0 ? (locale === "zh-CN" ? "默认展开" : "open by default") : (locale === "zh-CN" ? "折叠" : "collapsed")) + "</small></span></summary><div id=\"" + titleId + "\" class=\"key-session-content\"><header class=\"key-session-head\"><div class=\"key-session-heading\"><div><span class=\"session-rank\">" + escapeHtml((locale === "zh-CN" ? "TOKEN 排名 " : "TOKEN rank ") + String(index + 1).padStart(2, "0") + " / " + String(topSessions.length).padStart(2, "0") + " · " + (locale === "zh-CN" ? "当前 Session" : "Current Session")) + "</span><h3 class=\"session-title\">" + escapeHtml(title) + "</h3><p class=\"task-title\">" + escapeHtml(taskContext) + "</p><p class=\"session-id\">" + escapeHtml(row.key) + " · " + escapeHtml(result.scope.harness) + "</p></div><div class=\"session-total\"><strong>" + escapeHtml(sessionTotal) + "</strong><span>" + escapeHtml(labels.sessionToken) + "</span></div></div>" + metrics + "</header><section class=\"key-session-section key-session-judgment\" aria-labelledby=\"" + titleId + "-judgment\"><div class=\"key-session-section-head\"><h4 id=\"" + titleId + "-judgment\">" + escapeHtml(labels.primaryFinding) + "</h4><p>" + escapeHtml(locale === "zh-CN" ? "先陈述证据支持的判断，再单独给出改善提议与验证。" : "State the evidence-backed judgment first, then separate the improvement proposal and verification.") + "</p></div><div class=\"judgment\">" + finding + action + "</div></section>" + trajectory + "</div></details>";
     }).join("");
-    return "<section class=\"key-session-analysis-section\"><h2>" + escapeHtml(labels.keySessionAnalysis) + "</h2><p class=\"coverage-note\">" + escapeHtml(locale === "zh-CN" ? "事实、Host Agent 解读和改善提议分开显示；所有数字来自确定性 Turn Evidence。" : "Facts, Host Agent interpretation, and improvement proposals are separated; all numbers come from deterministic Turn Evidence.") + "</p>" + blocks + "</section>";
+    return "<section class=\"key-session-analysis-section\"><header class=\"key-session-module-head\"><span class=\"key-session-module-kicker\">" + escapeHtml((locale === "zh-CN" ? "用量诊断 · " : "Usage diagnosis · ") + result.scope.harness) + "</span><h2>" + escapeHtml(labels.keySessionAnalysis) + "</h2><p class=\"key-session-module-deck\">" + escapeHtml(labels.moduleDeck) + "</p><p class=\"key-session-privacy\" role=\"note\">" + escapeHtml(locale === "zh-CN" ? "本地完整 HTML 的 Tooltip 可包含展示轮次的完整首条用户消息；分享稿、JSON 和文本不含 Prompt。" : "Local full HTML Tooltips may include the complete first user message for displayed rounds; share, JSON, and text outputs exclude Prompts.") + "</p></header><div class=\"key-session-list\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "关键 Session 列表" : "Key Session list") + "\">" + blocks + "</div></section>";
 }
 function renderExplainableSessions(result, locale) {
     const labels = labelsFor(locale);
     const rows = result.rankings.sessions.slice(0, 10);
     if (rows.length === 0)
         return emptyState(labels);
-    return "<table class=\"kami-table sortable explainable-sessions\"><thead><tr><th>" + escapeHtml(labels.session) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.turn) + "</th><th>" + escapeHtml(labels.activeTime) + "</th><th>" + escapeHtml(labels.driver) + "</th><th>" + escapeHtml(labels.evidenceCompleteness) + "</th></tr></thead><tbody>" + rows.map((row) => {
+    return "<table class=\"kami-table sortable explainable-sessions\"><thead><tr><th>" + escapeHtml(labels.session) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.turn) + "</th><th>" + escapeHtml(labels.totalDuration) + "</th><th>" + escapeHtml(labels.driver) + "</th><th>" + escapeHtml(labels.evidenceCompleteness) + "</th></tr></thead><tbody>" + rows.map((row) => {
         const turnCount = reportDerivedEvidence(sessionTurns(result, row.key).length, "count of Turn records in the Session");
         return "<tr><th scope=\"row\">" + escapeHtml(sessionLabel(row, locale)) + "</th><td>" + tokenCell(row.value, locale) + "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(turnCount, locale) + "</td><td>" + tokenCell(sessionActiveTime(result, row.key), locale) + "</td><td>" + escapeHtml(sessionDriver(result, row.key, locale)) + "</td><td>" + percentageHtml(sessionCompleteness(result, row.key), locale) + "</td></tr>";
     }).join("") + "</tbody></table>";
@@ -1443,18 +1629,79 @@ function authorizedFontFaces() {
         return "";
     return "/* authorized TsangerJinKai02-W04 */@font-face{font-family:\"TsangerJinKai02\";src:url(\"" + body + "\") format(\"truetype\");font-weight:400;font-style:normal;font-display:swap}/* authorized TsangerJinKai02-W05 */@font-face{font-family:\"TsangerJinKai02\";src:url(\"" + heading + "\") format(\"truetype\");font-weight:500;font-style:normal;font-display:swap}";
 }
-function renderInteractiveCharts(result, locale) {
+function scriptSafeJson(value) {
+    return (JSON.stringify(value) ?? "null")
+        .replaceAll("&", "\\u0026")
+        .replaceAll("<", "\\u003c")
+        .replaceAll(">", "\\u003e")
+        .replaceAll("\u2028", "\\u2028")
+        .replaceAll("\u2029", "\\u2029");
+}
+function keySessionChartData(result, locale, firstUserMessages) {
+    const promptByTurn = new Map(firstUserMessages.map((record) => [record.sessionId + "\0" + record.turnId, record]));
+    return result.rankings.sessions.slice(0, 3).map((row, index) => {
+        const turns = sessionTurns(result, row.key);
+        const hot = hotTurnIds(turns);
+        return {
+            chartId: "key-session-chart-" + index,
+            turns: turns.map((turn) => {
+                const prompt = promptByTurn.get(row.key + "\0" + turn.turnId);
+                const events = processEvents(turn, locale);
+                return {
+                    n: numericValue(turn.ordinal),
+                    label: roundLabel(turn, locale),
+                    token: numericValue(turn.tokens.totalTokens),
+                    share: numericValue(turn.sessionSharePercent),
+                    composition: [turn.tokens.inputTokens, turn.tokens.cachedInputTokens, turn.tokens.outputTokens].map((value) => keyValueText(value, locale)).join(" / "),
+                    duration: numericValue(turn.durationMs),
+                    tools: numericValue(turn.toolCallCount),
+                    result: resultSizeText(turn, locale),
+                    event: events.join(" · "),
+                    prompt: prompt?.content ?? null,
+                    promptNote: prompt?.content === null
+                        ? locale === "zh-CN" ? "首条用户消息内容不可用" : "The first user message content is unavailable"
+                        : prompt ? "" : locale === "zh-CN" ? "日志未记录本轮独立的用户消息" : "No independent user message was recorded for this round",
+                    hot: hot.has(turn.turnId),
+                };
+            }),
+        };
+    });
+}
+function keyChartScript(locale) {
+    const labels = labelsFor(locale);
+    const ui = scriptSafeJson({
+        firstUserMessage: labels.firstUserMessage,
+        tokens: labels.tokens,
+        share: labels.share,
+        duration: labels.roundDuration,
+        tools: labels.toolCalls,
+        result: labels.resultSize,
+        events: labels.processEvents,
+        shareAxis: locale === "zh-CN" ? "Token 占比" : "Token share",
+        unavailable: labels.unavailable,
+    });
+    return [
+        "const keyUi=" + ui + ";",
+        "const escapeTooltip=value=>String(value??'').replace(/[&<>]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[char])).replace(/\"/g,'&quot;').replace(/'/g,'&#39;');",
+        "const fmtInt=value=>value==null?'—':new Intl.NumberFormat(d.locale,{maximumFractionDigits:0}).format(value);",
+        "const fmtPct=value=>value==null?'—':Number(value).toFixed(2)+'%';",
+        "const fmtDuration=value=>{if(value==null)return'—';const total=Math.max(0,Math.round(value/1000)),seconds=total%60,minutes=Math.floor(total/60)%60,hours=Math.floor(total/3600);if(d.locale==='zh-CN'){if(hours)return hours+'小时'+(minutes?minutes+'分钟':'')+(seconds?seconds+'秒':'');if(minutes)return Math.floor(total/60)+'分钟'+(seconds?seconds+'秒':'');return seconds+'秒'}if(hours)return hours+'h'+(minutes?' '+minutes+'m':'')+(seconds?' '+seconds+'s':'');if(minutes)return Math.floor(total/60)+'m'+(seconds?' '+seconds+'s':'');return seconds+'s'};",
+        "d.keySessions.forEach(session=>{const tooltip=params=>{const item=Array.isArray(params)?params[0]:params;const turn=session.turns[item?.dataIndex??-1];if(!turn)return'';const prompt=turn.prompt===null?'<div class=\"key-session-tooltip-prompt key-session-tooltip-unavailable\"><div class=\"key-session-tooltip-label\">'+escapeTooltip(keyUi.firstUserMessage)+' · '+escapeTooltip(keyUi.unavailable)+'</div><div>'+escapeTooltip(turn.promptNote)+'</div></div>':'<div class=\"key-session-tooltip-prompt\"><div class=\"key-session-tooltip-label\">'+escapeTooltip(keyUi.firstUserMessage)+'</div><div class=\"key-session-tooltip-text\">'+escapeTooltip(turn.prompt)+'</div></div>';return'<div class=\"key-session-tooltip\"><div class=\"key-session-tooltip-title\">'+escapeTooltip(turn.label)+'</div><div class=\"key-session-tooltip-grid\"><span>'+escapeTooltip(keyUi.tokens)+'</span><b>'+fmtInt(turn.token)+'</b><span>'+escapeTooltip(keyUi.share)+'</span><b>'+fmtPct(turn.share)+'</b><span>'+escapeTooltip(keyUi.duration)+'</span><b>'+fmtDuration(turn.duration)+'</b><span>'+escapeTooltip(keyUi.tools)+'</span><b>'+(turn.tools==null?'—':fmtInt(turn.tools))+'</b><span>'+escapeTooltip(keyUi.result)+'</span><b>'+escapeTooltip(turn.result||'—')+'</b><span>'+escapeTooltip(keyUi.events)+'</span><b>'+escapeTooltip(turn.event||'—')+'</b></div>'+prompt+'</div>'};const shares=session.turns.map(turn=>({value:turn.share==null?0:turn.share,itemStyle:{color:turn.hot?p.brand:p.chartMuted,opacity:turn.share==null?.22:turn.hot?1:.78}}));const maxShare=Math.max(10,...session.turns.map(turn=>turn.share??0));make(session.chartId,{aria:{show:true,description:d.locale==='zh-CN'?'每个轮次的 Token 占比和本轮耗时轨迹；Tooltip 包含完整首条用户消息。':'Token share and round duration by round; the Tooltip includes the complete first user message.'},animationDuration:450,tooltip:{trigger:'axis',enterable:true,confine:true,backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},axisPointer:{type:'shadow',shadowStyle:{color:'rgba(27,54,93,.08)'}},extraCssText:'max-width:min(460px,88vw);max-height:420px;overflow:auto;white-space:normal;border-radius:2px;box-shadow:0 8px 24px rgba(20,20,19,.12);padding:12px 14px;',formatter:tooltip},grid:{left:54,right:58,top:42,bottom:78,containLabel:true},xAxis:{type:'category',data:session.turns.map(turn=>turn.n==null?turn.label.replace(/^.*?([0-9]+)/,'$1'):String(turn.n)),axisLabel:{...axis.axisLabel,fontSize:11,hideOverlap:true},axisLine:axis.axisLine,axisTick:{show:false}},yAxis:[{type:'value',name:keyUi.shareAxis,max:Math.min(100,Math.max(10,Math.ceil(maxShare/5)*5)),axisLabel:{...axis.axisLabel,formatter:value=>value+'%'},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},{type:'value',name:keyUi.duration,axisLabel:{...axis.axisLabel,formatter:value=>Math.round(value/60000)+(d.locale==='zh-CN'?'分钟':'m')},axisLine:axis.axisLine,splitLine:{show:false}}],dataZoom:[{type:'inside',start:0,end:session.turns.length>14?42:100},{type:'slider',height:16,bottom:18,start:0,end:session.turns.length>14?42:100,borderColor:'#e8e6dc',fillerColor:'rgba(27,54,93,.14)',handleStyle:{color:p.brand},textStyle:{color:p.stone,fontFamily:serifFont}}],series:[{name:keyUi.shareAxis,type:'bar',yAxisIndex:0,barMaxWidth:22,data:shares,emphasis:{itemStyle:{color:p.brandLight,opacity:1}}},{name:keyUi.duration,type:'line',yAxisIndex:1,smooth:.18,symbol:'circle',symbolSize:5,data:session.turns.map(turn=>turn.duration),lineStyle:{color:p.olive,width:1.6},itemStyle:{color:p.olive},connectNulls:false}]})});",
+    ].join("");
+}
+function renderInteractiveCharts(result, locale, firstUserMessages = []) {
     const labels = labelsFor(locale);
     const rows = result.report.dailyUsage.map((row) => ({
         time: formatDateKey(row.key, locale, false), total: numericValue(row.totalTokens), input: numericValue(row.inputTokens), cached: numericValue(row.cachedInputTokens), cacheWrite: numericValue(row.cacheWriteTokens), output: numericValue(row.outputTokens), unclassified: numericValue(row.unclassifiedTokens), cost: numericValue(row.apiEquivalentCost),
     }));
     const models = result.rankings.models.map((row) => ({ name: modelLabel(row.key, locale), value: numericValue(row.value), share: numericValue(row.sharePercent) }));
     const tools = result.report.tools.map((row) => ({ name: publicLabel(row.key, labels.unavailable), value: numericValue(row.injectedTokens) }));
+    const keySessions = keySessionChartData(result, locale, firstUserMessages);
     const cost = result.report.apiEquivalentCost;
     const costVisible = typeof cost.total.value === "number";
-    const data = JSON.stringify({ rows, models, tools, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: locale === "zh-CN" ? "未分类部分" : "unclassified remainder", cost: locale === "zh-CN" ? "按 API 单价折算的估算金额（USD）" : "API-equivalent estimate (USD)" }, costVisible }).replaceAll("<", "\\u003c");
+    const data = scriptSafeJson({ rows, models, tools, keySessions, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: locale === "zh-CN" ? "未分类部分" : "unclassified remainder", cost: locale === "zh-CN" ? "按 API 单价折算的估算金额（USD）" : "API-equivalent estimate (USD)" }, costVisible });
     const runtime = chartRuntime();
-    if (!runtime || rows.length === 0)
+    if (!runtime || (rows.length === 0 && !keySessions.some((session) => session.turns.length > 0)))
         return "";
     const chartPalette = { brand: "#1b365d", brandLight: "#2d4e7a", olive: "#504e49", stone: "#6b6a64", darkWarm: "#3d3d3a", lightStone: "#b8b7b0", chartMuted: "#d4d3cd" };
     const unavailableLabel = JSON.stringify(locale === "zh-CN" ? "无数据" : "unavailable");
@@ -1466,10 +1713,11 @@ function renderInteractiveCharts(result, locale) {
         "const tooltip=params=>params.map(item=>item.value==null?item.seriesName+': '+" + unavailableLabel + ":item.seriesName===d.labels.cost?item.seriesName+': $'+compact.format(item.value):item.seriesName+': '+compact.format(item.value)).join('<br>');",
         "const series=[['input',d.labels.input,p.brand,'solid','circle',true],['cached',d.labels.cached,p.stone,'dashed','rect',false],['cacheWrite',d.labels.cacheWrite,p.olive,'dotted','diamond',false],['output',d.labels.output,p.brandLight,'solid','triangle',false],['unclassified',d.labels.unclassified,p.lightStone,'dashed','emptyCircle',false]].map(([key,name,color,lineType,symbol,focus])=>({name,type:'line',smooth:false,symbol,showSymbol:d.rows.length<=14,symbolSize:5,lineStyle:{color,width:focus?2.5:2,opacity:focus?1:.92,type:lineType},itemStyle:{color},...(focus?{areaStyle:{color,opacity:.1}}:{}),emphasis:{focus:'series',lineStyle:{color,width:3,opacity:1},...(focus?{areaStyle:{color,opacity:.12}}:{})},data:d.rows.map(r=>r[key])}));",
         "if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'diamond',showSymbol:d.rows.length<=14,symbolSize:5,connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:p.darkWarm,width:2,type:'dashed'},itemStyle:{color:p.darkWarm},emphasis:{focus:'series',lineStyle:{color:p.darkWarm,width:3,opacity:1}}});",
-        "make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:tooltip},legend:{type:'scroll',textStyle:{fontFamily:serifFont,color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
+        "if(d.rows.length)make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:tooltip},legend:{type:'scroll',textStyle:{fontFamily:serifFont,color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
         "make('model-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按模型的 Token 分布；下方表格提供等价数据。" : "Token distribution by model; the table below provides equivalent data."), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand}}]});",
         "if(d.models.length>0&&d.models.length<=6)make('model-share-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按模型查看 Token 占比；悬停可查看精确 Token 和占比。" : "Token share by model; hover to inspect exact Tokens and share."), "},color:[p.brand,p.brandLight,p.olive,p.stone,p.lightStone,p.chartMuted],tooltip:{trigger:'item',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:item=>item.name+': '+compact.format(item.value)+' ('+item.percent.toFixed(2)+'%)'},legend:{type:'scroll',orient:'vertical',right:0,top:24,bottom:24,textStyle:{fontFamily:serifFont,color:p.olive}},series:[{type:'pie',radius:['48%','72%'],center:['36%','50%'],label:{show:false},emphasis:{label:{show:true,color:p.darkWarm,fontFamily:serifFont,formatter:item=>item.percent.toFixed(2)+'%'}},itemStyle:{borderColor:'#f5f4ed',borderWidth:2},data:d.models.map(r=>({name:r.name,value:r.value}))}]});",
         "make('tool-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按工具统计工具结果被算入上下文的估算大小；下方表格提供对应数据。" : "Estimated tool-result injection by tool; the table below provides equivalent data."), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.brandLight}}]});",
+        keyChartScript(locale),
         "document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent.trim();const b=document.createElement('button');b.type='button';b.className='sort-button';b.textContent=label;b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})});</script>"
     ].join('');
     const script = "<script>" + runtime + "</script><script>" + chartScript;
@@ -1537,6 +1785,89 @@ html,body{overflow-x:clip}
 .model-chart-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(260px,.85fr);gap:32px;align-items:center}.model-chart-grid .echart{min-width:0}
 .kami-table th,.kami-table td{padding-top:10px;padding-bottom:10px}
 .echart{max-width:100%;overflow:hidden}
+.key-session-analysis-section{margin-top:72px}
+.key-session-module-head{padding:28px 0 26px;border-bottom:.5px solid var(--border)}
+.key-session-module-kicker{display:block;margin-bottom:10px;color:var(--stone);font-family:var(--sans);font-size:12px;font-weight:500;letter-spacing:.08em}
+.key-session-module-head h2{margin:0 0 10px;font-size:32px;line-height:1.2}
+.key-session-module-deck{max-width:68ch;margin:0;color:var(--olive);font-size:14px;line-height:1.5}
+.key-session-privacy{margin:12px 0 0;color:var(--stone);font-size:12px;line-height:1.4}
+.key-session-list{margin-top:26px}
+.key-session-entry{margin:0;border-bottom:.5px solid var(--border);padding:0}
+.key-session-entry>summary{display:flex;align-items:baseline;gap:20px;padding:17px 0;cursor:pointer;list-style:none;color:var(--dark-warm)}
+.key-session-entry>summary::-webkit-details-marker{display:none}
+.key-session-entry>summary::before{content:"＋";flex:0 0 16px;width:16px;color:var(--brand);font-size:15px;line-height:1}
+.key-session-entry[open]>summary::before{content:"−"}
+.key-session-summary{display:flex;justify-content:space-between;align-items:baseline;gap:20px;flex:1;min-width:0}
+.session-summary-main{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;min-width:0}
+.session-summary-title{font-size:18px;line-height:1.4;font-weight:600}
+.session-summary-id{color:var(--stone);font:12px/1.5 var(--mono);overflow-wrap:anywhere}
+.key-session-entry>summary small{flex:0 0 auto;color:var(--stone);font-size:12px;font-weight:400}
+.key-session-content{padding-bottom:6px}
+.key-session-head{padding:28px 0 26px;border-bottom:.5px solid var(--border)}
+.key-session-heading{display:grid;grid-template-columns:minmax(0,1fr) minmax(170px,.32fr);gap:32px;align-items:end}
+.session-rank{display:block;margin-bottom:12px;color:var(--stone);font-family:var(--sans);font-size:12px;font-weight:500;letter-spacing:.08em}
+.key-session-heading .session-title{margin:0 0 10px;font-size:18px;line-height:1.4;font-weight:600}
+.key-session-heading .task-title{margin:0 0 6px;color:var(--olive);font-size:13px;line-height:1.45}
+.key-session-heading .session-id{margin:0;color:var(--stone);font:12px/1.5 var(--mono);overflow-wrap:anywhere}
+.session-total{justify-self:end;text-align:right}
+.session-total strong{display:block;color:var(--brand);font-size:32px;font-weight:500;line-height:1;font-variant-numeric:lining-nums tabular-nums}
+.session-total span{display:block;margin-top:7px;color:var(--olive);font-size:12px}
+.key-session-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin-top:24px;padding-top:18px;border-top:.5px solid var(--border)}
+.key-session-metric{min-width:0}
+.key-session-metric-value{display:block;color:var(--brand);font-size:22px;line-height:1.1;font-variant-numeric:lining-nums tabular-nums}
+.key-session-metric-label{display:block;margin-top:6px;color:var(--stone);font-size:12px;line-height:1.35}
+.key-session-section{margin:48px 0 64px}
+.key-session-section-head{display:grid;grid-template-columns:minmax(200px,.75fr) minmax(0,1.5fr);gap:32px;margin-bottom:24px}
+.key-session-section-head h4{margin:0;color:var(--near-black);font-size:24px;font-weight:500;line-height:1.25}
+.key-session-section-head p{max-width:66ch;margin:0;color:var(--olive);font-size:14px;line-height:1.5}
+.key-session-judgment .judgment{border-top:.5px solid var(--border);border-bottom:.5px solid var(--border)}
+.key-session-judgment .finding{max-width:82ch;padding:22px 0 24px}
+.key-session-judgment .action{padding:22px 0 24px;border-top:.5px solid var(--border)}
+.analysis-label{display:flex;align-items:baseline;gap:10px;margin-bottom:9px;color:var(--brand);font-family:var(--sans);font-size:11px;font-weight:500;letter-spacing:.08em}
+.evidence-strength{color:var(--stone);font-size:11px;font-weight:400;letter-spacing:.02em}
+.finding-lead{max-width:34ch;margin:0 0 16px;font-size:clamp(23px,3vw,30px);line-height:1.38}
+.fact-line{margin:0 0 12px;padding-left:14px;border-left:2px solid var(--brand);color:var(--dark-warm)}
+.fact-line strong{font-weight:500}
+.quiet{margin:0;color:var(--olive);font-size:13px;line-height:1.5}
+.key-session-judgment .action h4{max-width:38ch;margin:0 0 12px;font-size:20px;font-weight:500;line-height:1.35}
+.action-copy{max-width:70ch;margin:0;color:var(--dark-warm)}
+.applicability{margin:12px 0 0;color:var(--stone);font-size:13px}
+.verify{max-width:78ch;margin:18px 0 0;padding-top:13px;border-top:.5px solid var(--border);color:var(--olive);font-size:13px;line-height:1.5}
+.verify .analysis-label{display:inline;margin:0 10px 0 0;color:var(--stone);font-size:11px}
+.analysis-unavailable{margin:0;color:var(--stone);font-size:14px;line-height:1.5}
+.key-session-chart-frame{margin:0;border-top:.5px solid var(--border)}
+.key-session-chart-toolbar{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:14px 0 3px;color:var(--stone);font-size:12px}
+.key-session-chart-toolbar strong{display:block;color:var(--dark-warm);font-size:14px;font-weight:500}
+.key-session-chart-toolbar small{display:block;margin-top:3px;color:var(--stone);font-size:12px}
+.key-session-legend{display:flex;flex-wrap:wrap;gap:14px;white-space:nowrap}
+.key-session-legend span::before{content:"";display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px;background:var(--chart-muted)}
+.key-session-legend .hot::before{background:var(--brand)}
+.key-session-legend .time::before{width:15px;height:2px;vertical-align:3px;background:var(--olive)}
+.key-session-chart{height:390px}
+.key-session-chart-note{margin:0;padding:0 0 16px;color:var(--olive);font-size:12px;line-height:1.45}
+.key-session-chart-note strong{color:var(--dark-warm);font-weight:500}
+.key-session-prompt-note{margin:0 0 16px;color:var(--stone);font-size:12px;line-height:1.4}
+.key-session-appendix{min-width:0;max-width:100%;margin-top:20px;padding-top:4px;border-top:.5px solid var(--border);border-bottom:.5px solid var(--border);overflow:hidden}
+.key-session-appendix>summary{display:flex;justify-content:space-between;gap:20px;padding:14px 0;cursor:pointer;color:var(--brand);font-size:14px;font-weight:500}
+.key-session-appendix>summary small{color:var(--stone);font-size:12px;font-weight:400}
+.key-session-appendix .table-scroll{width:100%;max-width:100%;overflow-x:auto;padding-bottom:8px}
+.turn-detail-table{min-width:820px;font-size:12px}
+.turn-detail-table .composition,.turn-detail-table .event{white-space:nowrap}
+.turn-detail-table tr.hot-row{background:transparent}
+.turn-detail-table tr.hot-row>th:first-child::before{content:"";display:inline-block;width:5px;height:5px;margin:0 7px 2px 0;border-radius:50%;background:var(--brand)}
+.turn-detail-table tr.hot-row>th:first-child,.turn-detail-table tr.hot-row>td:nth-child(2),.turn-detail-table tr.hot-row>td:nth-child(3){font-weight:600}
+.turn-number,.turn-token,.turn-share{font-variant-numeric:lining-nums tabular-nums}
+.key-session-tooltip{min-width:270px;max-width:430px;color:var(--dark-warm);font-family:var(--serif);font-size:12px;line-height:1.5}
+.key-session-tooltip-title{color:var(--near-black);font-size:18px;line-height:1.15}
+.key-session-tooltip-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 14px;margin:10px 0 12px}
+.key-session-tooltip-grid span{color:var(--stone)}
+.key-session-tooltip-grid b{color:var(--dark-warm);font-weight:500}
+.key-session-tooltip-prompt{padding-top:9px;border-top:.5px solid var(--border)}
+.key-session-tooltip-label{margin-bottom:4px;color:var(--brand);font-family:var(--sans);font-size:11px;font-weight:500;letter-spacing:.06em}
+.key-session-tooltip-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.key-session-tooltip-unavailable{color:var(--stone)}
+@media(max-width:880px){.key-session-heading{grid-template-columns:1fr;gap:18px}.key-session-heading .session-total{justify-self:start;text-align:left}.key-session-section-head{grid-template-columns:1fr;gap:10px}}
+@media(max-width:480px){.key-session-module-head h2{font-size:24px}.key-session-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 16px}.key-session-chart-toolbar{display:block}.key-session-legend{margin-top:8px;white-space:normal}.key-session-chart{height:360px}.key-session-appendix>summary small{display:none}}
 details > .kami-table{margin-top:16px}
 @media(max-width:480px){.kami-table{display:block;width:max-content;min-width:100%;max-width:100%;overflow-x:auto;white-space:nowrap}.echart{height:260px}}
 @media(max-width:880px){.model-chart-grid{grid-template-columns:1fr;gap:18px}}
@@ -1544,8 +1875,9 @@ details > .kami-table{margin-top:16px}
 @media print{.echart{display:none}details > :not(summary){display:block}details > summary{display:none}.kami-table{display:table;width:100%;max-width:none;white-space:normal;overflow:visible}}
 </style>`;
 }
-function renderHtml(result, locale = "en-US", composition) {
+function renderHtml(result, locale = "en-US", composition, localFirstUserMessages) {
     const labels = labelsFor(locale);
+    const prompts = result.view === "share" ? [] : localFirstUserMessages ?? composition?.firstUserMessages ?? [];
     const modelBars = result.rankings.models.map((row) => ({ key: modelLabel(row.key, locale), value: row.value }));
     const parts = [
         "<!doctype html><html lang=\"" + (locale === "zh-CN" ? "zh-CN" : "en") + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
@@ -1559,7 +1891,7 @@ function renderHtml(result, locale = "en-US", composition) {
         renderSkillsHtml(result, locale),
         result.weekComparison ? "<section><h2>" + escapeHtml(labels.weekView) + "</h2>" + renderWeek(result, locale) + "</section>" : "",
         "<section><h2>" + escapeHtml(labels.time) + "</h2><h3>" + escapeHtml(labels.dailyUsage) + "</h3>" +
-            renderInteractiveCharts(result, locale) + renderDaily(result, locale) +
+            renderInteractiveCharts(result, locale, prompts) + renderDaily(result, locale) +
             "<h3>" + escapeHtml(labels.hourlyActivity) + "</h3>" + renderHourly(result, locale) +
             "<h3>" + escapeHtml(labels.observedActivity) + "</h3>" + renderRolling(result, locale) + "</section>",
         "<section><h2>" + escapeHtml(labels.models) + "</h2><div class=\"model-chart-grid\"><div id=\"model-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.models) + "\"></div>" +
@@ -1567,7 +1899,7 @@ function renderHtml(result, locale = "en-US", composition) {
             "</div>" + renderModels(result, locale) + "</section>",
         "<section class=\"tool-impact\"><h2>" + escapeHtml(labels.tools) + "</h2><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "按工具统计工具结果被算入上下文的估算大小" : "Estimated tool-result injection by tool") + "\"></div>" + renderTools(result, locale) + "</section>",
         "<section><h2>" + escapeHtml(labels.sessionsByUsage) + "</h2>" + renderSessions(result, locale) + "</section>",
-        renderKeySessionAnalysis(result, locale, composition),
+        renderKeySessionAnalysis(result, locale, composition, prompts),
         "<section><h2>" + escapeHtml(labels.limitations) + "</h2>" +
             renderWarningList(result, locale) + "</section>",
         "<footer><strong>" + escapeHtml(labels.privacy) + "</strong><p>" + escapeHtml(labels.privacyNote) + "</p></footer>",

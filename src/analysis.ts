@@ -522,7 +522,13 @@ function skillAnalysis(read: ReadResult, harness: Harness, pricing: ApiPricingCo
     const invocationRecords = own.filter((record) => record.evidenceType !== "listing" && (record.state === "invoked" || record.state === "attributed") && (
       record.evidenceType === "versioned-attribution" || !strongAttributionBoundaries.has([record.sessionId, record.timestamp, record.skillName].join("|"))
     ));
-    const matchedCalls = calls.filter((call) => invocationRecords.some((record) => record.sessionId === call.sessionId && ((record.callId !== null && record.callId === call.callId && record.evidenceType === "versioned-attribution") || (record.turnId !== null && record.turnId === call.turnId))));
+    const matchedCalls = calls.filter((call) => invocationRecords.some((record) => record.sessionId === call.sessionId && (
+      record.evidenceType === "versioned-attribution"
+        ? record.callId !== null ? record.callId === call.callId : record.turnId !== null && record.turnId === call.turnId
+        : record.evidenceType === "explicit-input"
+          ? harness === "codex" && record.turnId !== null && record.turnId === call.turnId
+        : record.turnId !== null && record.turnId === call.turnId
+    )));
     const state: SkillAnalysisEntry["state"] = matchedCalls.length > 0 || own.some((record) => record.state === "attributed")
       ? "attributed"
       : invocationRecords.length > 0
@@ -806,6 +812,9 @@ function buildTurnAnalysis(read: ReadResult, totalTokens: number | null, harness
       : []);
     const tools = read.toolCalls.filter((tool) => tool.sessionId === turn.sessionId && tool.turnId === turn.turnId);
     const lifecycle = read.lifecycle.filter((event) => event.sessionId === turn.sessionId && event.turnId === turn.turnId);
+    const skillMarkers = [...new Set((read.skillEvidence ?? [])
+      .filter((record) => record.sessionId === turn.sessionId && record.turnId === turn.turnId && record.skillName && record.evidenceType !== "listing" && (record.state === "invoked" || record.state === "attributed"))
+      .map((record) => record.skillName!))].sort();
     const total = calls.every((call) => callTokens(call, harness) !== null) && calls.length > 0
       ? calls.reduce((sum, call) => sum + callTokens(call, harness)!, 0)
       : null;
@@ -835,6 +844,7 @@ function buildTurnAnalysis(read: ReadResult, totalTokens: number | null, harness
         "count of reported ModelCall and ToolCall errors or interruptions in Turn " + turn.turnId,
       ),
       lifecycleMarkers: [...new Set(lifecycle.map((event) => event.kind))].sort(),
+      skillMarkers,
       evidenceId: turnEvidenceId(turn.sessionId, turn.turnId),
       method: harness === "codex"
         ? "Codex Turn boundaries and per-response Usage grouped by source turn_id"

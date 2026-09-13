@@ -225,6 +225,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   try {
     const options = parseArgs(args);
     let result: AuditResult;
+    let localFirstUserMessages: NonNullable<ReadResult["firstUserMessages"]> = [];
     if (options.view === "week") {
       const currentTo = new Date();
       const currentFrom = new Date(currentTo.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -243,6 +244,8 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
       const read = await readHarness(options.harness, scope);
       const pricing = await resolveApiPricing(read.modelCalls, options.harness, options.pricing);
       result = { ...analyseAudit(scope, read, options.harness, pricing), view: options.view };
+      const topSessionIds = new Set(result.rankings.sessions.slice(0, 3).map((session) => session.key));
+      localFirstUserMessages = (read.firstUserMessages ?? []).filter((record) => topSessionIds.has(record.sessionId));
     }
 
     const outputKinds: string[] = [];
@@ -251,7 +254,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
       const target = options.htmlPath ?? defaultOutputPath(options.harness, "report", ".html");
       const projectName = options.cwd ? resolveReportProjectName(options.cwd) : null;
       const htmlResult = projectName ? { ...result, projectName } : result;
-      await writeLocalFile(target, renderHtml(htmlResult, options.locale));
+      await writeLocalFile(target, renderHtml(htmlResult, options.locale, undefined, localFirstUserMessages));
       outputKinds.push("local HTML report");
     }
     if (options.sharePath !== null || options.view === "share") {

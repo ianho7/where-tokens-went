@@ -115,6 +115,14 @@ export interface Coverage {
   warnings: string[];
 }
 
+/** Local-only projection for the complete first user message of a displayed Turn. */
+export interface FirstUserMessageRecord {
+  sessionId: string;
+  turnId: string;
+  content: string | null;
+  unavailableReason: string | null;
+}
+
 export interface ReadResult {
   sessions: SessionRecord[];
   turns: TurnRecord[];
@@ -127,6 +135,8 @@ export interface ReadResult {
   /** Final per-Session client cost snapshots, when a Harness reports them. */
   sessionCosts?: SessionCostRecord[];
   tokenAccounting?: TokenAccountingSummary;
+  /** Local-only report input; never copied into AuditResult or safe output formats. */
+  firstUserMessages?: FirstUserMessageRecord[];
 }
 
 export interface TokenAccountingSummary {
@@ -371,6 +381,8 @@ export interface TurnAnalysisEntry {
   toolResultBytes: EvidenceValue;
   errorCount: EvidenceValue;
   lifecycleMarkers: string[];
+  /** Sanitised Skill names observed on this Turn, when the source proves attribution. */
+  skillMarkers?: string[];
   evidenceId: string;
   method: string;
   coverage: EvidenceValue;
@@ -425,6 +437,8 @@ export interface ReportComposition {
   auditFingerprint: string;
   audit: AuditResult;
   keySessionAnalyses: KeySessionAnalysis[];
+  /** Optional local-only projection used by the full HTML renderer. */
+  firstUserMessages?: FirstUserMessageRecord[];
 }
 
 export interface ContentEvidenceScope extends ReadScope {

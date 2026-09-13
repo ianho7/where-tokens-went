@@ -37,6 +37,7 @@ exports.readCodex = readCodex;
 const promises_1 = require("node:fs/promises");
 const path = __importStar(require("node:path"));
 const os = __importStar(require("node:os"));
+const prompt_projection_1 = require("./prompt-projection");
 function asObject(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value)
         ? value
@@ -324,6 +325,26 @@ function characterLength(value) {
     })();
     return text === null ? null : Array.from(text).length;
 }
+function userMessageValue(record, payload) {
+    const item = firstObject(payload.item, payload.tool_item, payload.toolItem);
+    const message = firstObject(payload.message, record.message);
+    const type = [record.type, payload.type, payload.item_type, payload.itemType, item?.type]
+        .filter((value) => typeof value === "string")
+        .join(" ")
+        .toLowerCase();
+    const role = stringValue(payload.role, record.role, item?.role, message?.role)?.toLowerCase();
+    if (type.includes("tool_result") || type.includes("tool-result") || /(?:function|custom[_ -]?tool|tool)[_-]?call[_ -]?output/.test(type))
+        return undefined;
+    if (role !== "user" && !/(^|[^a-z])user(?:[_ -]?message)?([^a-z]|$)/i.test(type))
+        return undefined;
+    return payload.content ?? payload.text ?? item?.content ?? item?.text ?? message?.content ?? message?.text ?? record.content ?? record.text ?? null;
+}
+function captureFirstUserMessage(pending, record, payload, turnId) {
+    const value = userMessageValue(record, payload);
+    if (value === undefined || !turnId || pending.firstUserMessages.has(turnId))
+        return;
+    pending.firstUserMessages.set(turnId, (0, prompt_projection_1.firstUserMessageText)(value));
+}
 function toolEvent(record, payload) {
     const type = stringValue(payload.type, record.type)?.toLowerCase() ?? "";
     const item = firstObject(payload.item, payload.tool_item, payload.toolItem);
@@ -585,6 +606,7 @@ async function readCodex(scope) {
                         currentProvider: null,
                         currentTurnId: null,
                         skillEvidence: [],
+                        firstUserMessages: new Map(),
                         unsupported: false,
                         missingTimestamp: false,
                         partial: false,
@@ -622,6 +644,7 @@ async function readCodex(scope) {
                 currentProvider: null,
                 currentTurnId: null,
                 skillEvidence: [],
+                firstUserMessages: new Map(),
                 unsupported: false,
                 missingTimestamp: false,
                 partial: false,
@@ -643,6 +666,7 @@ async function readCodex(scope) {
             }
             const sourceLocation = redactedSource(file);
             const evidenceTurnId = stringValue(payload.turn_id, payload.turnId) ?? pending.currentTurnId;
+            captureFirstUserMessage(pending, record, payload, evidenceTurnId);
             const isListing = recordType === "skill-listing" || recordType === "skill_listing" || payloadType === "skill-listing" || payloadType === "skill_listing";
             const listingNames = listedSkillNames(record.available_skills, record.availableSkills, record.skill_listing, record.skillListing, record.skills, payload.available_skills, payload.availableSkills, payload.skill_listing, payload.skillListing, payload.skills);
             for (const skillName of listingNames)
@@ -818,6 +842,7 @@ async function readCodex(scope) {
     const toolCalls = [];
     const lifecycle = [];
     const skillEvidence = [];
+    const firstUserMessages = [];
     let unsupportedSessions = 0;
     let missingTimestampSessions = 0;
     let responseTotal = 0;
@@ -850,6 +875,18 @@ async function readCodex(scope) {
         }
         sessions.push(pending.session);
         turns.push(...pending.turns);
+        for (const turn of pending.turns) {
+            const hasMessage = pending.firstUserMessages.has(turn.turnId);
+            const content = pending.firstUserMessages.get(turn.turnId) ?? null;
+            firstUserMessages.push({
+                sessionId: pending.session.sessionId,
+                turnId: turn.turnId,
+                content,
+                unavailableReason: hasMessage
+                    ? content === null ? "The first user message content was unavailable in the source record." : null
+                    : "No first user message was mapped to this source Turn.",
+            });
+        }
         toolCalls.push(...pending.toolCalls.filter((tool) => tool.timestamp !== null && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
         lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp !== null && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
         skillEvidence.push(...pending.skillEvidence.filter((record) => record.timestamp !== null && !Number.isNaN(Date.parse(record.timestamp)) && Date.parse(record.timestamp) >= scope.since.getTime()));
@@ -921,6 +958,7 @@ async function readCodex(scope) {
         lifecycle,
         toolCalls,
         skillEvidence,
+        firstUserMessages: firstUserMessages.sort((a, b) => a.sessionId.localeCompare(b.sessionId) || a.turnId.localeCompare(b.turnId)),
         tokenAccounting,
         coverage,
     };

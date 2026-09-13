@@ -4,6 +4,7 @@ const vm = require('node:vm');
 
 const { analyseAudit } = require('../dist/src/analysis.js');
 const { renderHtml } = require('../dist/src/report.js');
+const { auditFingerprint } = require('../dist/src/key-session-analysis.js');
 const { snapshotHtml } = require('../scripts/kami-report-content-snapshot.js');
 const { scoreHtml } = require('../scripts/score-kami-report.js');
 const contentBaseline = require('./fixtures/kami-report-content-baseline.json');
@@ -30,6 +31,36 @@ function evidenceRead(isError = null) {
 
 function result(isError = null) {
   return analyseAudit({ cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') }, evidenceRead(isError), 'codex');
+}
+
+function keySessionResult() {
+  const timestamp = '2026-09-08T08:00:00.000Z';
+  const sessions = [
+    ['key-s1', '阅读文档并准备 to-spec'],
+    ['key-s2', '修复报告渲染'],
+    ['key-s3', '检查回归测试'],
+  ].map(([sessionId, title]) => ({ harness: 'codex', sessionId, title, projectCwd: 'D:\\project', startedAt: timestamp, endedAt: timestamp, parentSessionId: null, sourceVersion: 'fixture' }));
+  const round = (sessionId, ordinal, durationMs) => ({ sessionId, turnId: sessionId + '-r' + ordinal, ordinal, startedAt: timestamp, endedAt: timestamp, durationMs, timeToFirstTokenMs: 400, status: 'ok', timingProvenance: 'reported' });
+  const turns = sessions.flatMap(({ sessionId }) => [round(sessionId, 1, 120000), round(sessionId, 2, 60000)]);
+  const totals = { 'key-s1': [800, 200], 'key-s2': [500, 100], 'key-s3': [300, 50] };
+  const modelCalls = turns.map((turn, index) => {
+    const totalTokens = totals[turn.sessionId][turn.ordinal - 1];
+    return { sessionId: turn.sessionId, callId: turn.turnId + '-call', timestamp, provider: 'openai', model: 'gpt-5', inputTokens: totalTokens - 20, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 20, reasoningTokens: 0, totalTokens, reportedCost: null, status: 'ok', tokenProvenance: 'reported', turnId: turn.turnId, activeBranch: index < 6 };
+  });
+  return analyseAudit(
+    { cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') },
+    {
+      sessions,
+      turns,
+      modelCalls,
+      toolCalls: [{ sessionId: 'key-s1', callId: 'key-tool', timestamp, toolName: 'Read', inputBytes: 10, resultBytes: 128, resultChars: 64, turnId: 'key-s1-r2', isError: null }],
+      lifecycle: [{ sessionId: 'key-s1', timestamp, kind: 'compaction', relatedId: 'key-compact', turnId: 'key-s1-r2' }],
+      skillEvidence: [{ sessionId: 'key-s1', skillName: 'demo-skill', state: 'invoked', evidenceType: 'explicit-input', turnId: 'key-s1-r2', callId: 'key-tool', timestamp, sourceLocation: 'rollout:key', provenance: 'reported' }],
+      tokenAccounting: { responseTotal: 1350, turnTotal: 1350, threadTotal: 1350, reconciledSessionIds: ['key-s1', 'key-s2', 'key-s3'], mismatchedSessionIds: [], status: 'reconciled', method: 'fixture' },
+      coverage: { filesRead: 1, recordsRead: 12, recordsSkipped: 0, partialSessions: 0, warnings: [] },
+    },
+    'codex',
+  );
 }
 
 function findingsResult() {
@@ -72,6 +103,91 @@ test('every inline report script parses', () => {
   assert.ok(scripts.length >= 2);
   scripts.forEach((script) => new vm.Script(script));
   assert.match(scripts.at(-1), /DOMContentLoaded/);
+});
+
+test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sorting, and deterministic fallback', () => {
+  const audit = keySessionResult();
+  const evidenceId = audit.turns.find((turn) => turn.sessionId === 'key-s1' && turn.turnId === 'key-s1-r2').evidenceId;
+  const fingerprint = auditFingerprint(audit);
+  const composition = {
+    auditFingerprint: fingerprint,
+    audit,
+    keySessionAnalyses: [{
+      sessionId: 'key-s1',
+      auditFingerprint: fingerprint,
+      taskContext: '完成规范阅读并整理实现边界。',
+      primaryFinding: {
+        observation: '第二轮的 Token 使用明显高于第一轮。',
+        interpretation: '上下文增长集中发生在第二轮，值得优先检查。',
+        evidenceIds: [evidenceId],
+        support: 'strong',
+        alternativeExplanations: [],
+      },
+      recommendation: {
+        action: '在长流程前拆分任务上下文。',
+        rationale: '先验证拆分是否能降低单轮输入规模。',
+        applicability: '适用于后续同类文档工作。',
+        tradeoff: null,
+        verification: '比较下一周相似 Session 的前两轮 Token。',
+        targetEvidenceIds: [evidenceId],
+      },
+      evidenceRead: { turnIds: ['key-s1-r2'], selectionReason: '选择 Token 峰值轮次。', unreadScope: '未读取其他历史内容。' },
+      limitations: [],
+  }],
+  };
+  const html = renderHtml(audit, 'zh-CN', composition);
+  const sectionStart = html.indexOf('<section class="key-session-analysis-section">');
+  const sectionEnd = html.indexOf('<section><h2>限制与缺失</h2>', sectionStart);
+  const keySection = html.slice(sectionStart, sectionEnd > sectionStart ? sectionEnd : undefined);
+  const visible = keySection.replace(/<[^>]+>/g, '');
+  assert.match(keySection, /<h2>关键 Session 分析<\/h2>/);
+  assert.match(keySection, /<h3 class="session-title">阅读文档并准备 to-spec<\/h3>/);
+  assert.match(keySection, /<p class="session-id">key-s1 · codex<\/p>/);
+  assert.equal((keySection.match(/<details class="key-session-entry/g) ?? []).length, 3);
+  assert.equal((keySection.match(/<details class="key-session-entry[^>]* open>/g) ?? []).length, 1);
+  assert.match(keySection, /key-session-entry key-session-entry--primary" open/);
+  assert.match(html, /\.key-session-module-head h2\{[^}]*font-size:32px/);
+  assert.match(html, /\.key-session-heading \.session-title\{[^}]*font-size:18px/);
+  assert.match(html, /\.key-session-module-head\{[^}]*border-bottom:\.5px solid var\(--border\)/);
+  assert.match(html, /\.key-session-list\{margin-top:26px\}/);
+  assert.doesNotMatch(html, /\.key-session-list\{[^}]*border-top/);
+  assert.match(html, /\.key-session-judgment \.judgment\{border-top:\.5px solid var\(--border\)/);
+  assert.match(html, /\.key-session-chart-frame\{margin:0;border-top:\.5px solid var\(--border\)/);
+  assert.doesNotMatch(html, /\.key-session-(?:judgment \.judgment|chart-frame)\{[^}]*var\(--near-black\)/);
+  assert.match(html, /前 2 轮合计占 100\.00%/);
+  assert.match(visible, /核心判断[\s\S]*改善提议[\s\S]*如何验证/);
+  const finding = keySection.match(/<article class="finding">[\s\S]*?<\/article>/)?.[0] ?? '';
+  const action = keySection.match(/<article class="action">[\s\S]*?<\/article>/)?.[0] ?? '';
+  assert.match(finding, /第二轮的 Token 使用明显高于第一轮/);
+  assert.doesNotMatch(finding, /拆分任务上下文|比较下一周/);
+  assert.match(action, /拆分任务上下文/);
+  assert.match(action, /如何验证[\s\S]*比较下一周/);
+  assert.match(keySection, /本轮耗时/);
+  assert.match(keySection, /分钟/);
+  assert.match(keySection, /过程事件/);
+  assert.match(keySection, /自动压缩上下文/);
+  assert.match(keySection, /demo-skill/);
+  assert.match(keySection, /结果大小/);
+  assert.match(keySection, /<table class="kami-table compact sortable turn-detail-table">/);
+  assert.match(keySection, /查看全部 2 个轮次明细/);
+  assert.match(keySection, /data-sort="800"/);
+  assert.match(keySection, /data-sort="200"/);
+  assert.match(html, /Number\(a\.key\)/);
+  assert.match(html, /aria-sort/);
+  assert.match(html, /\.turn-detail-table tr\.hot-row\{background:transparent\}/);
+  assert.doesNotMatch(html.match(/\.turn-detail-table tr\.hot-row\{[^}]*\}/)?.[0] ?? '', /gradient|box-shadow|border/);
+  assert.match(keySection, /<noscript>/);
+  for (const forbidden of ['记录值', '计算值', '估算值', '有 Token 轮次', 'Turn', '活跃耗时', 'Lifecycle', 'compaction', 'TTFT']) {
+    assert.doesNotMatch(visible, new RegExp(forbidden, 'i'));
+  }
+
+  const fallback = renderHtml(audit, 'zh-CN');
+  const fallbackStart = fallback.indexOf('<section class="key-session-analysis-section">');
+  const fallbackEnd = fallback.indexOf('<section><h2>限制与缺失</h2>', fallbackStart);
+  const fallbackSection = fallback.slice(fallbackStart, fallbackEnd > fallbackStart ? fallbackEnd : undefined);
+  assert.match(fallbackSection, /分析不可用/);
+  assert.match(fallbackSection, /轮次轨迹/);
+  assert.match(fallbackSection, /turn-detail-table/);
 });
 
 test('Kami restyle preserves the normalized bilingual content contract', () => {
@@ -157,9 +273,9 @@ test('Kami shell embeds the authorized W04/W05 font contract', () => {
   assert.match(head, /data:font\/ttf;base64,/);
   assert.doesNotMatch(head, /src:url\(["']assets\/fonts|https?:\/\//i);
   assert.match(html, /main\{padding:88px 64px 120px\}/);
-  assert.match(html, /\.report-header__project\{font-size:64px;font-weight:500/);
+  assert.match(html, /\.report-header__project\{font-size:clamp\(44px,5vw,64px\);font-weight:500/);
   assert.match(html, /\.report-deck\{max-width:820px;font-size:18px/);
-  assert.match(html, /@media\(max-width:480px\).*\.report-header__project\{font-size:46px/s);
+  assert.match(html, /@media\(max-width:480px\).*\.report-header__project\{font-size:clamp\(26px,8\.5vw,46px\)/s);
 });
 
 test('analysis returns deterministic automated checks', () => {
@@ -263,7 +379,9 @@ test('Coverage narrative proves partial subagent overlap or stays unavailable', 
   const provenHtml = renderHtml(proven, 'en-US');
   const { renderText, renderShare } = require('../dist/src/report.js');
   assert.match(provenHtml, /class="quiet-callout"/);
-  assert.doesNotMatch(provenHtml, /coverage-alert|border-left/);
+  assert.doesNotMatch(provenHtml, /coverage-alert/);
+  assert.match(provenHtml, /\.turn-detail-table tr\.hot-row\{background:transparent\}/);
+  assert.doesNotMatch(provenHtml, /\.turn-detail-table tr\.hot-row\{[^}]*?(?:gradient|box-shadow|border)/);
   const provenCoverageText = provenHtml.replace(/<[^>]+>/g, '');
   assert.match(provenCoverageText, /1 of 2 Sessions[\s\S]*50%/);
   assert.match(provenCoverageText, /All partial Sessions are source-proven subagent Sessions/);

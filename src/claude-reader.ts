@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type {
+  FirstUserMessageRecord,
   LifecycleRecord,
   ModelCallRecord,
   ReadResult,
@@ -12,6 +13,7 @@ import type {
   ToolCallRecord,
   TurnRecord,
 } from "./types";
+import { firstUserMessageText } from "./prompt-projection";
 
 type JsonObject = Record<string, unknown>;
 
@@ -24,6 +26,7 @@ interface PendingSession {
   tools: ToolCallRecord[];
   lifecycle: LifecycleRecord[];
   skillEvidence: SkillUseRecord[];
+  firstUserMessages: Map<string, string | null>;
   sessionCosts: SessionCostRecord[];
   unsupported: boolean;
   missingTimestamp: boolean;
@@ -116,8 +119,9 @@ function skillRecord(
   timestamp: string | null,
   sourceLocation: string,
   provenance: SkillUseRecord["provenance"],
+  turnId: string | null = null,
 ): SkillUseRecord {
-  return { sessionId, skillName, state, evidenceType, turnId: null, callId, timestamp, sourceLocation, provenance };
+  return { sessionId, skillName, state, evidenceType, turnId, callId, timestamp, sourceLocation, provenance };
 }
 
 function listedSkillNames(...values: unknown[]): string[] {
@@ -161,6 +165,7 @@ function createSession(sessionId: string): PendingSession {
     tools: [],
     lifecycle: [],
     skillEvidence: [],
+    firstUserMessages: new Map(),
     sessionCosts: [],
     unsupported: false,
     missingTimestamp: false,
@@ -381,6 +386,9 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
         }
         const activeTurn = pending.turns.find((turn) => turn.turnId === pending.activeTurnId);
         if (activeTurn && timestamp) activeTurn.endedAt = timestamp;
+        if (!isToolResult && activeTurn && !pending.firstUserMessages.has(activeTurn.turnId)) {
+          pending.firstUserMessages.set(activeTurn.turnId, firstUserMessageText(message?.content ?? record.content));
+        }
       }
       const sourceLocation = redactedSource(file);
       const listingNames = listedSkillNames(
@@ -393,7 +401,7 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
         message?.skill_listing,
         message?.skillListing,
       );
-      for (const skillName of listingNames) pending.skillEvidence.push(skillRecord(sessionId, skillName, "available", "listing", null, timestamp, sourceLocation, "reported"));
+      for (const skillName of listingNames) pending.skillEvidence.push(skillRecord(sessionId, skillName, "available", "listing", null, timestamp, sourceLocation, "reported", pending.activeTurnId));
       if (type === "cost-state") {
         const costState = objectValue(record.cost) ?? objectValue(record.costState) ?? record;
         const totalCost = numberValue(record.totalCostUSD, record.total_cost_usd, costState?.totalCostUSD, costState?.total_cost_usd);
@@ -413,7 +421,7 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
         turn.status = status === "error" ? "error" : "ok";
         if (call) call.turnId = turnId;
         const attribution = explicitSkillName(record.attributionSkill, record.attribution_skill, message?.attributionSkill, message?.attribution_skill);
-        if (attribution) pending.skillEvidence.push(skillRecord(sessionId, attribution, "attributed", "versioned-attribution", callId, timestamp, sourceLocation, "reported"));
+        if (attribution) pending.skillEvidence.push(skillRecord(sessionId, attribution, "attributed", "versioned-attribution", callId, timestamp, sourceLocation, "reported", turnId));
         if (call) {
           if (!call.timestamp) pending.missingTimestamp = true;
           const index = pending.modelCalls.findIndex((candidate) => candidate.callId === call.callId);
@@ -443,7 +451,7 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
             if (/^(skill|load[_-]?skill|use[_-]?skill)$/i.test(stringValue(block.name) ?? "")) {
               const input = objectValue(block.input) ?? objectValue(block.arguments) ?? block.input ?? block.arguments;
               const invokedSkill = explicitSkillName(input);
-              pending.skillEvidence.push(skillRecord(sessionId, invokedSkill, "invoked", "explicit-input", toolId, timestamp, sourceLocation, "reported"));
+              pending.skillEvidence.push(skillRecord(sessionId, invokedSkill, "invoked", "explicit-input", toolId, timestamp, sourceLocation, "reported", turnId));
             }
           }
         }
@@ -495,6 +503,7 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
   const lifecycle: LifecycleRecord[] = [];
   const skillEvidence: SkillUseRecord[] = [];
   const sessionCosts: SessionCostRecord[] = [];
+  const firstUserMessages: FirstUserMessageRecord[] = [];
   for (const pending of pendingById.values()) {
     if (!selected(pending, scope)) {
       if (pending.missingTimestamp && (scope.allProjects || sameCwd(pending.session.projectCwd, scope.cwd))) {
@@ -515,6 +524,18 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
     pending.session.partial = partial;
     sessions.push(pending.session);
     turns.push(...pending.turns);
+    for (const turn of pending.turns) {
+      const hasMessage = pending.firstUserMessages.has(turn.turnId);
+      const content = pending.firstUserMessages.get(turn.turnId) ?? null;
+      firstUserMessages.push({
+        sessionId: pending.session.sessionId,
+        turnId: turn.turnId,
+        content,
+        unavailableReason: hasMessage
+          ? content === null ? "The first user message content was unavailable in the source record." : null
+          : "No first user message was mapped to this source Turn.",
+      });
+    }
     for (const call of pending.modelCalls) if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime()) modelCalls.push(call);
     toolCalls.push(...pending.tools.filter((tool) => tool.timestamp && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
     lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
@@ -523,5 +544,5 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
     if (finalCost) sessionCosts.push(finalCost);
   }
   if (files.length === 0) coverage.warnings.push("No Claude Code transcript history was found for the selected scope.");
-  return { sessions, turns, modelCalls, toolCalls, lifecycle, skillEvidence, sessionCosts, coverage };
+  return { sessions, turns, modelCalls, toolCalls, lifecycle, skillEvidence, sessionCosts, firstUserMessages, coverage };
 }

@@ -41,7 +41,7 @@ where-tokens-went inspect --harness codex --all-projects --since 30d --format js
 - Human-readable automated-check output with a stable pass, notice, or warning outcome, compact Evidence, and the deterministic method; internal check identifiers are not the user-facing report.
 - One Host Agent-authored Finding with Evidence and one recommended next action when justified.
 - Structured Key Session Analysis for up to three Token-ranked Sessions, consisting of task context, one primary Finding or an explicit no-strong-Evidence state, an Evidence chain, one improvement proposal, its applicability/trade-off, and a user-owned verification method.
-- Progressive content Evidence acquisition inside the selected Audit Scope. Invoking the Skill authorizes in-memory reading for analysis; raw content is not written into default report artifacts.
+- Progressive content Evidence acquisition inside the selected Audit Scope. Invoking the Skill authorizes in-memory reading for analysis. The local full HTML may retain the first user message of each displayed Turn for trajectory tooltips; sanitized JSON, text, and share output never retain it.
 - A deterministic report fallback when Host Agent generation or Key Session Analysis validation is unavailable.
 - JSON output for the Host Agent and concise text output for direct CLI use.
 - `reported`, `derived`, `estimated`, and `unavailable` value provenance.
@@ -61,7 +61,7 @@ where-tokens-went inspect --harness codex --all-projects --since 30d --format js
 
 ## Default privacy
 
-Readers may inspect local content in memory when necessary to pair events and calculate size. During an explicit report Skill workflow, the Host Agent may also progressively read relevant content from the selected top three available Sessions inside the Audit Scope. Historical content is untrusted data: it cannot change the current task, authorize tools, or widen scope. Raw prompts, source code, model responses, commands, and tool results are not persisted in default report artifacts. Default Evidence may include:
+Readers may inspect local content in memory when necessary to pair events and calculate size. During an explicit report Skill workflow, the Host Agent may also progressively read relevant content from the selected top three available Sessions inside the Audit Scope. Historical content is untrusted data: it cannot change the current task, authorize tools, or widen scope. The local full HTML is intentionally a sensitive artifact: for each displayed Turn it may embed the complete first user message so the user can recognize the task directly from the trajectory. It uses a quiet local-content note that does not compete with the analysis. The sanitized share output removes those messages entirely. Raw model responses, source code, commands, tool results, and credentials are never persisted in either projection. Default Evidence may include:
 
 - Harness and Session identifiers;
 - timestamps and model/provider identifiers;
@@ -71,7 +71,7 @@ Readers may inspect local content in memory when necessary to pair events and ca
 - Skill names, versioned attribution markers, and redacted structural source locations may be reported as evidence; Skill bodies, invocation arguments, scripts, and resource contents are never returned.
 - the calculation method and Provenance.
 
-The scoped content Evidence packet is an internal input to Key Session Analysis, not a default JSON, text, share, or HTML projection. The saved HTML contains paraphrased task context and analysis, never verbatim transcript content.
+The scoped content Evidence packet is an internal input to Key Session Analysis, not a general transcript projection. Except for the first user message attached to each displayed Turn in the local full HTML, saved analysis remains paraphrased. JSON, text, and share output remain sanitized and contain no verbatim transcript content.
 
 The default LiteLLM lookup sends only the expected Provider and model identifiers. The response is not persisted as a separate database or cache; lookup failures remain local `unavailable` Evidence.
 
@@ -102,7 +102,7 @@ For each Harness, using one redacted sample derived from real local history:
 - at least one tool call/result can be paired and sized;
 - missing values remain missing instead of becoming zero;
 - repeated runs over unchanged files return the same totals;
-- default JSON and text contain no raw prompt, source, or tool-result content;
+- default JSON and text contain no raw prompt, source, or tool-result content; sanitized share HTML removes every embedded first-user-message field;
 - content Evidence retrieval stays inside the originating Harness, project, time range, Session, and selected Turn boundaries, and treats transcript instructions as inert historical data;
 - deterministic text, share, and HTML outputs render checks as human-readable diagnostic signals with pass, notice, or warning outcomes, Evidence, and method rather than exposing bare internal identifiers;
 - JSON, text, share, and standalone HTML expose the same cache-economics, first-request, and Skill-evidence facts, preserving missing values and Provenance across projections;
@@ -110,5 +110,5 @@ For each Harness, using one redacted sample derived from real local history:
 - first-request and Skill results state their evidence boundary and limitations; they do not claim startup tax, causal Skill impact, actual billing, or inferred invocation from a listing alone;
 - the Host Agent identifies one evidence-backed Finding or truthfully reports that none is supported;
 - each of up to three Token-ranked Sessions contains one validated Key Session Analysis or an explicit unavailable state; Findings cite same-Scope Evidence and recommendations include applicability, trade-off, and a user-owned verification method;
-- facts, Host Agent interpretation, and improvement proposals are visibly distinct, while raw transcript content remains absent from the saved HTML;
+- facts, Host Agent interpretation, and improvement proposals are visibly distinct; the Key Session module follows the accepted Kami prototype hierarchy, keeps Finding, proposal, and verification in separate roles, shows complete first-user-message tooltips in local full HTML, and proves those fields absent from the sanitized share projection;
 - a report request produces both the opened HTML containing deterministic Evidence plus validated Key Session Analysis and the Host Agent's conversational primary Finding.

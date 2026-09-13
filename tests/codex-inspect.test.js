@@ -9,7 +9,9 @@ const { analyseAudit } = require('../dist/src/analysis.js');
 const { readContentEvidence } = require('../dist/src/content-evidence.js');
 const { auditFingerprint, validateKeySessionAnalysis, composeKeySessionAnalyses } = require('../dist/src/key-session-analysis.js');
 const { resolveApiPricing } = require('../dist/src/rates.js');
-const { renderHtml, renderText } = require('../dist/src/report.js');
+const { renderHtml, renderText, renderShare } = require('../dist/src/report.js');
+const { readCodex } = require('../dist/src/codex-reader.js');
+const { readClaude } = require('../dist/src/claude-reader.js');
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
@@ -487,6 +489,79 @@ test('Codex analysis exposes Turn trajectory evidence and neutral candidates', a
   }
 });
 
+test('Codex and Claude map first user messages to their own source rounds and keep the local prompt projection private', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-key-session-prompts-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const claudeHome = path.join(root, 'claude-home');
+  const codexSessions = path.join(codexHome, 'sessions', '2026', '09', '12');
+  const claudeSessions = path.join(claudeHome, 'projects', 'project');
+  const timestamp = '2026-09-12T08:00:00.000Z';
+  const scope = { cwd: project, allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') };
+  await mkdir(project, { recursive: true });
+  await mkdir(codexSessions, { recursive: true });
+  await mkdir(claudeSessions, { recursive: true });
+  const codexRecords = [
+    { timestamp, type: 'session_meta', payload: { id: 'prompt-codex', cwd: project } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'codex-round-a', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp, type: 'response_item', payload: { turn_id: 'codex-round-a', type: 'message', role: 'user', content: 'PROMPT_ALPHA_<script>alert("x")</script>_tail api_key=credential-secret' } },
+    { timestamp, type: 'response_item', payload: { turn_id: 'codex-round-a', type: 'message', role: 'assistant', content: 'MODEL_REPLY_SECRET' } },
+    { timestamp, type: 'response_item', payload: { turn_id: 'codex-round-a', type: 'shell_command', command: 'COMMAND_SECRET' } },
+    { timestamp, type: 'response_item', payload: { turn_id: 'codex-round-a', type: 'function_call_output', output: 'TOOL_RESULT_SECRET' } },
+    { timestamp, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'prompt-response-a', turn_id: 'codex-round-a', usage: { input_tokens: 80, output_tokens: 20, total_tokens: 100 } } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'codex-round-b', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp, type: 'response_item', payload: { turn_id: 'codex-round-b', type: 'message', role: 'user', content: 'PROMPT_BETA_second-round' } },
+    { timestamp, type: 'event_msg', payload: { type: 'raw_response_completed', response_id: 'prompt-response-b', turn_id: 'codex-round-b', usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 } } },
+  ];
+  const claudeRecords = [
+    { type: 'user', uuid: 'claude-round-a', session_id: 'prompt-claude', cwd: project, timestamp, message: { role: 'user', content: 'CLAUDE_PROMPT_ALPHA' } },
+    { type: 'assistant', session_id: 'prompt-claude', cwd: project, timestamp, message: { id: 'claude-response-a', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 50, output_tokens: 10, total_tokens: 60 }, content: 'MODEL_REPLY_SECRET' } },
+    { type: 'user', uuid: 'claude-round-b', session_id: 'prompt-claude', cwd: project, timestamp, message: { role: 'user', content: 'CLAUDE_PROMPT_BETA' } },
+    { type: 'assistant', session_id: 'prompt-claude', cwd: project, timestamp, message: { id: 'claude-response-b', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 15, output_tokens: 5, total_tokens: 20 } } },
+  ];
+  await writeFile(path.join(codexSessions, 'rollout-prompt-codex.jsonl'), codexRecords.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  await writeFile(path.join(claudeSessions, 'prompt-claude.jsonl'), claudeRecords.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CODEX_HOME = codexHome;
+  process.env.CLAUDE_CONFIG_DIR = claudeHome;
+  try {
+    const codexRead = await readCodex({ ...scope, harness: 'codex' });
+    const claudeRead = await readClaude({ ...scope, harness: 'claude' });
+    const codexPrompts = new Map(codexRead.firstUserMessages.map((record) => [record.turnId, record.content]));
+    const claudePrompts = new Map(claudeRead.firstUserMessages.map((record) => [record.turnId, record.content]));
+    assert.equal(codexPrompts.get('codex-round-a'), 'PROMPT_ALPHA_<script>alert("x")</script>_tail api_key=<redacted>');
+    assert.equal(codexPrompts.get('codex-round-b'), 'PROMPT_BETA_second-round');
+    assert.equal(claudePrompts.get('claude-round-a'), 'CLAUDE_PROMPT_ALPHA');
+    assert.equal(claudePrompts.get('claude-round-b'), 'CLAUDE_PROMPT_BETA');
+
+    const audit = analyseAudit({ ...scope, harness: undefined }, codexRead, 'codex');
+    const localHtml = renderHtml(audit, 'en-US', undefined, codexRead.firstUserMessages);
+    const safeJson = JSON.stringify(audit);
+    const safeText = renderText(audit, 'en-US');
+    const safeShare = renderShare(audit, 'en-US');
+    const chartData = JSON.parse(localHtml.match(/const d=(\{[\s\S]*?\});const p=/)[1]);
+    const localRounds = chartData.keySessions.flatMap((session) => session.turns);
+    assert.equal(localRounds.find((turn) => turn.n === 1).prompt, 'PROMPT_ALPHA_<script>alert("x")</script>_tail api_key=<redacted>');
+    assert.match(localHtml, /PROMPT_ALPHA_\\u003cscript\\u003e/);
+    assert.doesNotMatch(localHtml, /<script>alert\("x"\)<\/script>/);
+    const safeShareHtml = renderHtml({ ...audit, view: 'share' }, 'en-US', undefined, codexRead.firstUserMessages);
+    assert.doesNotMatch(safeShareHtml, /PROMPT_ALPHA|PROMPT_BETA|credential-secret/);
+    for (const output of [safeJson, safeText, safeShare]) {
+      assert.doesNotMatch(output, /PROMPT_ALPHA|PROMPT_BETA|credential-secret/);
+    }
+    for (const output of [localHtml, safeJson, safeText, safeShare]) {
+      assert.doesNotMatch(output, /MODEL_REPLY_SECRET|COMMAND_SECRET|TOOL_RESULT_SECRET|credential-secret/);
+    }
+  } finally {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('progressive content Evidence stays inside the selected Top 3 Session and is untrusted in memory', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-content-evidence-'));
   const project = path.join(root, 'project');
@@ -591,7 +666,7 @@ test('Key Session Analysis validation binds prose to the audit, Session, and Tur
     const composedHtml = renderHtml(audit, 'en-US', { auditFingerprint: auditFingerprint(audit), audit, keySessionAnalyses: [analysis] });
     assert.match(composedHtml, /Key Session Analysis/);
     assert.match(composedHtml, /The Session handled a scoped implementation task/);
-    assert.match(composedHtml, /<details class="key-session-analysis" open>/);
+    assert.match(composedHtml, /<details class="key-session-entry key-session-entry--primary" open>/);
     assert.match(renderHtml(audit, 'en-US'), /Key Session Analysis unavailable/);
     const invalid = { ...analysis, auditFingerprint: 'stale', primaryFinding: { ...analysis.primaryFinding, evidenceIds: ['turn:other'] } };
     const invalidResult = validateKeySessionAnalysis(audit, invalid);
@@ -1547,13 +1622,14 @@ test('joint evidence facts stay aligned across JSON, text, share, and standalone
     assert.equal(result.report.cacheEconomics.cacheSavingsPercent.value, 12.92);
     assert.equal(result.report.firstRequestBurden.medianTokens.value, 40);
     assert.equal(result.report.skills.find((skill) => skill.name === 'joint-skill').attributedTokens.value, 40);
-    for (const output of [jsonOutput, textOutput, html, share]) {
+    for (const output of [jsonOutput, textOutput, share]) {
       assert.match(output, /28\.57/);
       assert.match(output, /14\.29/);
       assert.match(output, /12\.92/);
       assert.match(output, /joint-skill/);
       assert.equal(output.includes('PRIVATE_PROMPT_JOINT'), false);
     }
+    assert.match(html, /PRIVATE_PROMPT_JOINT/);
     assert.match(html, /\d{4}\.\d{2}\.\d{2}/);
     assert.doesNotMatch(html, /\d{4}年\d{1,2}月\d{1,2}日/);
     assert.doesNotMatch(html, /title="精确值：\d{4}-\d{2}-\d{2}T/);

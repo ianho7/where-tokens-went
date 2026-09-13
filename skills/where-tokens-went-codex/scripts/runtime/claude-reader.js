@@ -37,6 +37,7 @@ exports.readClaude = readClaude;
 const promises_1 = require("node:fs/promises");
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const prompt_projection_1 = require("./prompt-projection");
 function objectValue(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
@@ -123,8 +124,8 @@ function skillNameValue(...values) {
 function redactedSource(file) {
     return "transcript:" + path.basename(file, ".jsonl");
 }
-function skillRecord(sessionId, skillName, state, evidenceType, callId, timestamp, sourceLocation, provenance) {
-    return { sessionId, skillName, state, evidenceType, turnId: null, callId, timestamp, sourceLocation, provenance };
+function skillRecord(sessionId, skillName, state, evidenceType, callId, timestamp, sourceLocation, provenance, turnId = null) {
+    return { sessionId, skillName, state, evidenceType, turnId, callId, timestamp, sourceLocation, provenance };
 }
 function listedSkillNames(...values) {
     const names = [];
@@ -167,6 +168,7 @@ function createSession(sessionId) {
         tools: [],
         lifecycle: [],
         skillEvidence: [],
+        firstUserMessages: new Map(),
         sessionCosts: [],
         unsupported: false,
         missingTimestamp: false,
@@ -378,11 +380,14 @@ async function readClaude(scope) {
                 const activeTurn = pending.turns.find((turn) => turn.turnId === pending.activeTurnId);
                 if (activeTurn && timestamp)
                     activeTurn.endedAt = timestamp;
+                if (!isToolResult && activeTurn && !pending.firstUserMessages.has(activeTurn.turnId)) {
+                    pending.firstUserMessages.set(activeTurn.turnId, (0, prompt_projection_1.firstUserMessageText)(message?.content ?? record.content));
+                }
             }
             const sourceLocation = redactedSource(file);
             const listingNames = listedSkillNames(record.available_skills, record.availableSkills, record.skill_listing, record.skillListing, message?.available_skills, message?.availableSkills, message?.skill_listing, message?.skillListing);
             for (const skillName of listingNames)
-                pending.skillEvidence.push(skillRecord(sessionId, skillName, "available", "listing", null, timestamp, sourceLocation, "reported"));
+                pending.skillEvidence.push(skillRecord(sessionId, skillName, "available", "listing", null, timestamp, sourceLocation, "reported", pending.activeTurnId));
             if (type === "cost-state") {
                 const costState = objectValue(record.cost) ?? objectValue(record.costState) ?? record;
                 const totalCost = numberValue(record.totalCostUSD, record.total_cost_usd, costState?.totalCostUSD, costState?.total_cost_usd);
@@ -405,7 +410,7 @@ async function readClaude(scope) {
                     call.turnId = turnId;
                 const attribution = explicitSkillName(record.attributionSkill, record.attribution_skill, message?.attributionSkill, message?.attribution_skill);
                 if (attribution)
-                    pending.skillEvidence.push(skillRecord(sessionId, attribution, "attributed", "versioned-attribution", callId, timestamp, sourceLocation, "reported"));
+                    pending.skillEvidence.push(skillRecord(sessionId, attribution, "attributed", "versioned-attribution", callId, timestamp, sourceLocation, "reported", turnId));
                 if (call) {
                     if (!call.timestamp)
                         pending.missingTimestamp = true;
@@ -439,7 +444,7 @@ async function readClaude(scope) {
                         if (/^(skill|load[_-]?skill|use[_-]?skill)$/i.test(stringValue(block.name) ?? "")) {
                             const input = objectValue(block.input) ?? objectValue(block.arguments) ?? block.input ?? block.arguments;
                             const invokedSkill = explicitSkillName(input);
-                            pending.skillEvidence.push(skillRecord(sessionId, invokedSkill, "invoked", "explicit-input", toolId, timestamp, sourceLocation, "reported"));
+                            pending.skillEvidence.push(skillRecord(sessionId, invokedSkill, "invoked", "explicit-input", toolId, timestamp, sourceLocation, "reported", turnId));
                         }
                     }
                 }
@@ -497,6 +502,7 @@ async function readClaude(scope) {
     const lifecycle = [];
     const skillEvidence = [];
     const sessionCosts = [];
+    const firstUserMessages = [];
     for (const pending of pendingById.values()) {
         if (!selected(pending, scope)) {
             if (pending.missingTimestamp && (scope.allProjects || sameCwd(pending.session.projectCwd, scope.cwd))) {
@@ -518,6 +524,18 @@ async function readClaude(scope) {
         pending.session.partial = partial;
         sessions.push(pending.session);
         turns.push(...pending.turns);
+        for (const turn of pending.turns) {
+            const hasMessage = pending.firstUserMessages.has(turn.turnId);
+            const content = pending.firstUserMessages.get(turn.turnId) ?? null;
+            firstUserMessages.push({
+                sessionId: pending.session.sessionId,
+                turnId: turn.turnId,
+                content,
+                unavailableReason: hasMessage
+                    ? content === null ? "The first user message content was unavailable in the source record." : null
+                    : "No first user message was mapped to this source Turn.",
+            });
+        }
         for (const call of pending.modelCalls)
             if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime())
                 modelCalls.push(call);
@@ -530,5 +548,5 @@ async function readClaude(scope) {
     }
     if (files.length === 0)
         coverage.warnings.push("No Claude Code transcript history was found for the selected scope.");
-    return { sessions, turns, modelCalls, toolCalls, lifecycle, skillEvidence, sessionCosts, coverage };
+    return { sessions, turns, modelCalls, toolCalls, lifecycle, skillEvidence, sessionCosts, firstUserMessages, coverage };
 }

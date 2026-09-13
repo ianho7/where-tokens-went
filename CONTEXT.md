@@ -60,6 +60,30 @@ _Avoid_: Alert, metric
 Host Agent 对一个高贡献 Session 生成的证据化解读；它选择一个主要 Finding，说明可能机制与替代解释，并给出一项改善行动及验证方法。它必须区分事实、解读和建议，不改写 Evidence，也不把时间相关性表述为已证实因果。
 _Avoid_: AI 诊断, 导师分析
 
+**轮次**:
+用户发出一条消息后，到 Agent 完成、被中断或仍未结束的一段交互。在中文报告中使用“第 12 轮”，不显示 `Turn 12`。
+_Avoid_: Turn（用户界面）
+
+**本轮耗时**:
+一轮从开始到完成或中断的经过时间，可包含模型工作、工具调用、重试、等待、Subagent 和自动压缩上下文。它不是计费时间，也不表示每一秒都有效产出。
+_Avoid_: 活跃耗时
+
+**Token 集中度**:
+Session 中用量最高的前 N 轮 Token 合计占该 Session Token 总量的比例。界面必须同时写明 N 和占比，例如“前 5 轮合计占 79.30%”，不能只写“前五高用量轮次”。
+_Avoid_: 高用量轮次（未说明统计口径）
+
+**首次响应等待**:
+从用户请求开始到模型首次产生响应内容的时间；底层字段保留为 `timeToFirstTokenMs`。关键 Session 默认界面和完整明细不展示，只有当 Host Agent 将异常等待选为主要 Finding 时才可引用。
+_Avoid_: TTFT（用户界面）
+
+**过程事件**:
+一轮中可定位的重试、自动压缩上下文、Subagent 或中断等事件的用户界面统称。
+_Avoid_: Lifecycle（用户界面）
+
+**自动压缩上下文**:
+Harness 为释放上下文空间而把较早对话整理为摘要的过程。它与高用量同时出现不代表它造成高用量。
+_Avoid_: compaction（用户界面）
+
 **Provenance**:
 The origin class of a value: `reported`, `derived`, `estimated`, or `unavailable`.
 _Avoid_: Confidence
