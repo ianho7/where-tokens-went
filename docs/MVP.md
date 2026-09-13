@@ -2,15 +2,15 @@
 
 ## Product promise
 
-When invoked inside Claude Code or Codex, where-tokens-went examines only that Harness's existing local history and produces one evidence-backed explanation of where usage went and what the user should try next.
+When the user enters `$where-tokens-went` or an equivalent natural-language request in a Claude Code or Codex conversation, where-tokens-went examines only that Harness's existing local history and produces one evidence-backed explanation of where usage went and what the user should try next.
 
 The first release succeeds when a user sees a real session, tool, retry, compaction, or subagent behavior responsible for a meaningful share of usage and says, “原来消耗在这里。”
 
 ## Product shape
 
-The user-facing product is a thin Harness-native Skill or integration plus a local deterministic tool. Each Skill is distributed with the runtime it invokes, so copying or installing one Skill directory is sufficient; the TypeScript CLI reads and calculates facts; the Host Agent progressively reads scoped content for up to three highest-usage Sessions, produces structured Key Session Analysis, and writes the validated analysis into the same standalone HTML.
+The user-facing product is the Harness-native `$where-tokens-went` Skill invocation, backed by a local deterministic tool. It is not the bare shell command. Each Skill is distributed with the runtime it invokes, so copying or installing one Skill directory is sufficient. In one atomic workflow, the TypeScript CLI first returns the structured sanitized Audit without opening a preliminary report; the current Host Agent reads the fixed bundled synthesis Prompt, generates and validates one Audit Overview plus report-level Findings, progressively reads scoped content for up to three highest-usage Sessions, produces structured Key Session Analysis, and only then writes and opens the final standalone HTML.
 
-MVP invocation behind the integration:
+Internal deterministic invocation behind the Skill (not the user-facing product command):
 
 ```text
 where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> --since 7d --format json
@@ -38,11 +38,14 @@ where-tokens-went inspect --harness codex --all-projects --since 30d --format js
 - Skill evidence for available, invoked, and attributed states from Claude Code and Codex when the local source proves the boundary; direct resource footprint and observed association are separate from causal impact, which remains unavailable without a valid counterfactual.
 - Deterministic automated checks for long Session concentration, repeated tool-result amplification, extra calls from errors/retries/subagents, model concentration, and data completeness when supported by Evidence.
 - For Codex, distinguish total execution Sessions from top-level tasks and source-proven subagent Sessions when the local metadata supports that split.
-- Human-readable automated-check output with a stable pass, notice, or warning outcome, compact Evidence, and the deterministic method; internal check identifiers are not the user-facing report.
-- One Host Agent-authored Finding with Evidence and one recommended next action when justified.
+- Human-readable automated-check output with a stable pass, notice, or warning outcome, compact Evidence, and the deterministic method. Automated Checks remain candidate Evidence and a deterministic fallback; they do not populate the normal HTML “Findings” module directly.
+- A Host Agent-authored report synthesis that normally selects three to five prioritized Findings from the complete sanitized Audit, may merge or ignore Automated Checks, and may return fewer Findings when the Evidence does not support more. Each Finding states the cross-metric interpretation, cites same-Audit Evidence, and marks support and material uncertainty without inventing causality.
+- A Host Agent-authored Audit Overview that uses one or two sentences and one to three same-Audit Evidence references to give a first impression of the Audit period's overall activity and usage shape. It does not claim project outcomes, give recommendations, or duplicate a Finding's wording and detail.
+- The existing HTML “Findings” module keeps its position and visual treatment while its normal content source changes from fixed Automated Check copy to the validated report synthesis.
+- A Session ranking table that remains a deterministic ranking and navigation surface. It does not promote the first Turn diagnostic candidate to a “main driver”; causal or priority judgment belongs to validated Key Session Analysis.
 - Structured Key Session Analysis for up to three Token-ranked Sessions, consisting of task context, one primary Finding or an explicit no-strong-Evidence state, an Evidence chain, one improvement proposal, its applicability/trade-off, and a user-owned verification method.
 - Progressive content Evidence acquisition inside the selected Audit Scope. Invoking the Skill authorizes in-memory reading for analysis. The local full HTML may retain the first user message of each displayed Turn for trajectory tooltips; sanitized JSON, text, and share output never retain it.
-- A deterministic report fallback when Host Agent generation or Key Session Analysis validation is unavailable.
+- A deterministic report fallback when Host Agent generation, report-synthesis validation, or Key Session Analysis validation is unavailable. The fallback identifies its content as Automated Checks rather than presenting it as AI synthesis.
 - JSON output for the Host Agent and concise text output for direct CLI use.
 - `reported`, `derived`, `estimated`, and `unavailable` value provenance.
 
@@ -58,6 +61,7 @@ where-tokens-went inspect --harness codex --all-projects --since 30d --format js
 - Persistent recommendation history, automatic follow-up experiments, or claims that an improvement proposal worked.
 - Pi and DeepSeek Harness history support is temporarily suspended and outside the current MVP.
 - Follow-up extraction, AI rework classification, and a rework-rate metric are next-stage work and are not implemented or represented by this MVP contract.
+- AI-authored output for direct CLI text/share and the narrow `usage`, `tools`, `week`, or `window` views is deferred. This increment applies the Audit Overview and report-level synthesis contract only to the default `$where-tokens-went` and `report` HTML workflow.
 
 ## Default privacy
 
@@ -80,15 +84,16 @@ The default LiteLLM lookup sends only the expected Provider and model identifier
 The default result should fit in one Agent response:
 
 1. scope and coverage;
-2. largest usage contributor;
-3. strongest supported cause;
-4. compact numeric Evidence;
-5. one next action;
-6. limitations caused by missing or estimated data.
+2. one AI-authored first impression of overall activity and usage shape;
+3. largest usage contributor;
+4. strongest supported cause;
+5. compact numeric Evidence;
+6. one next action;
+7. limitations caused by missing or estimated data.
 
 Do not dilute the result with every available chart or warning. If no strong cause is supported, say what was measured and what information is missing.
 
-For a report request, the deliverable is atomic: calculate the deterministic Audit, progressively inspect relevant content for up to three Token-ranked Sessions, generate and validate structured Key Session Analysis, write it together with deterministic Evidence into one standalone HTML, open the report, and provide one explicit Host Agent Finding in the same conversation turn. If AI analysis is unavailable, the deterministic HTML still opens and states the degradation reason. Returning only a report path, only diagnostic signals, or only internal check identifiers does not satisfy the Aha response.
+For a report request, the deliverable is atomic and ordered: calculate the deterministic Audit as structured data without opening an intermediate HTML; generate and validate the Audit Overview and report-level Findings from that sanitized Audit using the fixed bundled Prompt; progressively inspect relevant content for up to three Token-ranked Sessions; generate and validate structured Key Session Analysis; write all three layers together with deterministic Evidence into one final standalone HTML; open that final report; and provide the strongest supported Finding in the same conversation turn. If AI analysis is genuinely unavailable or its output fails validation, the final HTML still opens: its header shows a neutral unavailable state and its Findings module presents clearly identified Automated Checks as fallback content. A preliminary `inspect --html` result is not a valid substitute. Returning only Audit JSON, a fallback preview, a report path, diagnostic signals, or internal check identifiers does not satisfy the Aha response.
 
 ## Acceptance criteria
 
@@ -108,7 +113,13 @@ For each Harness, using one redacted sample derived from real local history:
 - JSON, text, share, and standalone HTML expose the same cache-economics, first-request, and Skill-evidence facts, preserving missing values and Provenance across projections;
 - LiteLLM API-equivalent cost rows identify exact Provider/model and compatible cache dimensions, retain catalog source and retrieval time, and are marked `estimated`; when only part of Usage is priced, the report shows that partial estimate and its coverage while excluding the remainder; unknown or incompatible Usage remains `unavailable` while Token evidence remains usable;
 - first-request and Skill results state their evidence boundary and limitations; they do not claim startup tax, causal Skill impact, actual billing, or inferred invocation from a listing alone;
-- the Host Agent identifies one evidence-backed Finding or truthfully reports that none is supported;
+- the normal HTML “Findings” module contains the validated Host Agent report synthesis rather than fixed Automated Check prose, keeps the established visual structure, and presents three to five prioritized Findings when supported or fewer with an explicit no-strong-Finding state;
+- the report header contains a validated Host Agent Audit Overview with one to three same-Audit Evidence references; it gives a first impression of activity and usage shape, does not infer project progress, does not give advice, and does not repeat a Finding's wording or evidence detail;
+- fixed threshold summaries and project-type guesses do not occupy the report header; when the Overview is unavailable or invalid, the header retains its place with a neutral unavailable state rather than substituting a deterministic diagnosis;
+- every report-level Finding cites same-Audit Evidence, preserves its values and Provenance, distinguishes interpretation from causality, and includes support plus material uncertainty;
+- invalid or unavailable report synthesis degrades in the same module to clearly identified Automated Checks without preventing the rest of the report from rendering;
 - each of up to three Token-ranked Sessions contains one validated Key Session Analysis or an explicit unavailable state; Findings cite same-Scope Evidence and recommendations include applicability, trade-off, and a user-owned verification method;
 - facts, Host Agent interpretation, and improvement proposals are visibly distinct; the Key Session module follows the accepted Kami prototype hierarchy, keeps Finding, proposal, and verification in separate roles, shows complete first-user-message tooltips in local full HTML, and proves those fields absent from the sanitized share projection;
-- a report request produces both the opened HTML containing deterministic Evidence plus validated Key Session Analysis and the Host Agent's conversational primary Finding.
+- the Session ranking table contains no deterministic “main driver” column; Turn diagnostic candidates remain neutral Evidence until selected and interpreted by the Host Agent;
+- invoking `$where-tokens-went` in either supported Host conversation does not expose or stop at the internal CLI step and does not open a preliminary deterministic HTML as the normal result;
+- a report request produces both the opened final HTML containing deterministic Evidence, a validated Audit Overview, validated report-level Findings, and validated Key Session Analysis, plus the Host Agent's strongest conversational Finding.

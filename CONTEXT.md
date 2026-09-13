@@ -8,6 +8,14 @@ where-tokens-went is the domain of explaining a coding agent's historical resour
 The coding agent in which the user invokes where-tokens-went, such as Codex or Claude Code.
 _Avoid_: Provider, model, client
 
+**Skill Invocation**:
+The public product entry in a Host Agent conversation: `$where-tokens-went` or an equivalent natural-language request. It covers deterministic Audit acquisition, Host Agent synthesis, validation, final report composition and opening, and the conversational Finding as one workflow.
+_Avoid_: CLI invocation, shell command
+
+**Internal CLI**:
+The deterministic `where-tokens-went inspect` command used by the Skill to calculate authoritative facts and by developers for direct debugging. It does not call a model, and its direct HTML output is not the normal Skill report.
+_Avoid_: Skill Invocation, AI report generator
+
 **Harness**:
 The agent runtime that owns sessions, tools, persistence, and execution behavior. Claude Code and Codex are the currently supported Harnesses in this project.
 _Avoid_: Model, Provider
@@ -49,12 +57,16 @@ A value plus enough source location and method information for a person or Agent
 _Avoid_: Claim, insight
 
 **Automated Check**:
-A deterministic, descriptive diagnostic signal with a stable identity, outcome, Evidence, and method. Its user-facing projection is human-readable, but it does not select a primary cause, prescribe an action, or impersonate a Host Agent Finding.
+A deterministic, descriptive diagnostic signal with a stable identity, outcome, Evidence, and method. It is candidate Evidence and deterministic fallback content; it does not directly populate the normal HTML Findings module, select a primary cause, prescribe an action, or impersonate a Host Agent Finding.
 _Avoid_: Finding, recommendation, verdict
 
 **Finding**:
-A Host Agent-owned prioritized explanation of an observed usage pattern supported by Evidence.
+A Host Agent-owned, prioritized explanation of an observed usage pattern supported by same-Audit Evidence. Report-level Findings synthesize relationships across metrics and may merge or ignore Automated Checks; they preserve facts and Provenance, state support and material uncertainty, and do not turn correlation into causality.
 _Avoid_: Alert, metric
+
+**Audit Overview**:
+A Host Agent-owned, Evidence-backed first impression of the Audit period's overall activity and usage shape. It is not a Finding, project-progress report, recommendation, or deterministic check.
+_Avoid_: Executive Finding, project summary, progress report
 
 **关键 Session 分析**:
 Host Agent 对一个高贡献 Session 生成的证据化解读；它选择一个主要 Finding，说明可能机制与替代解释，并给出一项改善行动及验证方法。它必须区分事实、解读和建议，不改写 Evidence，也不把时间相关性表述为已证实因果。

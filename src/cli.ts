@@ -6,9 +6,10 @@ import * as path from "node:path";
 import { analyseAudit } from "./analysis";
 import { readClaude } from "./claude-reader";
 import { readCodex } from "./codex-reader";
+import { auditFingerprint, reportComposition, validateReportSynthesis } from "./key-session-analysis";
 import { resolveApiPricing, type PricingMode } from "./rates";
 import { normalizeLocale, renderHtml, renderShare, renderText, renderWeekText, resolveReportProjectName } from "./report";
-import type { AuditResult, AuditSnapshot, AuditView, EvidenceValue, Harness, ReadResult, ReadScope, ReportLocale, WeekComparison, WeekStructureChange } from "./types";
+import type { AuditResult, AuditSnapshot, AuditView, EvidenceValue, FirstUserMessageRecord, Harness, KeySessionAnalysis, ReadResult, ReadScope, ReportLocale, WeekComparison, WeekStructureChange } from "./types";
 
 interface CliOptions {
   harness: Harness;
@@ -28,6 +29,7 @@ function usage(): string {
   return [
     "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
     "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
+    "       where-tokens-went compose-report --locale zh-CN|en-US --html <final-path> < composition JSON envelope",
   ].join("\n");
 }
 
@@ -53,7 +55,7 @@ function requireValue(args: string[], index: number, flag: string): string {
 }
 
 export function parseArgs(args: string[]): CliOptions {
-  if (args[0] !== "inspect") throw new Error(`Only the inspect command is supported.\n${usage()}`);
+  if (args[0] !== "inspect") throw new Error(`Use inspect or compose-report.\n${usage()}`);
   let harness: Harness | null = null;
   let cwd: string | null = null;
   let allProjects = false;
@@ -221,8 +223,69 @@ async function writeLocalFile(filePath: string, contents: string): Promise<strin
   return absolute;
 }
 
+interface ComposeReportOptions {
+  locale: ReportLocale;
+  htmlPath: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseComposeArgs(args: string[]): ComposeReportOptions {
+  let locale: ReportLocale = "en-US";
+  let htmlPath: string | null = null;
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index];
+    if (flag === "--locale" || flag === "--lang") {
+      locale = normalizeLocale(requireValue(args, index, flag));
+      index += 1;
+    } else if (flag === "--html") {
+      htmlPath = requireValue(args, index, flag);
+      index += 1;
+    } else {
+      throw new Error(`Unknown compose-report argument: ${flag}.\n${usage()}`);
+    }
+  }
+  if (!htmlPath) throw new Error(`compose-report requires --html.\n${usage()}`);
+  return { locale, htmlPath };
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function composeReportMain(args: string[]): Promise<number> {
+  const options = parseComposeArgs(args);
+  const input = await readStdin();
+  if (!input.trim()) throw new Error("compose-report requires one JSON composition envelope on stdin.");
+  const parsed: unknown = JSON.parse(input);
+  if (!isRecord(parsed) || !isRecord(parsed.audit)) {
+    throw new Error("compose-report requires an envelope with a structured AuditResult under audit.");
+  }
+
+  const audit = parsed.audit as unknown as AuditResult;
+  const expectedFingerprint = auditFingerprint(audit);
+  const envelopeFingerprintMatches = parsed.auditFingerprint === expectedFingerprint;
+  const synthesisValidation = envelopeFingerprintMatches
+    ? validateReportSynthesis(audit, parsed.reportSynthesis ?? null)
+    : { valid: false, errors: ["The supplied Audit fingerprint does not match the current Audit."], synthesis: null };
+  const validatedSynthesis = synthesisValidation.valid ? synthesisValidation.synthesis : null;
+  const analyses = (Array.isArray(parsed.keySessionAnalyses) ? parsed.keySessionAnalyses : []) as KeySessionAnalysis[];
+  const composition = reportComposition(audit, analyses, validatedSynthesis);
+  const firstUserMessages = (Array.isArray(parsed.firstUserMessages) ? parsed.firstUserMessages : []) as FirstUserMessageRecord[];
+  const output = await writeLocalFile(options.htmlPath, renderHtml(audit, options.locale, composition, firstUserMessages));
+  process.stdout.write("Output: final HTML report written to " + output + ".\n");
+  return 0;
+}
+
 export async function main(args = process.argv.slice(2)): Promise<number> {
   try {
+    if (args[0] === "compose-report") return await composeReportMain(args.slice(1));
     const options = parseArgs(args);
     let result: AuditResult;
     let localFirstUserMessages: NonNullable<ReadResult["firstUserMessages"]> = [];
@@ -249,9 +312,9 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     }
 
     const outputKinds: string[] = [];
-    const shouldWriteHtml = options.htmlPath !== null || options.view === "full" || options.view === "report" || options.view === "question";
+    const shouldWriteHtml = options.htmlPath !== null;
     if (shouldWriteHtml) {
-      const target = options.htmlPath ?? defaultOutputPath(options.harness, "report", ".html");
+      const target = options.htmlPath as string;
       const projectName = options.cwd ? resolveReportProjectName(options.cwd) : null;
       const htmlResult = projectName ? { ...result, projectName } : result;
       await writeLocalFile(target, renderHtml(htmlResult, options.locale, undefined, localFirstUserMessages));

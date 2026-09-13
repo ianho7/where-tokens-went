@@ -4,7 +4,7 @@ const vm = require('node:vm');
 
 const { analyseAudit } = require('../dist/src/analysis.js');
 const { renderHtml } = require('../dist/src/report.js');
-const { auditFingerprint } = require('../dist/src/key-session-analysis.js');
+const { auditFingerprint, validateReportSynthesis } = require('../dist/src/key-session-analysis.js');
 const { snapshotHtml } = require('../scripts/kami-report-content-snapshot.js');
 const { scoreHtml } = require('../scripts/score-kami-report.js');
 const contentBaseline = require('./fixtures/kami-report-content-baseline.json');
@@ -71,6 +71,31 @@ function findingsResult() {
   return analyseAudit({ cwd: 'D:\\project', allProjects: false, since: new Date('2026-09-01T00:00:00.000Z') }, read, 'codex');
 }
 
+function reportSynthesisFor(audit, overrides = {}) {
+  const fingerprint = auditFingerprint(audit);
+  return {
+    auditFingerprint: fingerprint,
+    findings: [{
+      title: '跨指标关系比单项规则更值得先看',
+      analysis: 'Session 集中度与工具结果后续暴露同时出现，优先验证上下文边界是否反复携带结果。',
+      evidenceRefs: ['summary:totalTokens', 'ranking:sessions:large', 'check:long_session'],
+      support: 'strong',
+      uncertainty: '这些指标显示相关模式，但不能单独证明因果。',
+    }],
+    noStrongFindingReason: null,
+    ...overrides,
+  };
+}
+
+function reportCompositionFor(audit, reportSynthesis) {
+  return {
+    auditFingerprint: auditFingerprint(audit),
+    audit,
+    reportSynthesis,
+    keySessionAnalyses: [],
+  };
+}
+
 function injectedChartResult() {
   const read = evidenceRead();
   read.modelCalls[0] = { ...read.modelCalls[0], timestamp: '2026-09-08T08:00:00.000Z' };
@@ -103,6 +128,60 @@ test('every inline report script parses', () => {
   assert.ok(scripts.length >= 2);
   scripts.forEach((script) => new vm.Script(script));
   assert.match(scripts.at(-1), /DOMContentLoaded/);
+});
+
+test('validated report synthesis replaces fixed checks in the original Findings module', () => {
+  const audit = findingsResult();
+  const synthesis = reportSynthesisFor(audit);
+  assert.equal(validateReportSynthesis(audit, synthesis).valid, true);
+  const html = renderHtml(audit, 'en-US', reportCompositionFor(audit, synthesis));
+  const findings = html.match(/<section class="supporting-findings">[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.equal((html.match(/<h2>Findings<\/h2>/g) ?? []).length, 1);
+  assert.equal((html.match(/<section class="supporting-findings"/g) ?? []).length, 1);
+  assert.match(findings, /跨指标关系比单项规则更值得先看/);
+  assert.match(findings, /Evidence/);
+  assert.match(findings, /Strong support/);
+  assert.match(findings, /summary:totalTokens/);
+  assert.doesNotMatch(findings, /One Session accounts for/);
+  assert.doesNotMatch(findings, /automated findings/i);
+});
+
+test('invalid report synthesis falls back to Automated Checks in the same Findings module', () => {
+  const audit = findingsResult();
+  const invalid = reportSynthesisFor(audit, { auditFingerprint: 'stale-audit', findings: [{ ...reportSynthesisFor(audit).findings[0], evidenceRefs: ['summary:not-present'] }] });
+  assert.equal(validateReportSynthesis(audit, invalid).valid, false);
+  const html = renderHtml(audit, 'en-US', reportCompositionFor(audit, invalid));
+  const findings = html.match(/<section class="supporting-findings">[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.match(findings, /Host Agent synthesis is unavailable/);
+  assert.match(findings, /deterministic Automated Checks are fallback content/);
+  assert.match(findings, /One Session accounts for/);
+  assert.equal((html.match(/<h2>Findings<\/h2>/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /class="supporting-findings"[\s\S]*class="supporting-findings"/);
+});
+
+test('report synthesis renders an explicit no-strong-Finding state', () => {
+  const audit = findingsResult();
+  const synthesis = reportSynthesisFor(audit, { findings: [], noStrongFindingReason: 'The selected Evidence is too sparse to prioritize a cause.' });
+  assert.equal(validateReportSynthesis(audit, synthesis).valid, true);
+  const html = renderHtml(audit, 'en-US', reportCompositionFor(audit, synthesis));
+  const findings = html.match(/<section>[\s\S]*?<h2>Findings<\/h2>[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.match(findings, /No strong Finding is supported by this Audit/);
+  assert.match(findings, /selected Evidence is too sparse/);
+});
+
+test('report synthesis enforces the current audit fingerprint, Evidence references, and five-Finding limit', () => {
+  const audit = findingsResult();
+  const base = reportSynthesisFor(audit);
+  for (const candidate of [
+    { ...base, auditFingerprint: 'other-audit' },
+    { ...base, findings: [{ ...base.findings[0], evidenceRefs: ['summary:missing'] }] },
+    { ...base, findings: Array.from({ length: 6 }, (_, index) => ({ ...base.findings[0], title: 'Finding ' + index })) },
+    { ...base, findings: [], noStrongFindingReason: null },
+    { ...base, findings: [{ ...base.findings[0], title: '' }], noStrongFindingReason: 'contradictory' },
+  ]) {
+    const validation = validateReportSynthesis(audit, candidate);
+    assert.equal(validation.valid, false);
+  }
 });
 
 test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sorting, and deterministic fallback', () => {

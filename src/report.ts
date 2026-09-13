@@ -10,13 +10,14 @@ import type {
   EvidenceValue,
   KeySessionAnalysis,
   FirstUserMessageRecord,
+  ReportFinding,
   ReportComposition,
   ToolAnalysisEntry,
   TurnAnalysisEntry,
   WeekComparison,
   WeekStructureChange,
 } from "./types";
-import { composeKeySessionAnalyses } from "./key-session-analysis";
+import { auditFingerprint, composeKeySessionAnalyses, resolveReportEvidence, validateReportSynthesis } from "./key-session-analysis";
 
 import { reportMessagesFor } from "./report-messages";
 import type { ReportLocale, ReportMessages } from "./report-messages";
@@ -624,15 +625,65 @@ function checkLine(check: AutomatedCheck, locale: ReportLocale): string {
   return presented.outcomeLabel + ": " + presented.headline + " — " + presented.detail + " " + labelsFor(locale).methodPrefix + presented.method;
 }
 
-function renderChecks(result: AuditResult, locale: ReportLocale): string {
+function reportEvidenceValue(value: EvidenceValue, locale: ReportLocale): string {
+  return evidencePlain(value, locale, false) + " (" + provenanceLabel(value.provenance, locale) + ")";
+}
+
+function reportFindingEvidence(result: AuditResult, reference: string, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  const match = resolveReportEvidence(result, reference);
+  if (!match) return reference;
+  if (match.kind === "check") {
+    const outcome = result.checks.find((check) => check.id === match.key.split(":", 1)[0])?.outcome;
+    return labels.automatedCheckEvidence + (outcome ? " · " + outcomeLabel(outcome, locale) : "") + ": " + match.evidence.map((value) => reportEvidenceValue(value, locale)).join(" / ");
+  }
+  if (match.kind === "ranking") {
+    const row = match.dimension ? result.rankings[match.dimension].find((entry) => entry.key === match.key) : undefined;
+    const name = row?.displayName ?? row?.key ?? match.key;
+    return labels.findingEvidence + " · " + name + ": " + match.evidence.map((value) => reportEvidenceValue(value, locale)).join(" / ");
+  }
+  if (match.kind === "turn") {
+    const turn = result.turns.find((candidate) => candidate.evidenceId === reference);
+    return labels.findingEvidence + " · " + (turn ? roundLabel(turn, locale) : match.key) + ": " + match.evidence.slice(0, 2).map((value) => reportEvidenceValue(value, locale)).join(" / ");
+  }
+  return reference + " = " + match.evidence.map((value) => reportEvidenceValue(value, locale)).join(" / ");
+}
+
+function renderReportFinding(result: AuditResult, finding: ReportFinding, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  const support = labels.findingSupport[finding.support];
+  const evidence = finding.evidenceRefs.map((reference) => reportFindingEvidence(result, reference, locale)).join(locale === "zh-CN" ? "；" : "; ");
+  const uncertainty = finding.uncertainty === null ? "" : " " + labels.findingUncertainty + ": " + finding.uncertainty + ".";
+  return "<li class=\"editorial-item\" data-evidence-refs=\"" + escapeHtml(finding.evidenceRefs.join(" ")) + "\"><div class=\"editorial-tags\" aria-label=\"" + escapeHtml(support) + "\">" + tagHtml(support) + "</div><strong class=\"editorial-title\">" + escapeHtml(finding.title) + "</strong><p class=\"editorial-detail\">" + escapeHtml(finding.analysis) + "</p><small class=\"editorial-method\">" + escapeHtml(labels.findingEvidence) + ": " + escapeHtml(evidence) + ". " + escapeHtml(labels.findingSupport[finding.support]) + uncertainty + "</small></li>";
+}
+
+function renderChecks(result: AuditResult, locale: ReportLocale, note = labelsFor(locale).checksNote): string {
   const labels = labelsFor(locale);
   const title = labels.diagnosticSignals;
-  if (result.checks.length === 0) return "<section><h2>" + escapeHtml(title) + "</h2>" + emptyState(labels, labels.checks.noFinding) + "</section>";
-  return "<section class=\"supporting-findings\"><h2>" + escapeHtml(title) + "</h2><p class=\"coverage-note\">" + escapeHtml(labels.checksNote) + "</p><ul>" + result.checks.map((check) => {
+  const noteHtml = "<p class=\"coverage-note\">" + escapeHtml(note) + "</p>";
+  if (result.checks.length === 0) return "<section><h2>" + escapeHtml(title) + "</h2>" + noteHtml + emptyState(labels, labels.checks.noFinding) + "</section>";
+  return "<section class=\"supporting-findings\"><h2>" + escapeHtml(title) + "</h2>" + noteHtml + "<ul>" + result.checks.map((check) => {
     const presented = presentCheck(check, locale);
     const severityTag = tagHtml(presented.outcomeLabel);
     return "<li class=\"editorial-item\" data-outcome=\"" + escapeHtml(check.outcome) + "\"><div class=\"editorial-tags\" aria-label=\"" + escapeHtml(presented.outcomeLabel) + "\">" + severityTag + "</div><strong class=\"editorial-title\">" + presented.headlineHtml + "</strong><p class=\"editorial-detail\">" + presented.detailHtml + "</p><small class=\"editorial-method\">" + escapeHtml(labels.methodPrefix) + escapeHtml(presented.method) + "</small></li>";
   }).join("") + "</ul></section>";
+}
+
+function renderFindings(result: AuditResult, locale: ReportLocale, composition?: ReportComposition): string {
+  const labels = labelsFor(locale);
+  const expectedFingerprint = auditFingerprint(result);
+  const validation = composition && composition.auditFingerprint === expectedFingerprint
+    ? validateReportSynthesis(result, composition.reportSynthesis)
+    : { valid: false, errors: ["Report composition is stale or unavailable."], synthesis: null };
+  if (!validation.valid || !validation.synthesis) {
+    return renderChecks(result, locale, labels.reportFallbackNote + " " + labels.reportFallbackDetail);
+  }
+  const synthesis = validation.synthesis;
+  const note = "<p class=\"coverage-note\">" + escapeHtml(labels.reportSynthesisNote) + "</p>";
+  if (synthesis.findings.length === 0) {
+    return "<section><h2>" + escapeHtml(labels.diagnosticSignals) + "</h2>" + note + emptyState(labels, labels.noStrongFinding + (locale === "zh-CN" ? "：" : ": ") + synthesis.noStrongFindingReason) + "</section>";
+  }
+  return "<section class=\"supporting-findings\"><h2>" + escapeHtml(labels.diagnosticSignals) + "</h2>" + note + "<ul>" + synthesis.findings.map((finding) => renderReportFinding(result, finding, locale)).join("") + "</ul></section>";
 }
 function tokenCell(value: EvidenceValue, locale: ReportLocale): string {
   return evidenceHtml(value, locale);
@@ -1518,7 +1569,7 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US", 
     renderReportHeader(result, locale),
     "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "<p class=\"report-method-note\">" + escapeHtml(labels.methodNote) + "</p></section>",
     renderKpis(result, locale),
-    renderChecks(result, locale),
+    renderFindings(result, locale, composition),
     renderCacheHtml(result, locale),
     renderFirstRequestHtml(result, locale),
     renderSkillsHtml(result, locale),

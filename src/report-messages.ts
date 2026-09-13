@@ -271,6 +271,14 @@ export interface ReportMessages {
   noToolData: string;
   noQuota: string;
   checksNote: string;
+  reportSynthesisNote: string;
+  reportFallbackNote: string;
+  reportFallbackDetail: string;
+  findingEvidence: string;
+  automatedCheckEvidence: string;
+  findingSupport: Record<"strong" | "moderate" | "limited", string>;
+  findingUncertainty: string;
+  noStrongFinding: string;
   diagnosticSignals: string;
   privacyNote: string;
   methodNote: string;
@@ -556,6 +564,14 @@ const EN: ReportMessages = {
   noToolData: "No paired tool results are available for tool impact.",
   noQuota: "No first-party quota data is available from this Harness.",
   checksNote: "These are automated findings; the Host Agent provides a synthesis for your question in conversation.",
+  reportSynthesisNote: "Host Agent synthesis from this sanitized Audit; Automated Checks are supporting Evidence, not separate Findings.",
+  reportFallbackNote: "Host Agent synthesis is unavailable or failed validation; the following deterministic Automated Checks are fallback content.",
+  reportFallbackDetail: "The report remains usable, but its Findings module is deterministic fallback output.",
+  findingEvidence: "Evidence",
+  automatedCheckEvidence: "Automated Check evidence",
+  findingSupport: { strong: "Strong support", moderate: "Moderate support", limited: "Limited support" },
+  findingUncertainty: "Uncertainty",
+  noStrongFinding: "No strong Finding is supported by this Audit",
   diagnosticSignals: "Findings",
   privacyNote: "The report keeps safe metadata, sizes, hashes, aggregates, and methods; it excludes prompts, source, responses, tool results, arguments, credentials, and absolute paths.",
   methodNote: "Estimated values are for reference only and do not represent an actual bill; “—” means data is unavailable.",
@@ -901,6 +917,14 @@ const ZH: ReportMessages = {
   noToolData: "没有找到可配对的工具结果，无法分析工具影响。",
   noQuota: "没有该工具官方提供的额度数据。",
   checksNote: "这些发现由规则自动生成；Host Agent 会结合你的问题和完整证据，在对话中给出综合判断。",
+  reportSynthesisNote: "以下是 Host Agent 基于本次脱敏审计的综合判断；自动检查仅作为证据候选，不单独构成发现。",
+  reportFallbackNote: "Host Agent 综合不可用或未通过校验；以下是确定性自动检查的降级内容。",
+  reportFallbackDetail: "报告其他部分仍可使用，但“发现”模块当前展示的是确定性降级结果。",
+  findingEvidence: "证据",
+  automatedCheckEvidence: "自动检查证据",
+  findingSupport: { strong: "强支持", moderate: "中等支持", limited: "有限支持" },
+  findingUncertainty: "不确定性",
+  noStrongFinding: "本次审计没有足够证据支持强发现",
   diagnosticSignals: "发现",
   privacyNote: "报告只保留脱敏后的元数据、大小、哈希、聚合结果和计算方法；不包含 prompt、源代码、回复、工具结果、参数、凭据或绝对路径。",
   methodNote: "估算值仅作参考，不代表实际账单；“—”表示暂时没有数据。",

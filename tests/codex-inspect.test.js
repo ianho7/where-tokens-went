@@ -1,13 +1,13 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { mkdtemp, mkdir, writeFile, readFile, access, rm } = require('node:fs/promises');
+const { mkdtemp, mkdir, writeFile, readFile, access, readdir, rm } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const { analyseAudit } = require('../dist/src/analysis.js');
 const { readContentEvidence } = require('../dist/src/content-evidence.js');
-const { auditFingerprint, validateKeySessionAnalysis, composeKeySessionAnalyses } = require('../dist/src/key-session-analysis.js');
+const { auditFingerprint, validateKeySessionAnalysis, validateReportSynthesis, composeKeySessionAnalyses } = require('../dist/src/key-session-analysis.js');
 const { resolveApiPricing } = require('../dist/src/rates.js');
 const { renderHtml, renderText, renderShare } = require('../dist/src/report.js');
 const { readCodex } = require('../dist/src/codex-reader.js');
@@ -16,6 +16,7 @@ const { readClaude } = require('../dist/src/claude-reader.js');
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 const bundledCodexPath = path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js');
+const bundledClaudePath = path.resolve(__dirname, '..', 'skills', 'where-tokens-went-claude', 'scripts', 'where-tokens-went.js');
 const { parseArgs } = require('../dist/src/cli.js');
 
 function isoHoursAgo(hours) {
@@ -37,6 +38,35 @@ async function runBundledCodex(args, env) {
   return execFileAsync(process.execPath, [bundledCodexPath, ...args], {
     env: { ...process.env, ...env },
     maxBuffer: 1024 * 1024,
+  });
+}
+
+async function runBundledWithInput(harness, args, input, env) {
+  const target = harness === 'codex' ? bundledCodexPath : bundledClaudePath;
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [target, ...args], {
+      env: { ...process.env, ...env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const error = new Error(stderr || `Bundled ${harness} command exited with ${code}.`);
+      error.code = code;
+      error.stdout = stdout;
+      error.stderr = stderr;
+      reject(error);
+    });
+    child.stdin.end(input);
   });
 }
 
@@ -92,6 +122,101 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
       await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'where-tokens-went.js'));
       await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'runtime', 'cli.js'));
     }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('packaging copies the single Report Synthesis Prompt into both Skills', async () => {
+  const repoRoot = path.resolve(__dirname, '..');
+  const sourcePath = path.join(repoRoot, 'prompts', 'report-synthesis.md');
+  const source = await readFile(sourcePath, 'utf8');
+  for (const harness of ['codex', 'claude']) {
+    const skillRoot = path.join(repoRoot, 'skills', 'where-tokens-went-' + harness);
+    const bundledPrompt = await readFile(path.join(skillRoot, 'references', 'report-synthesis.md'), 'utf8');
+    const skill = await readFile(path.join(skillRoot, 'SKILL.md'), 'utf8');
+    assert.equal(bundledPrompt, source);
+    assert.match(skill, /references\/report-synthesis\.md/);
+    assert.match(skill, /read `references\/report-synthesis\.md` in full/i);
+    assert.match(skill, /compose-report --locale <locale> --html <final-report-path>/);
+    assert.match(skill, /validated `reportSynthesis` or `null`/);
+  }
+});
+
+test('normal Skill acquisition does not create preliminary HTML and both packaged Skills compose the final AI report', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-report-composition-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '14');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessions, { recursive: true });
+  const timestamp = isoHoursAgo(1);
+  await writeFile(path.join(sessions, 'rollout-composition.jsonl'), [
+    { timestamp, type: 'session_meta', payload: { id: 'composition-session', cwd: project } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'composition-turn', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'composition-response', turn_id: 'composition-turn', usage: { input_tokens: 10, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 20 }, turn_token_usage: { input_tokens: 10, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 20 }, thread_token_usage: { input_tokens: 10, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 20 } } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+
+  try {
+    const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
+    const { stdout } = await runBundledCodex([
+      'inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--view', 'report',
+    ], env);
+    const audit = JSON.parse(stdout);
+    assert.deepEqual((await readdir(root)).filter((file) => file.endsWith('.html')), []);
+    assert.equal(audit.turns.length, 1);
+
+    const fingerprint = auditFingerprint(audit);
+    const synthesis = {
+      auditFingerprint: fingerprint,
+      findings: [{
+        title: 'AI 综合发现来自当前审计',
+        analysis: 'Host Agent 综合当前审计证据后识别出需要优先确认的跨指标关系。',
+        evidenceRefs: ['summary:totalTokens'],
+        support: 'strong',
+        uncertainty: '相关性不单独证明因果关系。',
+      }],
+      noStrongFindingReason: null,
+    };
+    assert.equal(validateReportSynthesis(audit, synthesis).valid, true);
+    const analysis = {
+      sessionId: 'composition-session',
+      auditFingerprint: fingerprint,
+      taskContext: 'The selected Session contains one bounded Turn.',
+      primaryFinding: null,
+      recommendation: null,
+      evidenceRead: { turnIds: ['composition-turn'], selectionReason: 'largest complete Turn', unreadScope: 'remaining Turns' },
+      limitations: ['No causal effect is proven by this report.'],
+    };
+    assert.equal(validateKeySessionAnalysis(audit, analysis).valid, true);
+    const payload = JSON.stringify({
+      auditFingerprint: fingerprint,
+      audit,
+      reportSynthesis: synthesis,
+      keySessionAnalyses: [analysis],
+      firstUserMessages: [],
+    });
+
+    for (const harness of ['codex', 'claude']) {
+      const htmlPath = path.join(root, harness + '-final.html');
+      await runBundledWithInput(harness, ['compose-report', '--locale', 'zh-CN', '--html', htmlPath], payload, env);
+      const html = await readFile(htmlPath, 'utf8');
+      assert.match(html, /<h2>发现<\/h2>/);
+      assert.match(html, /AI 综合发现来自当前审计/);
+      assert.match(html, /关键 Session 分析/);
+      assert.match(html, /composition-session/);
+    }
+
+    const fallbackPath = path.join(root, 'fallback-final.html');
+    await runBundledWithInput('codex', ['compose-report', '--locale', 'zh-CN', '--html', fallbackPath], JSON.stringify({
+      ...JSON.parse(payload),
+      auditFingerprint: 'stale-envelope',
+      reportSynthesis: { ...synthesis, auditFingerprint: 'stale-audit' },
+    }), env);
+    const fallback = await readFile(fallbackPath, 'utf8');
+    assert.match(fallback, /<h2>发现<\/h2>/);
+    assert.match(fallback, /Host Agent 综合不可用/);
+    assert.match(fallback, /确定性自动检查的降级内容/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

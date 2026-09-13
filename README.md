@@ -1,6 +1,6 @@
 # where-tokens-went
 
-`where-tokens-went` 用来解释编码智能体的历史用量去了哪里。用户在 Claude Code 或 Codex 中用自然语言提问，对应的原生 Agent Skill 会调用同一台机器上的确定性 CLI，再由当前智能体解释 CLI 返回的证据。
+`where-tokens-went` 用来解释编码智能体的历史用量去了哪里。正常产品入口是用户在 Claude Code 或 Codex 的对话框输入 `$where-tokens-went`（或提出等价的自然语言请求）；对应的原生 Agent Skill 会调用同一台机器上的确定性 CLI 计算事实，再由当前 Host Agent 综合判断并生成最终报告。
 
 ## 名称与迁移状态
 
@@ -97,11 +97,13 @@ npm run install-skills -- "<目标项目绝对路径>"
 
 安装后，从目标项目目录启动对应的 Host Agent。若正在运行的会话没有发现新 Skill，请新建一个会话。
 
-## 操作方式一：直接用自然语言
+## 操作方式一：在 Agent 对话框调用
 
-在对应 Host Agent 中提问即可。例如：
+在对应 Host Agent 中输入 `$where-tokens-went`，或直接提出等价问题。例如：
 
 ```text
+$where-tokens-went
+
 帮我分析当前项目最近 7 天的 Codex 用量都花在哪里，并给出一个最值得采取的改进建议。
 
 为什么我最近 7 天的 Claude Code Token 用得这么快？
@@ -114,11 +116,16 @@ npm run install-skills -- "<目标项目绝对路径>"
 
 - 实际使用的审计范围与 Coverage；
 - 最大用量贡献者；
-- 确定性工具给出的、带结果状态、Evidence、方法和 Provenance 的人类可读自动检查；
-- Host Agent 针对当前问题形成的主要 Finding，以及证据支持时的一项可执行建议；
+- 确定性工具给出的、带结果状态、Evidence、方法和 Provenance 的自动检查；
+- Host Agent 基于完整脱敏审计生成的页头“审计概览”，用一到两句话概括这段时间的整体活动与用量形态，不推断项目完成了什么；
+- Host Agent 综合整份脱敏审计后选出的优先 Findings；它可以合并或忽略自动检查，并指出跨指标、少数极端 Session、表面正常但实际异常，或表面异常但无需优先处理的情况；
 - 数据缺失、格式不支持或统计不完整时的限制说明。
 
-请求报告时，Skill 会生成并打开自包含 HTML，同时由 Host Agent 在同一轮对话中给出诊断。HTML 展示指标、排名、Coverage、限制和人类可读自动检查；它不内置固定的首要 Finding 或推荐动作。只返回报告路径或内部检查 ID 不算完成诊断。
+请求报告时，Skill 会先取得确定性的结构化审计数据，不生成或打开中间 HTML；当前 Host Agent 随后读取版本库内固定的报告综合 Prompt，生成并校验页头 Audit Overview、综合 Findings 和关键 Session 分析，最后一次性写入并打开自包含 HTML，同时在同一轮对话中给出诊断。页头 Overview 负责整体第一印象，“发现”模块负责用户不易直接看出的模式，关键 Session 模块负责具体位置、机制、行动和验证。三层可以共享主题，但不得用相同文案重复表达。
+
+页头不再根据固定阈值生成“结构平稳”“主要成本”或“被工具结果拖累”等结论，也不再根据项目名称猜测“CLI 工具”“AI Agent 工具”等项目类型。Session 排名表只承担排名和导航职责，不展示规则生成的“主要驱动”。AI 不可用或校验失败时，页头保留位置并显示中性不可用状态；原“发现”模块才使用明确标识的 Automated Checks 降级内容。只返回审计 JSON、初步降级报告、报告路径或内部检查 ID 都不算完成诊断。
+
+本轮 AI 报告契约只覆盖默认 `$where-tokens-went` 和 `report` 视图。直接 CLI 的 text/share 命名清理及其他窄视图的 AI 化暂不属于本次范围。
 
 ## 操作方式二：直接运行 CLI
 
@@ -130,7 +137,7 @@ where-tokens-went inspect --harness codex --cwd "<当前项目绝对路径>" --s
 
 Skill 正常使用时会调用自身目录下的 `scripts/where-tokens-went.js`，不依赖全局命令。
 
-直接 CLI 输出是确定性证据面，不调用模型，也不替代 Host Agent 的 Finding。
+直接 CLI 输出仍是确定性证据面，不调用模型，也不替代 `$where-tokens-went` Skill 工作流中的 Host Agent Findings。即使直接 CLI 使用 HTML 输出，它也只是开发调试或明确降级预览，不是正常产品入口的最终报告。
 
 获取适合智能体继续解释的权威 JSON：
 

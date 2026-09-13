@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import type {
   AuditResult,
   ContentEvidencePacket,
+  EvidenceValue,
   KeySessionAnalysis,
   ReportComposition,
+  ReportSynthesis,
 } from "./types";
 
 export interface KeySessionValidation {
@@ -16,6 +18,19 @@ export interface KeySessionComposition {
   auditFingerprint: string;
   analyses: KeySessionAnalysis[];
   unavailable: string[];
+}
+
+export interface ReportSynthesisValidation {
+  valid: boolean;
+  errors: string[];
+  synthesis: ReportSynthesis | null;
+}
+
+export interface ReportEvidenceMatch {
+  kind: "summary" | "check" | "ranking" | "turn";
+  key: string;
+  dimension?: "sessions" | "projects" | "models" | "timeBuckets";
+  evidence: EvidenceValue[];
 }
 
 function stableValue(value: unknown): unknown {
@@ -55,6 +70,90 @@ function sameSessionEvidence(audit: AuditResult, sessionId: string, evidenceIds:
     const turn = turnEvidence.get(evidenceId);
     return !turn || turn.sessionId !== sessionId;
   });
+}
+
+export function resolveReportEvidence(audit: AuditResult, reference: string): ReportEvidenceMatch | null {
+  if (!nonEmpty(reference)) return null;
+
+  if (reference.startsWith("summary:")) {
+    const key = reference.slice("summary:".length);
+    const value = audit.summary[key];
+    return key && hasOwn(audit.summary, key) && value ? { kind: "summary", key, evidence: [value] } : null;
+  }
+
+  const checkMatch = /^check:([^:]+)(?::(\d+))?$/.exec(reference);
+  if (checkMatch) {
+    const check = audit.checks.find((candidate) => candidate.id === checkMatch[1]);
+    if (!check || check.evidence.length === 0) return null;
+    if (checkMatch[2] === undefined) return { kind: "check", key: check.id, evidence: check.evidence };
+    const index = Number(checkMatch[2]);
+    return Number.isSafeInteger(index) && index < check.evidence.length
+      ? { kind: "check", key: check.id + ":" + index, evidence: [check.evidence[index]] }
+      : null;
+  }
+
+  const rankingMatch = /^ranking:(sessions|projects|models|timeBuckets):(.+)$/.exec(reference);
+  if (rankingMatch) {
+    const dimension = rankingMatch[1] as "sessions" | "projects" | "models" | "timeBuckets";
+    const key = rankingMatch[2];
+    const entry = audit.rankings[dimension].find((candidate) => candidate.key === key);
+    return entry ? { kind: "ranking", dimension, key, evidence: [entry.value, entry.sharePercent, entry.count] } : null;
+  }
+
+  const turn = audit.turns.find((candidate) => candidate.evidenceId === reference);
+  return turn
+    ? { kind: "turn", key: turn.turnId, evidence: [turn.tokens.totalTokens, turn.sessionSharePercent, turn.modelCallCount] }
+    : null;
+}
+
+function hasOwn(object: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function isSupport(value: unknown): value is ReportSynthesis["findings"][number]["support"] {
+  return value === "strong" || value === "moderate" || value === "limited";
+}
+
+export function validateReportSynthesis(audit: AuditResult, synthesis: unknown): ReportSynthesisValidation {
+  const errors: string[] = [];
+  if (!synthesis || typeof synthesis !== "object" || Array.isArray(synthesis)) {
+    return { valid: false, errors: ["Report synthesis is unavailable."], synthesis: null };
+  }
+
+  const candidate = synthesis as Partial<ReportSynthesis>;
+  const expectedFingerprint = auditFingerprint(audit);
+  if (candidate.auditFingerprint !== expectedFingerprint) errors.push("Audit fingerprint is stale or belongs to another Audit.");
+  if (!Array.isArray(candidate.findings)) {
+    errors.push("findings must be a list.");
+  } else {
+    if (candidate.findings.length > 5) errors.push("Report synthesis cannot contain more than five Findings.");
+    for (const [index, finding] of candidate.findings.entries()) {
+      if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
+        errors.push("Finding " + index + " is malformed.");
+        continue;
+      }
+      const item = finding as Partial<ReportSynthesis["findings"][number]>;
+      if (!nonEmpty(item.title)) errors.push("Finding " + index + " requires a title.");
+      if (!nonEmpty(item.analysis)) errors.push("Finding " + index + " requires analysis.");
+      if (!Array.isArray(item.evidenceRefs) || item.evidenceRefs.length === 0 || !item.evidenceRefs.every(nonEmpty)) {
+        errors.push("Finding " + index + " requires at least one Evidence reference.");
+      } else {
+        for (const reference of item.evidenceRefs) {
+          if (!resolveReportEvidence(audit, reference)) errors.push("Finding " + index + " cites unknown or cross-Audit Evidence: " + reference);
+        }
+      }
+      if (!isSupport(item.support)) errors.push("Finding " + index + " has invalid support.");
+      if (!hasOwn(item, "uncertainty") || (item.uncertainty !== null && !nonEmpty(item.uncertainty))) errors.push("Finding " + index + " uncertainty must be null or a non-empty string.");
+    }
+  }
+  if (!hasOwn(candidate, "noStrongFindingReason") || (candidate.noStrongFindingReason !== null && !nonEmpty(candidate.noStrongFindingReason))) {
+    errors.push("noStrongFindingReason must be null or a non-empty string.");
+  } else if (Array.isArray(candidate.findings)) {
+    if (candidate.findings.length === 0 && candidate.noStrongFindingReason === null) errors.push("noStrongFindingReason is required when there are no Findings.");
+    if (candidate.findings.length > 0 && candidate.noStrongFindingReason !== null) errors.push("Findings and noStrongFindingReason cannot both be present.");
+  }
+  const uniqueErrors = [...new Set(errors)];
+  return { valid: uniqueErrors.length === 0, errors: uniqueErrors, synthesis: uniqueErrors.length === 0 ? candidate as ReportSynthesis : null };
 }
 
 function containsRawEvidence(analysis: KeySessionAnalysis, packets: ContentEvidencePacket[] | undefined): boolean {
@@ -109,16 +208,25 @@ export function composeKeySessionAnalyses(
   const fingerprint = auditFingerprint(audit);
   const valid: KeySessionAnalysis[] = [];
   const unavailable: string[] = [];
-  for (const analysis of analyses.slice(0, 3)) {
-    const result = validateKeySessionAnalysis(audit, analysis, packets.filter((packet) => packet.sessionId === analysis.sessionId));
-    if (result.valid && result.analysis) valid.push(result.analysis);
-    else unavailable.push(analysis.sessionId + ": " + result.errors.join(" "));
+  for (const candidate of (analyses ?? []).slice(0, 3) as unknown[]) {
+    const sessionId = candidate && typeof candidate === "object" && !Array.isArray(candidate) && typeof (candidate as { sessionId?: unknown }).sessionId === "string"
+      ? (candidate as { sessionId: string }).sessionId
+      : "unknown";
+    try {
+      const analysis = candidate as KeySessionAnalysis;
+      const result = validateKeySessionAnalysis(audit, analysis, packets.filter((packet) => packet.sessionId === sessionId));
+      if (result.valid && result.analysis) valid.push(result.analysis);
+      else unavailable.push(sessionId + ": " + result.errors.join(" "));
+    } catch {
+      unavailable.push(sessionId + ": malformed Key Session Analysis.");
+    }
   }
   if (analyses.length === 0) unavailable.push("Host Agent did not provide Key Session Analysis.");
   return { auditFingerprint: fingerprint, analyses: valid, unavailable };
 }
 
-export function reportComposition(audit: AuditResult, analyses: KeySessionAnalysis[]): ReportComposition {
+export function reportComposition(audit: AuditResult, analyses: KeySessionAnalysis[], synthesis: ReportSynthesis | null = null): ReportComposition {
   const composition = composeKeySessionAnalyses(audit, analyses);
-  return { auditFingerprint: composition.auditFingerprint, audit, keySessionAnalyses: composition.analyses };
+  const validatedSynthesis = synthesis === null ? null : validateReportSynthesis(audit, synthesis).synthesis;
+  return { auditFingerprint: composition.auditFingerprint, audit, reportSynthesis: validatedSynthesis, keySessionAnalyses: composition.analyses };
 }

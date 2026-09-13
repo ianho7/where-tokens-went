@@ -433,9 +433,24 @@ export interface KeySessionAnalysis {
   limitations: string[];
 }
 
+export interface ReportFinding {
+  title: string;
+  analysis: string;
+  evidenceRefs: string[];
+  support: "strong" | "moderate" | "limited";
+  uncertainty: string | null;
+}
+
+export interface ReportSynthesis {
+  auditFingerprint: string;
+  findings: ReportFinding[];
+  noStrongFindingReason: string | null;
+}
+
 export interface ReportComposition {
   auditFingerprint: string;
   audit: AuditResult;
+  reportSynthesis: ReportSynthesis | null;
   keySessionAnalyses: KeySessionAnalysis[];
   /** Optional local-only projection used by the full HTML renderer. */
   firstUserMessages?: FirstUserMessageRecord[];

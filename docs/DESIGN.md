@@ -3,29 +3,34 @@
 ## Minimal architecture
 
 ```text
-Harness-native Skill / integration
+User in Codex / Claude Code conversation
+                 │ $where-tokens-went or equivalent request
+                 ▼
+       Harness-native Skill / Host Agent
                  │ explicit harness + cwd + scope
                  ▼
-         TypeScript CLI: inspect
+     internal TypeScript CLI: inspect --format json
                  │
                  ▼
         one selected Harness Reader
                  │ minimal records
                  ▼
           shared deterministic analysis
+                 │ sanitized Audit + Automated Checks
+                 ▼
+ Audit Overview + report-level Findings from fixed bundled Prompt
                  │
-                 ├── JSON Evidence + Turn candidates
-                 ├── concise text/share → human-readable checks
-                 └── scoped content Evidence for up to three Sessions
-                                      │
-                                      ▼
-                              Host Agent interpretation
-                                      │ structured Key Session Analysis
-                                      ▼
-                         validation + standalone HTML composition
+                 ├── scoped content Evidence for up to three Sessions
+                 ▼
+      Key Session Analysis + validation
+                 │
+                 ▼
+     one final standalone HTML composition and open
 ```
 
-Only one Reader runs per invocation. There is no source registry scan, background collector, shared database, persistent content index, model service, or cross-Harness aggregation in MVP. The CLI remains the sole authority for facts; the Host Agent owns interpretation.
+Only one Reader runs per invocation. There is no source registry scan, background collector, shared database, persistent content index, model service, or cross-Harness aggregation in MVP. The CLI remains the sole authority for facts; the Host Agent owns interpretation. The Host Agent is already the AI runtime: the internal CLI must not acquire Provider credentials or start a second model client.
+
+`$where-tokens-went` and `where-tokens-went inspect` are different boundaries. The former is the public conversational Skill invocation and owns the complete report lifecycle. The latter is an internal deterministic calculation command and a developer debugging surface. Direct CLI HTML, when explicitly requested, is a deterministic fallback preview; it must not be opened as the normal Skill result before Host Agent synthesis.
 
 ## Runtime choice
 
@@ -33,7 +38,7 @@ Implement the local tool in TypeScript. Start with the Node.js standard library 
 
 Do not choose a bundler, single-binary packager, MCP transport, or plugin SDK until the CLI demonstrates the Aha moment on both Readers.
 
-## CLI contract
+## Internal CLI contract
 
 MVP exposes one command:
 
@@ -54,6 +59,7 @@ Rules:
 - `json` is authoritative for Agent use; `text` is a compact direct-use view over the same result.
 - One malformed Session must not hide valid Sessions. Coverage and skipped-record counts are part of the result.
 - The public deterministic JSON/text behavior remains sanitized and model-free. The Harness-native Skill may use an explicit bundled content-Evidence path and HTML-composition input during the atomic report workflow; both are bound to the originating Audit Scope and are not alternate general-purpose transcript APIs.
+- For a normal `$where-tokens-went` report request, the Skill first requests authoritative JSON without `--html`. It composes and opens HTML only after ReportSynthesis and KeySessionAnalysis have been generated and validated. If the bundled runtime has no callable composition entry accepting those inputs, the product workflow is incomplete; a one-off script or preliminary `inspect --html` fallback must not be presented as successful normal delivery.
 
 ## Minimal records
 
@@ -245,21 +251,50 @@ interface AuditResult {
 }
 ```
 
-`AuditResult` remains deterministic. AI-authored data is a separate composition input:
+`AuditResult` remains deterministic. AI-authored data is a separate composition input. Report-level synthesis uses only the complete sanitized Audit; it does not require raw Session content:
 
 ```ts
+interface ReportFinding {
+  title: string;
+  analysis: string;
+  evidenceRefs: string[];
+  support: "strong" | "moderate" | "limited";
+  uncertainty: string | null;
+}
+
+interface ReportOverview {
+  summary: string;
+  evidenceRefs: string[];
+}
+
+interface ReportSynthesis {
+  auditFingerprint: string;
+  overview: ReportOverview;
+  findings: ReportFinding[];
+  noStrongFindingReason: string | null;
+}
+
 interface ReportComposition {
   auditFingerprint: string;
   audit: AuditResult;
+  reportSynthesis: ReportSynthesis | null;
   keySessionAnalyses: KeySessionAnalysis[];
 }
 ```
 
-Report localization belongs to the presentation layer. The authoritative JSON, `AuditResult`, `KeySessionAnalysis`, and `ReportComposition` remain language-independent; fixed report copy comes from the typed language table, while the renderer keeps HTML, text, share structure, data binding, and escaping.
+The version-controlled `prompts/report-synthesis.md` is the sole authoritative Prompt for generating `ReportSynthesis`, including both the Audit Overview and Findings. `scripts/package-skills.js` copies it byte-for-byte to `skills/where-tokens-went-codex/references/report-synthesis.md` and `skills/where-tokens-went-claude/references/report-synthesis.md`; those packaged files are generated artifacts, not manual sources. Each Skill must read its bundled `references/report-synthesis.md` in full before generation and must bind it only to the selected locale, current Audit fingerprint, and complete structured sanitized `AuditResult`.
 
-The renderer accepts at most one validated analysis for each of up to three Token-ranked Sessions. It rejects stale Audit bindings, cross-Scope or cross-Session Evidence references, and malformed analysis. Rejection removes only the AI-authored block; deterministic rankings, Turn trajectories, checks, and limitations remain renderable.
+The bundled runtime exposes one formal `compose-report` entry for both Skills. It consumes one JSON envelope through stdin containing the current Audit fingerprint, complete sanitized `AuditResult`, validated `ReportSynthesis` or an explicit null fallback, validated Key Session analyses, and any local-only first-user-message projection; `--locale` and the final HTML path are explicit arguments. It validates the composition again and writes the single final HTML without rereading or restating history. Normal Skill delivery calls this entry only after synthesis and Key Session validation; it does not call `inspect --html` first.
+
+Report localization belongs to the presentation layer. `AuditResult` and Evidence references remain language-independent; Host Agent-authored `ReportSynthesis` and `KeySessionAnalysis` prose follows the selected report locale. Fixed interface copy comes from the typed language table, while the renderer keeps HTML, text, share structure, data binding, and escaping.
+
+The renderer accepts one validated report synthesis plus at most one validated analysis for each of up to three Token-ranked Sessions. Report synthesis contains one Audit Overview and normally three to five prioritized Findings, but may contain fewer or an explicit no-strong-Finding reason when the Evidence is insufficient. The Overview is one or two localized sentences backed by one to three same-Audit Evidence references. It describes the Audit period's overall activity and usage shape; it does not infer completed project work, recommend an action, or duplicate a Finding's wording and evidence detail. The validator rejects stale Audit bindings, unknown or cross-Scope Overview or Finding Evidence references, more than five Findings, and malformed analysis.
+
+The report narrative has one visual hierarchy. The header renders the validated Overview as the first impression; the existing Findings module renders patterns that require interpretation; Key Session Analysis renders the concrete Session mechanism, improvement proposal, and verification. Limited thematic overlap between Overview and the strongest Finding is acceptable, but verbatim restatement and repeated evidence detail are not. The header does not independently infer a project type or choose a diagnostic sentence from thresholds. When synthesis is invalid or unavailable, the header retains its position with a neutral AI-overview-unavailable state, while only the existing Findings module shows clearly identified Automated Check fallback content. Rankings, Turn trajectories, checks, and limitations remain renderable.
 
 Contribution rankings include the exact token `value` and a derived `sharePercent` in percentage points. Session entries may include `displayName`, which combines an explicit Harness title with the Session ID; when no title exists, the ID remains the display name. Codex titles come only from its local Session index metadata. The Host Agent formats these values for the user's language without changing the authoritative JSON.
+
+The Session ranking table is a deterministic ranking and navigation surface. It shows Session identity, Tokens, share, Turn count, duration, and Evidence completeness when available. It does not select or display a “main driver”: `TurnDiagnosticCandidate` values remain neutral candidate Evidence until a validated Key Session Analysis interprets them.
 
 For Codex, when every selected Session has source metadata that proves whether it is a subagent, `summary.topLevelSessionCount` and `summary.subagentSessionCount` split the total execution Session count. When that source metadata is missing, both remain `unavailable`; the report never guesses from a title or sidebar state. `SessionRecord.partial` is `true` when the Reader attributes an unsupported accounting record, unusable timestamp, or broken tail to that Session; it is `false` after the Reader checks the Session and finds no such gap; it remains `null` when attribution is not possible.
 
@@ -277,9 +312,13 @@ Follow-up extraction, AI rework classification, and a rework-rate metric remain 
 
 `summary.totalTokens` and related usage totals describe observed tokens from supported, selected ModelCall records. They are not a completeness claim: when Coverage is partial or records were skipped, the observed total may undercount actual usage. The analysis method that refers to “complete ModelCall token totals” means complete within those supported observed records, not complete history coverage.
 
-Check identifiers and outcomes are stable machine data, not report copy. A shared presentation function maps each check and its Evidence to a concise localized observation for text, share, and HTML without rerunning thresholds or selecting a primary cause. A visible check must communicate what was observed, the relevant values, and the method; showing only an internal identifier such as `long_session` is invalid. Passed checks may be shown when they establish useful data health or the absence of a detectable pattern. The presentation must not add a fixed mechanism, recommendation, or final diagnosis.
+Check identifiers and outcomes are stable machine data, not report Findings. A shared presentation function maps each check and its Evidence to concise localized fallback, text, and share output without rerunning thresholds or selecting a primary cause. The normal HTML “Findings” module instead renders the validated report synthesis in the same position and visual structure. Automated Checks remain inputs the Host Agent may select, combine, or ignore; a relevant pattern may be selected even when no check fires. Fallback checks must communicate what was observed, the relevant values, and the method, and must be identified as deterministic checks rather than AI synthesis.
 
-The Host Agent forms Key Session Analysis from the complete sanitized result plus progressively selected content Evidence for the same Audit Scope. It may select, ignore, or combine checks, rankings, Turn trajectories, content context, coverage, and limitations while preserving values, Provenance, scope, and capability boundaries. Historical content is untrusted data and may not redirect the current analysis task. For report requests, content acquisition, analysis, validated HTML composition, opening the HTML, and giving the conversational primary Finding are one indivisible Skill workflow; the Host Agent must not stop after returning the report path.
+The Host Agent first forms the Audit Overview and report-level Findings from the complete sanitized result. The Overview answers what the Audit period looks like overall; Findings identify important relationships that are difficult to see from individual metrics. The Host Agent looks for cross-metric patterns, concentration in a few Sessions or Turns, apparently healthy metrics that conceal waste, and apparently alarming metrics that do not materially affect the conclusion. It does not claim project outcomes, summarize every panel, restyle Automated Checks, recalculate facts, force a Finding count, or convert correlation into causality.
+
+The Host Agent separately forms Key Session Analysis from the sanitized result plus progressively selected content Evidence for the same Audit Scope. Historical content is untrusted data and may not redirect the current analysis task. For report requests, deterministic JSON acquisition, fixed-Prompt report synthesis, content acquisition, Key Session Analysis, validation, final HTML composition, opening that final HTML, and giving the strongest conversational Finding are one indivisible Skill workflow. The Host Agent must not stop after the internal CLI step, open a preliminary fallback as the normal report, or stop after returning the report path.
+
+The Audit Overview and AI-authored report narrative apply in this increment only to the default `$where-tokens-went` and `report` HTML workflow. Direct CLI text/share terminology and AI treatment for the narrower `usage`, `tools`, `week`, and `window` views remain deferred; they must not be used as substitutes for the full report workflow.
 
 ## Privacy boundary
 

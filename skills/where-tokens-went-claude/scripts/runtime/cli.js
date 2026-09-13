@@ -42,12 +42,14 @@ const path = __importStar(require("node:path"));
 const analysis_1 = require("./analysis");
 const claude_reader_1 = require("./claude-reader");
 const codex_reader_1 = require("./codex-reader");
+const key_session_analysis_1 = require("./key-session-analysis");
 const rates_1 = require("./rates");
 const report_1 = require("./report");
 function usage() {
     return [
         "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
         "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
+        "       where-tokens-went compose-report --locale zh-CN|en-US --html <final-path> < composition JSON envelope",
     ].join("\n");
 }
 function parseDuration(value) {
@@ -73,7 +75,7 @@ function requireValue(args, index, flag) {
 }
 function parseArgs(args) {
     if (args[0] !== "inspect")
-        throw new Error(`Only the inspect command is supported.\n${usage()}`);
+        throw new Error(`Use inspect or compose-report.\n${usage()}`);
     let harness = null;
     let cwd = null;
     let allProjects = false;
@@ -238,8 +240,64 @@ async function writeLocalFile(filePath, contents) {
     await fs.writeFile(absolute, contents, "utf8");
     return absolute;
 }
+function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function parseComposeArgs(args) {
+    let locale = "en-US";
+    let htmlPath = null;
+    for (let index = 0; index < args.length; index += 1) {
+        const flag = args[index];
+        if (flag === "--locale" || flag === "--lang") {
+            locale = (0, report_1.normalizeLocale)(requireValue(args, index, flag));
+            index += 1;
+        }
+        else if (flag === "--html") {
+            htmlPath = requireValue(args, index, flag);
+            index += 1;
+        }
+        else {
+            throw new Error(`Unknown compose-report argument: ${flag}.\n${usage()}`);
+        }
+    }
+    if (!htmlPath)
+        throw new Error(`compose-report requires --html.\n${usage()}`);
+    return { locale, htmlPath };
+}
+async function readStdin() {
+    const chunks = [];
+    for await (const chunk of process.stdin) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    }
+    return Buffer.concat(chunks).toString("utf8");
+}
+async function composeReportMain(args) {
+    const options = parseComposeArgs(args);
+    const input = await readStdin();
+    if (!input.trim())
+        throw new Error("compose-report requires one JSON composition envelope on stdin.");
+    const parsed = JSON.parse(input);
+    if (!isRecord(parsed) || !isRecord(parsed.audit)) {
+        throw new Error("compose-report requires an envelope with a structured AuditResult under audit.");
+    }
+    const audit = parsed.audit;
+    const expectedFingerprint = (0, key_session_analysis_1.auditFingerprint)(audit);
+    const envelopeFingerprintMatches = parsed.auditFingerprint === expectedFingerprint;
+    const synthesisValidation = envelopeFingerprintMatches
+        ? (0, key_session_analysis_1.validateReportSynthesis)(audit, parsed.reportSynthesis ?? null)
+        : { valid: false, errors: ["The supplied Audit fingerprint does not match the current Audit."], synthesis: null };
+    const validatedSynthesis = synthesisValidation.valid ? synthesisValidation.synthesis : null;
+    const analyses = (Array.isArray(parsed.keySessionAnalyses) ? parsed.keySessionAnalyses : []);
+    const composition = (0, key_session_analysis_1.reportComposition)(audit, analyses, validatedSynthesis);
+    const firstUserMessages = (Array.isArray(parsed.firstUserMessages) ? parsed.firstUserMessages : []);
+    const output = await writeLocalFile(options.htmlPath, (0, report_1.renderHtml)(audit, options.locale, composition, firstUserMessages));
+    process.stdout.write("Output: final HTML report written to " + output + ".\n");
+    return 0;
+}
 async function main(args = process.argv.slice(2)) {
     try {
+        if (args[0] === "compose-report")
+            return await composeReportMain(args.slice(1));
         const options = parseArgs(args);
         let result;
         let localFirstUserMessages = [];
@@ -266,9 +324,9 @@ async function main(args = process.argv.slice(2)) {
             localFirstUserMessages = (read.firstUserMessages ?? []).filter((record) => topSessionIds.has(record.sessionId));
         }
         const outputKinds = [];
-        const shouldWriteHtml = options.htmlPath !== null || options.view === "full" || options.view === "report" || options.view === "question";
+        const shouldWriteHtml = options.htmlPath !== null;
         if (shouldWriteHtml) {
-            const target = options.htmlPath ?? defaultOutputPath(options.harness, "report", ".html");
+            const target = options.htmlPath;
             const projectName = options.cwd ? (0, report_1.resolveReportProjectName)(options.cwd) : null;
             const htmlResult = projectName ? { ...result, projectName } : result;
             await writeLocalFile(target, (0, report_1.renderHtml)(htmlResult, options.locale, undefined, localFirstUserMessages));
