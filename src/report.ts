@@ -10,7 +10,6 @@ import type {
   EvidenceValue,
   KeySessionAnalysis,
   FirstUserMessageRecord,
-  ReportLocale,
   ReportComposition,
   ToolAnalysisEntry,
   TurnAnalysisEntry,
@@ -19,433 +18,13 @@ import type {
 } from "./types";
 import { composeKeySessionAnalyses } from "./key-session-analysis";
 
-interface Labels {
-  title: string;
-  scope: string;
-  coverage: string;
-  currentProject: string;
-  allProjects: string;
-  since: string;
-  harness: string;
-  files: string;
-  records: string;
-  skipped: string;
-  warnings: string;
-  partialSessions: string;
-  totalTokens: string;
-  sessions: string;
-  topLevelSessions: string;
-  subagentSessions: string;
-  modelCalls: string;
-  reportedCost: string;
-  noFinding: string;
-  time: string;
-  dailyUsage: string;
-  hourlyActivity: string;
-  models: string;
-  tools: string;
-  toolImpactNote: string;
-  sessionsByUsage: string;
-  limitations: string;
-  provenance: string;
-  privacy: string;
-  unavailable: string;
-  exact: string;
-  tokens: string;
-  share: string;
-  calls: string;
-  pairedResults: string;
-  errors: string;
-  injected: string;
-  amplified: string;
-  characters: string;
-  latestWindowTokens: string;
-  historicalPeakTokens: string;
-  observedActivity: string;
-  localOnly: string;
-  providerQuota: string;
-  resetTime: string;
-  input: string;
-  cachedInput: string;
-  cacheWrite: string;
-  output: string;
-  reasoning: string;
-  date: string;
-  model: string;
-  session: string;
-  kindLongSession: string;
-  kindToolAmplification: string;
-  kindExtraCalls: string;
-  reported: string;
-  derived: string;
-  estimated: string;
-  unavailableProvenance: string;
-  noData: string;
-  noTimestampData: string;
-  noToolData: string;
-  noQuota: string;
-  checksNote: string;
-  diagnosticSignals: string;
-  privacyNote: string;
-  methodNote: string;
-  usageView: string;
-  windowView: string;
-  toolsView: string;
-  reportWritten: string;
-  weekView: string;
-  currentWeek: string;
-  previousWeek: string;
-  change: string;
-  noComparison: string;
-  redactedShare: string;
-  cacheEconomics: string;
-  cacheReadRate: string;
-  cacheWriteRate: string;
-  cacheCoverage: string;
-  cacheSavings: string;
-  cacheSavingsPercent: string;
-  observedApiCost: string;
-  allUncachedApiCost: string;
-  priceCoverage: string;
-  firstRequestBurden: string;
-  firstRequestMedian: string;
-  firstRequestShare: string;
-  firstRequestCoverage: string;
-  firstRequestCompositionCoverage: string;
-  coldFirstRequestRate: string;
-  identityCoverage: string;
-  skillEvidence: string;
-  skillState: string;
-  availableSessions: string;
-  invocationCount: string;
-  skillSessions: string;
-  observedFrom: string;
-  observedTo: string;
-  attributedTokens: string;
-  attributedCost: string;
-  evidenceCoverage: string;
-  directResourceFootprint: string;
-  observedAssociation: string;
-  causalImpact: string;
-  noSkillEvidence: string;
-  turn: string;
-  activeTime: string;
-  driver: string;
-  evidenceCompleteness: string;
-  turnTrajectory: string;
-  keySessionAnalysis: string;
-  taskContext: string;
-  primaryFinding: string;
-  evidenceChain: string;
-  improvementAction: string;
-  verificationMethod: string;
-  interpretation: string;
-  proposal: string;
-  analysisUnavailable: string;
-  noStrongEvidence: string;
-  roundCount: string;
-  totalDuration: string;
-  roundDuration: string;
-  processEvents: string;
-  resultSize: string;
-  toolCalls: string;
-  sessionToken: string;
-  firstUserMessage: string;
-  chartHint: string;
-  noUserMessage: string;
-  allRoundDetails: string;
-  detailNote: string;
-  moduleDeck: string;
-  trajectoryIntro: string;
-  noTrajectory: string;
-}
-
-const ZH: Labels = {
-  title: "where-tokens-went 诊断报告",
-  scope: "审计范围",
-  coverage: "覆盖情况",
-  currentProject: "当前项目",
-  allProjects: "所有项目",
-  since: "起始时间",
-  harness: "Harness",
-  files: "文件",
-  records: "记录",
-  skipped: "跳过",
-  warnings: "覆盖异常·警告级",
-  partialSessions: "不完整 Session",
-  totalTokens: "总 Token",
-  sessions: "Session",
-  topLevelSessions: "顶层任务",
-  subagentSessions: "子 Agent Session",
-  modelCalls: "模型调用",
-  reportedCost: "记录成本",
-  noFinding: "现有证据不足以确定主要原因。",
-  time: "时间分布",
-  dailyUsage: "每日 Token 趋势",
-  hourlyActivity: "小时活动热图",
-  models: "模型分布",
-  tools: "工具上下文影响",
-  toolImpactNote: "注入估算表示工具结果被算入上下文的大小；后续暴露估算（无上限）表示同一段对话中，后续调用可能再次带上的上下文量。这个估算不是账单，也不是真实新增 Token，不能与总 Token 相加。",
-  sessionsByUsage: "高用量 Session",
-  limitations: "限制与缺失",
-  provenance: "证据来源",
-  privacy: "隐私说明与统计方法",
-  unavailable: "无数据",
-  exact: "精确值",
-  tokens: "Token",
-  share: "占比",
-  calls: "调用",
-  pairedResults: "配对结果",
-  errors: "错误",
-  injected: "工具结果注入量（估算）",
-  amplified: "后续暴露估算（无上限）",
-  characters: "字符",
-  latestWindowTokens: "最近 5 小时 Token",
-  historicalPeakTokens: "所选范围内最高滚动 5 小时 Token",
-  observedActivity: "最近一段时间的本地活动",
-  localOnly: "只表示本地历史中观察到的活动，不是该工具官方提供的额度。",
-  providerQuota: "Provider 额度",
-  resetTime: "重置时间",
-  input: "普通输入",
-  cachedInput: "缓存读取",
-  cacheWrite: "缓存写入",
-  output: "输出",
-  reasoning: "推理",
-  date: "日期",
-  model: "模型",
-  session: "Session",
-  kindLongSession: "长 Session",
-  kindToolAmplification: "工具结果后续暴露",
-  kindExtraCalls: "额外调用",
-  reported: "记录值",
-  derived: "计算值",
-  estimated: "估算值",
-  unavailableProvenance: "无数据",
-  noData: "没有可展示的数据。",
-  noTimestampData: "可用时间戳不足，无法显示小时和最近一段时间的活动。",
-  noToolData: "没有找到可配对的工具结果，无法分析工具影响。",
-  noQuota: "没有该工具官方提供的额度数据。",
-  checksNote: "这些发现由规则自动生成；Host Agent 会结合你的问题和完整证据，在对话中给出综合判断。",
-  diagnosticSignals: "发现",
-  privacyNote: "报告只保留脱敏后的元数据、大小、哈希、聚合结果和计算方法；不包含 prompt、源代码、回复、工具结果、参数、凭据或绝对路径。",
-  methodNote: "估算值仅作参考，不代表实际账单；“—”表示暂时没有数据。",
-  usageView: "用量概览",
-  windowView: "滚动窗口",
-  toolsView: "工具分析",
-  reportWritten: "本地 HTML 报告生成完成。",
-  weekView: "本周与上周",
-  currentWeek: "本周",
-  previousWeek: "上周",
-  change: "变化",
-  noComparison: "完整数据不足，无法进行周对比。",
-  redactedShare: "脱敏分享稿",
-  cacheEconomics: "缓存经济性",
-  cacheReadRate: "缓存读取率",
-  cacheWriteRate: "缓存写入率",
-  cacheCoverage: "缓存构成可分解比例",
-  cacheSavings: "缓存带来的估算节省",
-  cacheSavingsPercent: "估算节省比例",
-  observedApiCost: "已观测的 API 折算金额",
-  allUncachedApiCost: "不缓存情况下的 API 折算金额",
-  priceCoverage: "已定价用量占比",
-  firstRequestBurden: "首次请求 Token 量",
-  firstRequestMedian: "首次请求 Token 中位数",
-  firstRequestShare: "首次请求 Token 占比",
-  firstRequestCoverage: "首次请求完整度",
-  firstRequestCompositionCoverage: "首次请求 Token 构成完整度",
-  coldFirstRequestRate: "首次请求未命中缓存的比例",
-  identityCoverage: "Session 身份可信度",
-  skillEvidence: "Skill 使用证据",
-  skillState: "状态",
-  availableSessions: "可用 Session",
-  invocationCount: "调用次数",
-  skillSessions: "调用 Session",
-  observedFrom: "首次观察",
-  observedTo: "最近观察",
-  attributedTokens: "可追溯到该 Skill 的 Token",
-  attributedCost: "可追溯到该 Skill 的 API 成本",
-  evidenceCoverage: "有据可查比例",
-  directResourceFootprint: "直接调用记录",
-  observedAssociation: "时间上相关（ModelCall）",
-  causalImpact: "有因果证明",
-  noSkillEvidence: "所选历史中没有足够证据确认 Skill 列表、调用或资源使用情况。",
-  turn: "轮次",
-  activeTime: "本轮耗时",
-  driver: "主要驱动",
-  evidenceCompleteness: "证据完整度",
-  turnTrajectory: "轮次轨迹",
-  keySessionAnalysis: "关键 Session 分析",
-  taskContext: "Session 摘要",
-  primaryFinding: "核心判断",
-  evidenceChain: "证据链",
-  improvementAction: "改善提议",
-  verificationMethod: "如何验证",
-  interpretation: "AI 解读",
-  proposal: "改善提议",
-  analysisUnavailable: "关键 Session 分析不可用：",
-  noStrongEvidence: "未发现需要优先处理的问题。",
-  roundCount: "轮次",
-  totalDuration: "总耗时",
-  roundDuration: "本轮耗时",
-  processEvents: "过程事件",
-  resultSize: "结果大小",
-  toolCalls: "工具调用",
-  sessionToken: "Session Token",
-  firstUserMessage: "第一条真实用户消息",
-  chartHint: "点击或悬停数据点，查看完整真实 Prompt",
-  noUserMessage: "日志未记录本轮独立的用户消息",
-  allRoundDetails: "查看全部",
-  detailNote: "审计附录 · 默认折叠 · 缺失值保留为 —",
-  moduleDeck: "从 Token 排名进入单个 Session，按轮次追踪消耗集中、过程事件与真实用户消息。",
-  trajectoryIntro: "柱形表示 Token 占比，折线表示本轮耗时。深色高点可直接点按或悬停；同一个 Tooltip 先给出证据，再显示该轮第一条真实用户消息。",
-  noTrajectory: "没有可用的轮次证据。",
-};
-
-const EN: Labels = {
-  title: "where-tokens-went diagnostic report",
-  scope: "Audit scope",
-  coverage: "Coverage",
-  currentProject: "current project",
-  allProjects: "all projects",
-  since: "since",
-  harness: "Harness",
-  files: "files",
-  records: "records",
-  skipped: "skipped",
-  warnings: "coverage warnings",
-  partialSessions: "partial Sessions",
-  totalTokens: "total tokens",
-  sessions: "Sessions",
-  topLevelSessions: "top-level tasks",
-  subagentSessions: "subagent Sessions",
-  modelCalls: "model calls",
-  reportedCost: "reported cost",
-  noFinding: "The available Evidence does not support a strong primary cause.",
-  time: "Time distribution",
-  dailyUsage: "Daily token trend",
-  hourlyActivity: "Hourly activity heatmap",
-  models: "Model distribution",
-  tools: "Tool context impact",
-  toolImpactNote: "The injected estimate is the tool-result size added to context; the carry-forward estimate is an uncapped exposure heuristic for how much it may be carried by later calls in the same active context. It is not a bill, actual new Token usage, or additive to total tokens.",
-  sessionsByUsage: "Heavy Sessions",
-  limitations: "Limitations and missing data",
-  provenance: "Provenance",
-  privacy: "Privacy and methods",
-  unavailable: "unavailable",
-  exact: "exact value",
-  tokens: "tokens",
-  share: "share",
-  calls: "calls",
-  pairedResults: "paired results",
-  errors: "errors",
-  injected: "injected estimate",
-  amplified: "carry-forward estimate (uncapped)",
-  characters: "characters",
-  latestWindowTokens: "Latest 5h tokens",
-  historicalPeakTokens: "Highest rolling 5h in selected range",
-  observedActivity: "Locally observed rolling activity",
-  localOnly: "This is activity observed in local history, not Provider quota.",
-  providerQuota: "Provider quota",
-  resetTime: "reset time",
-  input: "ordinary input",
-  cachedInput: "cached input",
-  cacheWrite: "cache write",
-  output: "output",
-  reasoning: "reasoning",
-  date: "date",
-  model: "model",
-  session: "Session",
-  kindLongSession: "long Session",
-  kindToolAmplification: "tool context amplification",
-  kindExtraCalls: "extra calls",
-  reported: "reported",
-  derived: "derived",
-  estimated: "estimated",
-  unavailableProvenance: "unavailable",
-  noData: "No data is available for this panel.",
-  noTimestampData: "There are not enough usable timestamps for hourly or rolling activity.",
-  noToolData: "No paired tool results are available for tool impact.",
-  noQuota: "No first-party quota data is available from this Harness.",
-  checksNote: "These are automated findings; the Host Agent provides a synthesis for your question in conversation.",
-  diagnosticSignals: "Findings",
-  privacyNote: "The report keeps safe metadata, sizes, hashes, aggregates, and methods; it excludes prompts, source, responses, tool results, arguments, credentials, and absolute paths.",
-  methodNote: "Estimated values are for reference only and do not represent an actual bill; “—” means data is unavailable.",
-  usageView: "Usage overview",
-  windowView: "Rolling window",
-  toolsView: "Tool analysis",
-  reportWritten: "Local HTML report generated.",
-  weekView: "Current and previous week",
-  currentWeek: "current week",
-  previousWeek: "previous week",
-  change: "change",
-  noComparison: "There is not enough complete data for a week comparison.",
-  redactedShare: "Redacted share",
-  cacheEconomics: "Cache economics",
-  cacheReadRate: "cache-read rate",
-  cacheWriteRate: "cache-write rate",
-  cacheCoverage: "cache composition coverage",
-  cacheSavings: "estimated cache savings",
-  cacheSavingsPercent: "estimated cache savings percentage",
-  observedApiCost: "observed API-equivalent cost",
-  allUncachedApiCost: "all-uncached counterfactual cost",
-  priceCoverage: "priced Usage coverage",
-  firstRequestBurden: "First-request burden",
-  firstRequestMedian: "median first request (Tokens)",
-  firstRequestShare: "first-request Usage share",
-  firstRequestCoverage: "first-request coverage",
-  firstRequestCompositionCoverage: "first-request composition coverage",
-  coldFirstRequestRate: "cold first-request rate",
-  identityCoverage: "Session identity coverage",
-  skillEvidence: "Skill evidence",
-  skillState: "state",
-  availableSessions: "available Sessions",
-  invocationCount: "invocations",
-  skillSessions: "invocation Sessions",
-  observedFrom: "first observed",
-  observedTo: "last observed",
-  attributedTokens: "attributed tokens",
-  attributedCost: "attributed API cost",
-  evidenceCoverage: "Evidence coverage",
-  directResourceFootprint: "direct resource evidence",
-  observedAssociation: "associated ModelCalls",
-  causalImpact: "causal impact",
-  noSkillEvidence: "The selected history has no verifiable Skill listing, invocation, or resource-use evidence.",
-  turn: "Rounds",
-  activeTime: "round duration",
-  driver: "main driver",
-  evidenceCompleteness: "Evidence completeness",
-  turnTrajectory: "Round Token trajectory",
-  keySessionAnalysis: "Key Session Analysis",
-  taskContext: "Session summary",
-  primaryFinding: "Core judgment",
-  evidenceChain: "Evidence chain",
-  improvementAction: "Improvement proposal",
-  verificationMethod: "How to verify",
-  interpretation: "Host Agent interpretation",
-  proposal: "Improvement proposal",
-  analysisUnavailable: "Key Session Analysis unavailable: ",
-  noStrongEvidence: "No Evidence supports a strong primary problem.",
-  roundCount: "rounds",
-  totalDuration: "total duration",
-  roundDuration: "round duration",
-  processEvents: "process events",
-  resultSize: "result size",
-  toolCalls: "tool calls",
-  sessionToken: "Session Tokens",
-  firstUserMessage: "first real user message",
-  chartHint: "Click or hover a point to inspect the complete real Prompt",
-  noUserMessage: "No independent user message was recorded for this round",
-  allRoundDetails: "View all",
-  detailNote: "Audit appendix · collapsed by default · missing values remain —",
-  moduleDeck: "Enter a single Session from the Token ranking and follow concentration, process events, and real user messages by round.",
-  trajectoryIntro: "Bars show Token share and the line shows round duration. Dark points mark hotspots; the same Tooltip gives evidence first, then the round's first real user message.",
-  noTrajectory: "No round Evidence is available.",
-};
+import { reportMessagesFor } from "./report-messages";
+import type { ReportLocale, ReportMessages } from "./report-messages";
 
 export interface ReportProjection {
   result: AuditResult;
   locale: ReportLocale;
-  labels: Labels;
+  labels: ReportMessages;
   finding: {
     kind: string;
     title: string;
@@ -457,8 +36,8 @@ export function normalizeLocale(value?: string): ReportLocale {
   return value && value.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
 }
 
-function labelsFor(locale: ReportLocale): Labels {
-  return locale === "zh-CN" ? ZH : EN;
+function labelsFor(locale: ReportLocale): ReportMessages {
+  return reportMessagesFor(locale);
 }
 
 function escapeHtml(value: unknown): string {
@@ -477,8 +56,9 @@ function numberFormatter(locale: ReportLocale): Intl.NumberFormat {
 export function formatCompact(value: number | null, locale: ReportLocale): string {
   if (value === null || !Number.isFinite(value)) return labelsFor(locale).unavailable;
   const absolute = Math.abs(value);
-  if (locale === "zh-CN" && absolute >= 100000000) return numberFormatter(locale).format(value / 100000000) + "亿";
-  if (locale === "zh-CN" && absolute >= 10000) return numberFormatter(locale).format(value / 10000) + "万";
+  const labels = labelsFor(locale);
+  if (labels.compactLargeUnit && absolute >= 100000000) return numberFormatter(locale).format(value / 100000000) + labels.compactLargeUnit;
+  if (labels.compactMediumUnit && absolute >= 10000) return numberFormatter(locale).format(value / 10000) + labels.compactMediumUnit;
   return new Intl.NumberFormat(locale, {
     notation: "compact",
     compactDisplay: "short",
@@ -508,7 +88,7 @@ function formatDateKey(value: string, _locale: ReportLocale, includeYear = true)
 function formatDateTime(value: string, locale: ReportLocale): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  const parts = new Intl.DateTimeFormat(locale === "zh-CN" ? "zh-CN-u-nu-latn" : "en-US-u-nu-latn", {
+  const parts = new Intl.DateTimeFormat(labelsFor(locale).intlLocale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -530,7 +110,7 @@ function usdText(value: string): string {
 }
 
 function provenancePrefix(provenance: EvidenceValue["provenance"], locale: ReportLocale): string {
-  return provenance === "estimated" ? (locale === "zh-CN" ? "约 " : "about ") : "";
+  return provenance === "estimated" ? labelsFor(locale).estimatedPrefix : "";
 }
 
 function provenanceLabel(provenance: EvidenceValue["provenance"], locale: ReportLocale): string {
@@ -546,11 +126,11 @@ function provenanceLabel(provenance: EvidenceValue["provenance"], locale: Report
 
 function provenanceTitle(value: EvidenceValue, locale: ReportLocale): string {
   const labels = labelsFor(locale);
-  return labels.provenance + (locale === "zh-CN" ? "：" : ": ") + provenanceLabel(value.provenance, locale);
+  return labels.provenance + labels.exactSeparator + provenanceLabel(value.provenance, locale);
 }
 
 function provenanceSeparator(locale: ReportLocale): string {
-  return locale === "zh-CN" ? "；" : "; ";
+  return labelsFor(locale).provenanceSeparator;
 }
 
 function evidencePlain(value: EvidenceValue, locale: ReportLocale, compact = true): string {
@@ -584,7 +164,7 @@ function evidenceHtml(value: EvidenceValue, locale: ReportLocale, compact = true
   const compactValue = typeof value.value === "number" && compact ? formatCompact(value.value, locale) : formatExact(value.value, locale);
   const displayValue = currency && !compact ? formatCurrency(value.value, locale) : compactValue;
   const exactValue = formatExact(value.value, locale);
-  const title = labels.exact + (locale === "zh-CN" ? "：" : ": ") + (currency ? usdText(exactValue) : exactValue) + provenanceSeparator(locale) + provenanceTitle(value, locale);
+  const title = labels.exact + labels.exactSeparator + (currency ? usdText(exactValue) : exactValue) + provenanceSeparator(locale) + provenanceTitle(value, locale);
   return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + (typeof value.value === "number" ? String(value.value) : "") + "\" aria-label=\"" + escapeHtml(title) + "\"><span class=\"metric-main\" title=\"" +
     escapeHtml(title) + "\">" + escapeHtml(provenancePrefix(value.provenance, locale) + (currency ? usdText(displayValue) : displayValue)) + "</span></span>";
 }
@@ -604,7 +184,7 @@ function findingEvidenceHtml(value: EvidenceValue, locale: ReportLocale, kind: "
     ? formatExact(value.value, locale) + "%"
     : typeof value.value === "number" && compact ? formatCompact(value.value, locale) : formatExact(value.value, locale);
   const exactValue = formatExact(value.value, locale) + (kind === "percentage" ? "%" : "");
-  const title = labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue + provenanceSeparator(locale) + provenanceTitle(value, locale);
+  const title = labels.exact + labels.exactSeparator + exactValue + provenanceSeparator(locale) + provenanceTitle(value, locale);
   return "<span class=\"finding-evidence\" data-provenance=\"" + escapeHtml(value.provenance) + "\" data-sort=\"" +
     (typeof value.value === "number" ? String(value.value) : "") + "\" aria-label=\"" + escapeHtml(title) + "\"><span class=\"finding-value\" title=\"" +
     escapeHtml(title) + "\">" + escapeHtml(provenancePrefix(value.provenance, locale) + compactValue) +
@@ -623,7 +203,7 @@ function percentageHtml(value: EvidenceValue, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (value.value === null) return evidenceHtml(value, locale, false);
   const exactValue = formatExact(value.value, locale) + "%";
-  const title = labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue + provenanceSeparator(locale) + provenanceTitle(value, locale);
+  const title = labels.exact + labels.exactSeparator + exactValue + provenanceSeparator(locale) + provenanceTitle(value, locale);
   return "<span class=\"metric-stack\" data-provenance=\"" + value.provenance + "\" data-sort=\"" + String(value.value) + "\" aria-label=\"" + escapeHtml(title) + "\"><span class=\"percentage\" title=\"" +
     escapeHtml(title) + "\">" + escapeHtml(provenancePrefix(value.provenance, locale) + exactValue) + "</span></span>";
 }
@@ -652,8 +232,7 @@ function tagHtml(label: string, variant: "quiet" | "default" = "quiet"): string 
 }
 
 function outcomeLabel(outcome: AutomatedCheck["outcome"], locale: ReportLocale): string {
-  if (locale === "zh-CN") return outcome === "warning" ? "警告" : outcome === "notice" ? "提示" : "通过";
-  return outcome === "warning" ? "Warning" : outcome === "notice" ? "Notice" : "Pass";
+  return labelsFor(locale).checks.outcome[outcome];
 }
 
 function publicLabel(value: string, fallback: string): string {
@@ -661,129 +240,39 @@ function publicLabel(value: string, fallback: string): string {
 }
 
 function modelLabel(value: string, locale: ReportLocale): string {
-  if (value === "<unknown-model>") return locale === "zh-CN" ? "未知模型" : "Unknown model";
+  if (value === "<unknown-model>") return labelsFor(locale).unknownModel;
   return publicLabel(value, labelsFor(locale).unavailable);
 }
 
-function emptyState(labels: Labels, message = labels.noData): string {
+function emptyState(labels: ReportMessages, message = labels.noData): string {
   return "<p class=\"empty\">" + escapeHtml(message) + "</p>";
 }
 
-function localizeWarning(warning: string, locale: ReportLocale): string {
-  const unsupported = /^(\d+) Codex Session(?:s)? contain(?:s)? unsupported accounting records; only a partial audit is reported\.$/.exec(warning);
-  if (unsupported) {
-    return locale === "zh-CN"
-      ? unsupported[1] + " 个 Codex Session 包含本报告暂时无法解析的用量记录，报告可能不完整。"
-      : unsupported[1] + " Codex Session" + (unsupported[1] === "1" ? "" : "s") + " contain unsupported accounting records; the audit may be partial.";
-  }
-  const missingTime = /^(\d+) Codex Session(?:s)? contain(?:s)? accounting records without a usable timestamp; only time-scoped records were analysed\.$/.exec(warning);
-  if (missingTime) {
-    return locale === "zh-CN"
-      ? missingTime[1] + " 个 Codex Session 包含无法使用的时间戳；只统计时间范围明确的记录。"
-      : missingTime[1] + " Codex Session" + (missingTime[1] === "1" ? "" : "s") + " contain records without usable timestamps; only time-scoped records were analysed.";
-  }
-  return warning;
-}
-
-function localizeLimitation(limitation: string, locale: ReportLocale): string {
-  if (locale !== "zh-CN") return limitation;
-  const exactPrice = /^LiteLLM returned no exact price entry for (.+)$/.exec(limitation);
-  if (exactPrice) return "LiteLLM 没有找到 " + exactPrice[1] + " 的精确价格条目";
-  const failedPrice = /^LiteLLM price lookup failed for (.+)$/.exec(limitation);
-  if (failedPrice) return "LiteLLM 查询 " + failedPrice[1] + " 的价格失败";
-  const resolvedPrice = /^no resolved price entry for (.+)$/.exec(limitation);
-  if (resolvedPrice) return "没有找到 " + resolvedPrice[1] + " 的价格条目";
-  const derivedProvider = /^Provider was derived from the selected Harness for pricing: (.+)$/.exec(limitation);
-  if (derivedProvider) return "定价时根据所选 Harness 推断 Provider：" + derivedProvider[1];
-  const conflictingProvider = /^Provider did not match the selected Harness: (.+)$/.exec(limitation);
-  if (conflictingProvider) return "Provider 与所选 Harness 不匹配：" + conflictingProvider[1];
-  if (limitation === "LiteLLM price lookup was not performed") return "尚未执行 LiteLLM 价格查询";
-  if (limitation === "cost estimate covers only priced Usage; unpriced or incompatible Usage is excluded") return "成本估算只统计已定价用量；未定价或不兼容的用量不计入";
-  if (limitation === "missing compatible price dimension or mutually exclusive Token composition") return "缺少匹配的价格档位，或 Token 分类有重叠，无法直接计价";
-  if (limitation === "missing compatible price dimension for a non-zero Token bucket") return "非零 Token 分桶缺少兼容的价格维度";
-  if (limitation === "cache-write TTL or cache-write price dimension was unavailable") return "没有可用的缓存写入 TTL 或价格档位";
-  if (limitation === "missing exact model identifier") return "缺少精确模型标识";
-  if (limitation === "missing Token total") return "缺少 Token 总量";
-  if (limitation === "calls with missing or inconsistent Token composition were excluded from cache ratios") return "Token 构成缺失或不一致的调用，不计入缓存比例";
-  if (limitation === "cache Token ratios are unavailable because no selected call has compatible composition") return "没有调用提供可匹配的 Token 构成，因此无法计算缓存 Token 比例";
-  if (limitation === "selected Token total was incomplete for cache composition coverage") return "所选 Token 总量不完整，因此无法计算缓存构成可分解比例";
-  if (limitation === "no ModelCall had a complete mutually exclusive Token composition for cache coverage") return "没有 ModelCall 提供完整且不重叠的 Token 构成，因此无法计算缓存构成可分解比例";
-  if (limitation === "no selected Token total was available for price coverage") return "没有可用的所选 Token 总量来计算已定价用量占比";
-  if (limitation === "no Token total was available for price coverage") return "没有可用的 Token 总量来计算已定价用量占比";
-  if (limitation === "the all-uncached comparison requires at least one selected ModelCall with compatible exact pricing") return "要比较不缓存情况下的成本，至少需要一个价格信息完整且匹配的所选 ModelCall";
-  if (limitation === "currency requires at least one selected ModelCall with an exact Provider/model match and compatible non-zero price dimensions") return "要计算金额，至少需要一个 Provider、模型和非零价格档位都精确匹配的所选 ModelCall";
-  if (limitation === "cache savings requires at least one priced Usage with complete compatible cost dimensions") return "要计算缓存节省，至少需要一条价格信息完整且匹配的已定价用量";
-  if (limitation === "cache savings percentage requires at least one priced Usage with complete compatible cost dimensions") return "要计算缓存节省比例，至少需要一条价格信息完整且匹配的已定价用量";
-  if (limitation === "cost difference requires at least one priced Usage with complete compatible cost dimensions") return "要计算成本差额，至少需要一条价格信息完整且匹配的已定价用量";
-  if (limitation === "cost difference percentage requires at least one priced Usage with complete compatible cost dimensions") return "要计算成本差额比例，至少需要一条价格信息完整且匹配的已定价用量";
-  if (limitation === "首次请求负担 is an observed earliest request size, not an exact removable startup tax") return "首次请求 Token 量是观测到的最早请求大小，不是可以精确剥离的启动成本";
-  if (limitation === "Sessions without a timestamped valid ModelCall are excluded from first-request coverage") return "没有有效时间戳的 Session，不计入首次请求完整度";
-  if (limitation === "first-request cache composition is partial because some earliest calls are missing compatible Token fields") return "部分最早请求缺少兼容 Token 字段，因此首次请求缓存构成不完整";
-  if (limitation === "first-request coverage has no selected Session denominator") return "没有所选 Session 作为首次请求完整度的分母";
-  if (limitation === "top-level versus Subagent first-request groups require source-proven identity for every selected Session") return "要比较顶层和子 Agent 的首次请求，必须确认每个所选 Session 的身份";
-  if (limitation === "no selected Sessions were available for top-level or Subagent identity coverage") return "没有可用于确认顶层或子 Agent 身份的所选 Session";
-  if (limitation === "causal Skill impact requires a valid comparison or counterfactual, which local history does not provide") return "无法验证 Skill 与结果之间的因果关系：本地历史没有提供有效对照数据";
-  const missingSkillAssociation = /^no source-proven ModelCall association was available for (.+)$/.exec(limitation);
-  if (missingSkillAssociation) return "没有足够证据把 ModelCall 关联到：" + missingSkillAssociation[1];
-  if (limitation === "no source-proven ModelCall association was available") return "没有足够证据把 ModelCall 关联到对应 Skill";
-  if (limitation === "no Skill evidence was available") return "没有可用的 Skill 证据";
-  return "存在一项未满足的诊断条件";
-}
 
 function isPricingLimitation(limitation: string): boolean {
   return /LiteLLM|price|priced Usage|Provider|model identifier|resolved price entry|currency requires|cost estimate|cost dimension/i.test(limitation);
 }
 
 function renderCacheLimitations(cache: AuditResult["report"]["cacheEconomics"], locale: ReportLocale): string {
+  const labels = labelsFor(locale);
   const pricing = cache.limitations.some(isPricingLimitation) || (typeof cache.pricedUsageCoveragePercent.value === "number" && cache.pricedUsageCoveragePercent.value < 100);
   const other = cache.limitations.filter((limitation) => !isPricingLimitation(limitation));
   const parts: string[] = [];
   if (pricing) {
-    parts.push("<p class=\"coverage-note pricing-note\">" + escapeHtml(locale === "zh-CN"
-      ? "金额仅按能匹配精确单价的用量估算；仍有部分模型无法匹配价格，因此金额可能低于完整用量对应成本。"
-      : "Amounts use only usage with an exact price match; some models remain unmatched, so the estimate may understate the cost of the full observed usage.") + "</p>");
+    parts.push("<p class=\"coverage-note pricing-note\">" + escapeHtml(labels.pricingNote) + "</p>");
   }
   if (other.length > 0) {
-    parts.push("<ul class=\"editorial-list\">" + other.map((limitation) => "<li>" + escapeHtml(localizeLimitation(limitation, locale)) + "</li>").join("") + "</ul>");
+    parts.push("<ul class=\"editorial-list\">" + other.map((limitation) => "<li>" + escapeHtml(labels.limitation(limitation)) + "</li>").join("") + "</ul>");
   }
   return parts.join("");
 }
 
-function localizeMethod(method: string | undefined, locale: ReportLocale): string {
-  if (!method) return labelsFor(locale).unavailable;
-  if (locale !== "zh-CN") return method;
-  const exact: Record<string, string> = {
-    "cache-read Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals": "缓存读取 Token 总量除以分母，换算为百分比并四舍五入到两位小数",
-    "cache-write Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals": "缓存写入 Token 总量除以分母，换算为百分比并四舍五入到两位小数",
-    "median of earliest valid ModelCall Token totals in selected": "取所选 Session 中每个最早有效 ModelCall 的 Token 总量中位数",
-    "largest paired tool-result estimate is greater than zero": "最大的一次工具结果，后续被再次带入上下文",
-    "count of observed retry, interruption, and subagent lifecycle records is greater than zero": "观测到的重试、中断和子 Agent 启停记录数量大于零",
-    "largest complete Session share is at least 40% with at least two ModelCall records": "至少有两个 ModelCall 记录时，最大完整 Session 占比至少为 40%",
-    "largest complete model contribution share is at least 60% when more than one model is observed": "观测到多个模型时，最大完整模型贡献占比至少为 60%",
-    "coverage reports skipped records, partial Sessions, or warnings": "数据中有跳过记录、不完整 Session 或异常",
-    "coverage reports at least one record with no skipped records, partial Sessions, or warnings": "至少有一条记录，且没有跳过记录、不完整 Session 或异常",
-  };
-  if (exact[method]) return exact[method];
-  if (method.includes("Provider and model match against the LiteLLM model catalog")) {
-    return method.startsWith("partial")
-      ? "根据 LiteLLM 模型目录和 Harness 到 Provider 的映射，对已定价用量按 API 单价折算；未定价或不兼容的用量不计入；普通输入、缓存读取、缓存写入和输出分别计价，分类之间不重叠"
-      : "根据 LiteLLM 模型目录和 Harness 到 Provider 的映射精确匹配 Provider 与模型；普通输入、缓存读取、缓存写入和输出分别计价，分类之间不重叠";
-  }
-  if (method.startsWith("partial all-uncached counterfactual")) return "按已定价用量计算“假设不缓存”的成本：普通输入、缓存读取和缓存写入按普通输入价格计价，输出价格不变；未定价用量不计入";
-  if (method.startsWith("all-uncached counterfactual")) return "“不缓存情况下的成本”把普通输入、缓存读取和缓存写入按普通输入价格计价，输出价格不变";
-  if (method.startsWith("all-uncached API-equivalent estimate minus observed API-equivalent estimate")) return "不缓存情况下的 API 折算金额减去已观测的 API 折算金额；正值表示缓存降低了估算金额";
-  if (method.startsWith("cache savings divided by all-uncached API-equivalent cost")) return "估算节省金额除以不缓存情况下的 API 折算金额，换算为百分比并四舍五入到两位小数";
-  if (method.startsWith("cost difference divided by all-uncached API-equivalent estimate")) return "成本差额除以不缓存情况下的 API 折算金额，换算为百分比并四舍五入到两位小数";
-  if (method.startsWith("sum of compatible ")) return method.replace(/^sum of compatible (.+) Token buckets$/, "把兼容的 $1 Token 分桶相加");
-  if (method.startsWith("median of earliest valid ModelCall Token totals in ")) return method.replace(/^median of earliest valid ModelCall Token totals in (.+)$/, "取 $1 中每个最早有效 ModelCall 的 Token 总量中位数");
-  return "按所选历史记录和支持字段计算";
-}
 
 function renderWarningList(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (result.coverage.warnings.length === 0) return emptyState(labels);
   return "<ul class=\"editorial-list\">" + result.coverage.warnings
-    .map((warning) => "<li>" + escapeHtml(localizeWarning(warning, locale)) + "</li>")
+    .map((warning) => "<li>" + escapeHtml(labels.warning(warning)) + "</li>")
     .join("") + "</ul>";
 }
 
@@ -810,7 +299,7 @@ function coveragePercentageHtml(value: EvidenceValue, locale: ReportLocale): str
   if (value.value === null) return evidenceHtml(value, locale, false);
   const labels = labelsFor(locale);
   const exactValue = formatExact(value.value, locale) + "%";
-  const title = labels.exact + (locale === "zh-CN" ? "：" : ": ") + exactValue + provenanceSeparator(locale) + provenanceTitle(value, locale);
+  const title = labels.exact + labels.exactSeparator + exactValue + provenanceSeparator(locale) + provenanceTitle(value, locale);
   return "<span class=\"coverage-percentage\" data-provenance=\"" + escapeHtml(value.provenance) + "\" data-sort=\"" +
     String(value.value) + "\" aria-label=\"" + escapeHtml(title) + "\"><span title=\"" + escapeHtml(title) + "\">" +
     escapeHtml(provenancePrefix(value.provenance, locale) + exactValue) + "</span></span>";
@@ -821,7 +310,8 @@ function coverageMetricHtml(value: EvidenceValue, locale: ReportLocale): string 
 }
 
 function coverageNarrative(result: AuditResult, locale: ReportLocale): { text: string; html: string } {
-  const chinese = locale === "zh-CN";
+  const labels = labelsFor(locale);
+  const messages = labels.coverageMessages;
   const partialCount = coverageEvidence(result.coverage.partialSessions, "count of partial Sessions reported by coverage");
   const sessionCount = coverageSummaryEvidence(result, "sessionCount", "count of selected Session records");
   const rate = result.summary.partialSessionRatePercent ?? unavailableEvidence("source-proven partial Session rate was not reported");
@@ -829,60 +319,50 @@ function coverageNarrative(result: AuditResult, locale: ReportLocale): { text: s
   const partialSubagent = result.summary.partialSubagentSessionCount ?? unavailableEvidence("source-proven partial subagent Session count was not reported");
   const hasQualityGaps = result.coverage.partialSessions > 0 || result.coverage.recordsSkipped > 0 || result.coverage.warnings.length > 0;
   if (!hasQualityGaps) {
-    const clean = chinese ? "历史记录解析完成，未发现覆盖异常。" : "History parsed without coverage warnings.";
-    return { text: clean, html: escapeHtml(clean) };
+    return { text: messages.clean, html: escapeHtml(messages.clean) };
   }
 
-  const observedCaveat = chinese
-    ? "总 Token 是已观测到、且报告能解析的记录之和；数据不完整时，实际使用量可能更高。"
-    : "Total tokens are the sum of observed, supported records; incomplete coverage may undercount actual usage.";
+  const observedCaveat = messages.observedCaveat;
   let text: string;
   let html: string;
   if (result.coverage.partialSessions > 0 && rate.value !== null) {
     const partialText = metricPlain(partialCount, locale, false);
     const sessionText = metricPlain(sessionCount, locale, false);
     const rateText = coveragePercentageText(rate, locale);
-    text = chinese
-      ? partialText + " / " + sessionText + " 个 Session（" + rateText + "）不完整。"
-      : partialText + " of " + sessionText + " Sessions (" + rateText + ") are partial.";
-    html = coverageMetricHtml(partialCount, locale) + (chinese ? " / " : " of ") + coverageMetricHtml(sessionCount, locale) +
-      (chinese ? " 个 Session（" : " Sessions (") + coveragePercentageHtml(rate, locale) + (chinese ? "）不完整。" : ") are partial.");
+    text = messages.withRate.text(partialText, sessionText, rateText);
+    html = coverageMetricHtml(partialCount, locale) + messages.withRate.htmlBetween + coverageMetricHtml(sessionCount, locale) +
+      messages.withRate.htmlSessionPrefix + coveragePercentageHtml(rate, locale) + messages.withRate.htmlRateSuffix;
     if (partialTop.value !== null && partialSubagent.value !== null) {
       const allSubagents = partialTop.value === 0 && partialSubagent.value === result.coverage.partialSessions;
       if (allSubagents) {
-        text += chinese ? "所有不完整 Session 都是已确认来源的子 Agent Session。" : " All partial Sessions are source-proven subagent Sessions.";
-        html += chinese ? "所有不完整 Session 都是已确认来源的子 Agent Session。" : " All partial Sessions are source-proven subagent Sessions.";
+        text += messages.allPartialSubagents;
+        html += escapeHtml(messages.allPartialSubagents);
       } else {
-        text += chinese
-          ? " 已确认来源的不完整 Session 组成：顶层 " + metricPlain(partialTop, locale, false) + "，子 Agent " + metricPlain(partialSubagent, locale, false) + "。"
-          : " Source-proven partial composition: " + metricPlain(partialTop, locale, false) + " top-level; " + metricPlain(partialSubagent, locale, false) + " subagent.";
-        html += chinese
-          ? " 已确认来源的不完整 Session 组成：顶层 " + coverageMetricHtml(partialTop, locale) + "，子 Agent " + coverageMetricHtml(partialSubagent, locale) + "。"
-          : " Source-proven partial composition: " + coverageMetricHtml(partialTop, locale) + " top-level; " + coverageMetricHtml(partialSubagent, locale) + " subagent.";
+        text += messages.composition.text(metricPlain(partialTop, locale, false), metricPlain(partialSubagent, locale, false));
+        html += messages.composition.htmlPrefix + coverageMetricHtml(partialTop, locale) + messages.composition.htmlBetween +
+          coverageMetricHtml(partialSubagent, locale) + messages.composition.htmlSuffix;
       }
     }
   } else if (result.coverage.partialSessions > 0) {
-    text = chinese
-      ? metricPlain(partialCount, locale, false) + " 个 Session 数据不完整；暂时无法确认这些 Session 的来源交叉关系。"
-      : metricPlain(partialCount, locale, false) + " partial Sessions; partial Session composition is unavailable because the source cannot prove the overlap.";
-    html = coverageMetricHtml(partialCount, locale) + (chinese
-      ? " 个 Session 数据不完整；暂时无法确认这些 Session 的来源交叉关系。"
-      : " partial Sessions; partial Session composition is unavailable because the source cannot prove the overlap.");
+    text = messages.withoutRate.text(metricPlain(partialCount, locale, false));
+    html = coverageMetricHtml(partialCount, locale) + messages.withoutRate.htmlSuffix;
   } else {
-    text = chinese
-      ? "数据中有跳过记录或异常；"
-      : "Coverage includes skipped records or warnings;";
+    text = messages.skippedOrWarnings;
     html = escapeHtml(text);
   }
-  text += (chinese ? " " : " ") + observedCaveat;
-  html += (chinese ? " " : " ") + escapeHtml(observedCaveat);
+  text += " " + observedCaveat;
+  html += " " + escapeHtml(observedCaveat);
   return { text, html };
 }
 
 function coverageLineText(result: AuditResult, locale: ReportLocale): string {
-  const stats = locale === "zh-CN"
-    ? result.coverage.filesRead + " 个文件，" + result.coverage.recordsRead + " 条记录，跳过 " + result.coverage.recordsSkipped + "，" + result.coverage.partialSessions + " 个不完整 Session，" + result.coverage.warnings.length + " 条覆盖异常·警告级。"
-    : result.coverage.filesRead + " files, " + result.coverage.recordsRead + " records, " + result.coverage.recordsSkipped + " skipped, " + result.coverage.partialSessions + " partial Sessions, " + result.coverage.warnings.length + " coverage warnings.";
+  const stats = labelsFor(locale).coverageMessages.stats(
+    result.coverage.filesRead,
+    result.coverage.recordsRead,
+    result.coverage.recordsSkipped,
+    result.coverage.partialSessions,
+    result.coverage.warnings.length,
+  );
   return coverageNarrative(result, locale).text + " " + stats;
 }
 
@@ -898,7 +378,7 @@ function renderCoverage(result: AuditResult, locale: ReportLocale): string {
     [labels.warnings, coverageEvidence(result.coverage.warnings.length, "count of coverage warnings"), "metric", false],
   ];
   const narrativeHtml = alert
-    ? "<aside class=\"quiet-callout\"><span class=\"tag tag--quiet\">" + escapeHtml(locale === "zh-CN" ? "覆盖异常·提示级" : "Coverage note") + "</span><p>" + narrative.html + "</p></aside>"
+    ? "<aside class=\"quiet-callout\"><span class=\"tag tag--quiet\">" + escapeHtml(labels.coverageMessages.alertLabel) + "</span><p>" + narrative.html + "</p></aside>"
     : "<p class=\"coverage-note\">" + narrative.html + "</p>";
   return renderMetrics(metrics, locale, "coverage") + narrativeHtml;
 }
@@ -972,41 +452,42 @@ export function resolveReportProjectName(cwd: string | null): string | null {
   return metadata.repositoryName ?? metadata.name ?? cwd?.split(/[\\/]/).filter(Boolean).pop() ?? null;
 }
 
-function projectName(result: AuditResult, metadata: ProjectMetadata): string {
+function projectName(result: AuditResult, metadata: ProjectMetadata, locale: ReportLocale): string {
   const explicit = (result as AuditResult & { projectName?: unknown }).projectName;
   if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
   if (metadata.repositoryName) return metadata.repositoryName;
   if (metadata.name) return metadata.name;
   const cwd = result.scope.cwd;
   const basename = cwd?.split(/[\\/]/).filter(Boolean).pop();
-  return basename && !/^<[^>]+>$/.test(basename) ? basename : (result.scope.allProjects ? "all projects" : "project");
+  return basename && !/^<[^>]+>$/.test(basename) ? basename : (result.scope.allProjects ? labelsFor(locale).allProjects : labelsFor(locale).projectFallback);
 }
 
 function projectProperty(result: AuditResult, metadata: ProjectMetadata, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
   const explicit = (result as AuditResult & { projectName?: unknown }).projectName;
   const text = (metadata.name + " " + (typeof explicit === "string" ? explicit : "") + " " + metadata.description).toLowerCase();
-  if (/agent|harness|token|audit|llm|model/.test(text)) return locale === "zh-CN" ? "AI Agent 分析工具" : "AI agent analytics tool";
-  if (metadata.hasBin || /cli|command[- ]line|terminal/.test(text)) return locale === "zh-CN" ? "CLI 工具" : "CLI tool";
-  if (/web|frontend|react|vue|next\.js|vite/.test(text)) return locale === "zh-CN" ? "Web 应用" : "Web application";
-  if (/data|analytics|分析|统计/.test(text)) return locale === "zh-CN" ? "数据分析工具" : "data analytics tool";
-  if (/server|backend|api|service/.test(text)) return locale === "zh-CN" ? "服务端应用" : "server application";
-  return locale === "zh-CN" ? "开发者工具" : "developer tool";
+  if (/agent|harness|token|audit|llm|model/.test(text)) return labels.header.properties.aiAgent;
+  if (metadata.hasBin || /cli|command[- ]line|terminal/.test(text)) return labels.header.properties.cli;
+  if (/web|frontend|react|vue|next\.js|vite/.test(text)) return labels.header.properties.web;
+  if (/data|analytics|分析|统计/.test(text)) return labels.header.properties.data;
+  if (/server|backend|api|service/.test(text)) return labels.header.properties.server;
+  return labels.header.properties.developer;
 }
 
 function headerDiagnosticSummary(result: AuditResult, locale: ReportLocale): string {
-  const chinese = locale === "zh-CN";
+  const summary = labelsFor(locale).header.summary;
   const cacheRead = result.report.cacheEconomics.cacheReadRatePercent.value;
   const repeatedContext = typeof result.report.totalToolAmplifiedTokens.value === "number" && result.report.totalToolAmplifiedTokens.value > 0;
   const incomplete = result.coverage.partialSessions > 0 || result.coverage.recordsSkipped > 0 || result.coverage.warnings.length > 0;
   const concentrated = result.checks.some((check) => check.id === "model_concentration" && check.outcome !== "pass");
   const longSession = result.checks.some((check) => check.id === "long_session" && check.outcome !== "pass");
-  if (typeof cacheRead === "number" && cacheRead >= 80 && repeatedContext) return chinese ? "高缓存命中仍被工具结果重复暴露拖累" : "High cache hits are still dragged down by repeated tool-result exposure";
-  if (typeof cacheRead === "number" && cacheRead >= 80 && incomplete) return chinese ? "缓存命中率高，但数据完整度仍有限" : "Cache hits are strong, but the observed data remains incomplete";
-  if (concentrated) return chinese ? "Token 集中于单一模型，使用结构仍偏集中" : "Token use is concentrated in one model, with limited diversification";
-  if (longSession) return chinese ? "少数长 Session 占用较多 Token" : "A few long Sessions account for much of the Token use";
-  if (typeof cacheRead === "number" && cacheRead < 20) return chinese ? "缓存命中偏低，输入上下文仍是主要成本" : "Cache hits are limited, leaving input context as the main cost";
-  if (!incomplete) return chinese ? "当前用量结构平稳，暂未发现突出的诊断信号" : "Current usage is broadly stable, with no dominant diagnostic signal";
-  return chinese ? "当前采集到的用量不足以形成稳定诊断结论" : "Observed usage is too limited for a stable diagnostic conclusion";
+  if (typeof cacheRead === "number" && cacheRead >= 80 && repeatedContext) return summary.repeatedToolExposure;
+  if (typeof cacheRead === "number" && cacheRead >= 80 && incomplete) return summary.incompleteWithCache;
+  if (concentrated) return summary.concentratedModel;
+  if (longSession) return summary.longSession;
+  if (typeof cacheRead === "number" && cacheRead < 20) return summary.lowCache;
+  if (!incomplete) return summary.stable;
+  return summary.limited;
 }
 
 function renderHeaderMetric(label: string, value: EvidenceValue, locale: ReportLocale, kind: MetricKind = "metric"): string {
@@ -1018,24 +499,24 @@ function renderHeaderMetric(label: string, value: EvidenceValue, locale: ReportL
 function renderReportHeader(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const metadata = readProjectMetadata(result.scope.cwd);
-  const subject = result.scope.allProjects ? labels.allProjects : projectName(result, metadata);
-  const eyebrow = locale === "zh-CN" ? reportDateRange(result, locale) + " 项目诊断" : reportDateRange(result, locale) + " PROJECT DIAGNOSTIC";
+  const subject = result.scope.allProjects ? labels.allProjects : projectName(result, metadata, locale);
+  const eyebrow = labels.header.eyebrow(reportDateRange(result, locale));
   const property = projectProperty(result, metadata, locale);
   const summary = headerDiagnosticSummary(result, locale);
   const apiCost = result.report.apiEquivalentCost.total;
   const apiCostText = typeof apiCost.value === "number"
-    ? escapeHtml(locale === "zh-CN" ? "API 折算" : "API equivalent") + " " + metricValueHtml(apiCost, locale, "currency")
+    ? escapeHtml(labels.header.apiEquivalent) + " " + metricValueHtml(apiCost, locale, "currency")
     : "";
   return "<header class=\"report-header\">" +
     "<div class=\"report-header__main\"><div class=\"report-header__identity\">" +
     "<div class=\"report-eyebrow\">" + escapeHtml(eyebrow) + "</div>" +
-    "<h1><span class=\"report-header__project\">" + escapeHtml(subject) + "</span><span class=\"report-header__suffix\">" + escapeHtml(locale === "zh-CN" ? "诊断报告" : "diagnostic report") + "</span></h1>" +
+    "<h1><span class=\"report-header__project\">" + escapeHtml(subject) + "</span><span class=\"report-header__suffix\">" + escapeHtml(labels.header.suffix) + "</span></h1>" +
     "<p class=\"report-deck\">" + escapeHtml(property + " · " + summary) + "</p></div>" +
     "<div class=\"report-header__primary\"><strong class=\"report-header__value\">" +
     metricValueHtml(result.summary.totalTokens, locale, "metric") + "</strong>" +
     "<span class=\"report-header__primary-label\">" + apiCostText + "</span>" +
-    "<span class=\"report-header__primary-date\">" + escapeHtml(locale === "zh-CN" ? reportEndDate(result, locale) + " 截止" : "As of " + reportEndDate(result, locale)) + "</span></div></div>" +
-    "<div class=\"report-header__metrics\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "报告关键指标" : "Report key metrics") + "\">" +
+    "<span class=\"report-header__primary-date\">" + escapeHtml(labels.header.asOf(reportEndDate(result, locale))) + "</span></div></div>" +
+    "<div class=\"report-header__metrics\" aria-label=\"" + escapeHtml(labels.header.keyMetrics) + "\">" +
     renderHeaderMetric(labels.sessions, result.summary.sessionCount, locale) +
     renderHeaderMetric(labels.modelCalls, result.summary.modelCallCount, locale) +
     renderHeaderMetric(labels.cacheReadRate, result.report.cacheEconomics.cacheReadRatePercent, locale, "percentage") +
@@ -1069,72 +550,88 @@ function presentCheck(check: AutomatedCheck, locale: ReportLocale): PresentedChe
   const percentage = (index: number) => percentagePlain(check.evidence[index], locale);
   const metricHtml = (index: number, compact = true) => findingMetricHtml(check.evidence[index], locale, compact);
   const percentageHtmlValue = (index: number) => findingPercentageHtml(check.evidence[index], locale);
-  const chinese = locale === "zh-CN";
   const labels = labelsFor(locale);
+  const messages = labels.checks;
   const status = outcomeLabel(check.outcome, locale);
-  if (check.id === "long_session") return {
-    outcomeLabel: status,
-    headline: chinese ? "一个 Session 占已观测 Token 的 " + percentage(2) : "One Session accounts for " + percentage(2) + " of observed tokens",
-    detail: chinese ? evidence(1) + " 次模型调用；" + evidence(0) + " 个已观测 Token。" : evidence(1) + " ModelCall records; " + evidence(0) + " observed tokens.",
-    headlineHtml: (chinese ? "一个 Session 占已观测 Token 的 " : "One Session accounts for ") + percentageHtmlValue(2) + (chinese ? "" : " of observed tokens"),
-    detailHtml: (chinese ? metricHtml(1) + " 次模型调用；" + metricHtml(0) + " 个已观测 Token。" : metricHtml(1) + " ModelCall records; " + metricHtml(0) + " observed tokens."),
-    method: localizeMethod(check.method, locale),
-  };
-  if (check.id === "tool_amplification") return {
-    outcomeLabel: status,
-    headline: chinese ? "一个工具结果可能会在后续对话中再次带入；估算暴露量为 " + evidence(2) : "One tool result may be carried forward; exposure estimate " + evidence(2),
-    detail: chinese ? "工具结果大小 " + evidence(0) + " " + labels.characters + "；后续有 " + evidence(1) + " 次模型调用。" : "Paired result: " + evidence(0) + " " + labels.characters + "; later ModelCall records: " + evidence(1) + ".",
-      headlineHtml: (chinese ? "一个工具结果可能会在后续对话中再次带入；估算暴露量为 " : "One tool result may be carried forward; exposure estimate ") + metricHtml(2),
-    detailHtml: (chinese ? "工具结果大小 " + metricHtml(0) + " " + escapeHtml(labels.characters) + "；后续有 " + metricHtml(1) + " 次模型调用。" : "Paired result: " + metricHtml(0) + " " + escapeHtml(labels.characters) + "; later ModelCall records: " + metricHtml(1) + "."),
-    method: localizeMethod(check.method, locale),
-  };
-  if (check.id === "extra_calls") return {
-    outcomeLabel: status,
-    headline: chinese ? "观察到 " + evidence(0) + " 条重试、中断或子 Agent 启停记录" : evidence(0) + " retry, interruption, or subagent lifecycle records observed",
-    detail: chinese ? "这项检查只统计观测到的重试、中断和子 Agent 启停记录。" : "This check counts only observed lifecycle records.",
-    headlineHtml: (chinese ? "观察到 " : "") + metricHtml(0) + (chinese ? " 条重试、中断或子 Agent 启停记录" : " retry, interruption, or subagent lifecycle records observed"),
-    detailHtml: chinese ? "这项检查只统计观测到的重试、中断和子 Agent 启停记录。" : "This check counts only observed lifecycle records.",
-    method: localizeMethod(check.method, locale),
-  };
-  if (check.id === "model_concentration") return {
-    outcomeLabel: status,
-    headline: chinese ? evidence(0) + " 占已观测 Token 的 " + percentage(1) : evidence(0) + " accounts for " + percentage(1) + " of observed tokens",
-    detail: chinese ? evidence(2) + " 次模型调用。" : evidence(2) + " ModelCall records.",
-    headlineHtml: metricHtml(0) + (chinese ? " 占已观测 Token 的 " : " accounts for ") + percentageHtmlValue(1) + (chinese ? "" : " of observed tokens"),
-    detailHtml: metricHtml(2) + (chinese ? " 次模型调用。" : " ModelCall records."),
-    method: localizeMethod(check.method, locale),
-  };
-  if (check.outcome === "pass") return {
-    outcomeLabel: status,
-    headline: chinese ? "历史记录未发现覆盖异常" : "History parsed without coverage warnings",
-    detail: chinese ? evidence(1) + " 条记录来自 " + evidence(0) + " 个文件；没有跳过或不完整 Session。" : evidence(1) + " records from " + evidence(0) + " files; no skipped or partial Sessions.",
-    headlineHtml: chinese ? "历史记录未发现覆盖异常" : "History parsed without coverage warnings",
-    detailHtml: chinese ? metricHtml(1) + " 条记录来自 " + metricHtml(0) + " 个文件；没有跳过或不完整 Session。" : metricHtml(1) + " records from " + metricHtml(0) + " files; no skipped or partial Sessions.",
-    method: localizeMethod(check.method, locale),
-  };
+  if (check.id === "long_session") {
+    const message = messages.longSession;
+    return {
+      outcomeLabel: status,
+      headline: message.headline(percentage(2)),
+      detail: message.detail(evidence(1), evidence(0)),
+      headlineHtml: message.headlinePrefix + percentageHtmlValue(2) + message.headlineSuffix,
+      detailHtml: message.detailPrefix + metricHtml(1) + message.detailBetween + metricHtml(0) + message.detailSuffix,
+      method: labels.method(check.method),
+    };
+  }
+  if (check.id === "tool_amplification") {
+    const message = messages.toolAmplification;
+    return {
+      outcomeLabel: status,
+      headline: message.headline(evidence(2)),
+      detail: message.detail(evidence(0), labels.characters, evidence(1)),
+      headlineHtml: message.headlinePrefix + metricHtml(2) + message.headlineSuffix,
+      detailHtml: message.detailPrefix + metricHtml(0) + message.detailResultSeparator + escapeHtml(labels.characters) + message.detailBetween + metricHtml(1) + message.detailCallSuffix,
+      method: labels.method(check.method),
+    };
+  }
+  if (check.id === "extra_calls") {
+    const message = messages.extraCalls;
+    return {
+      outcomeLabel: status,
+      headline: message.headline(evidence(0)),
+      detail: message.detail,
+      headlineHtml: message.headlinePrefix + metricHtml(0) + message.headlineSuffix,
+      detailHtml: message.detail,
+      method: labels.method(check.method),
+    };
+  }
+  if (check.id === "model_concentration") {
+    const message = messages.modelConcentration;
+    return {
+      outcomeLabel: status,
+      headline: message.headline(evidence(0), percentage(1)),
+      detail: message.detail(evidence(2)),
+      headlineHtml: message.headlinePrefix + metricHtml(0) + message.headlineBetween + percentageHtmlValue(1) + message.headlineSuffix,
+      detailHtml: message.detailPrefix + metricHtml(2) + message.detailSuffix,
+      method: labels.method(check.method),
+    };
+  }
+  if (check.outcome === "pass") {
+    const message = messages.pass;
+    return {
+      outcomeLabel: status,
+      headline: message.headline,
+      detail: message.detail(evidence(1), evidence(0)),
+      headlineHtml: message.headline,
+      detailHtml: message.detailPrefix + metricHtml(1) + message.detailBetween + metricHtml(0) + message.detailSuffix,
+      method: labels.method(check.method),
+    };
+  }
+  const message = messages.coverage;
   return {
     outcomeLabel: status,
-    headline: chinese ? "数据中有跳过、不完整或异常记录" : "Coverage reports skipped, partial, or warning records",
-    detail: chinese ? evidence(2) + " 条跳过记录；" + evidence(3) + " 个不完整 Session；" + evidence(4) + " 条覆盖异常·警告级。" : evidence(2) + " skipped records; " + evidence(3) + " partial Sessions; " + evidence(4) + " coverage warnings.",
-    headlineHtml: chinese ? "数据中有跳过、不完整或异常记录" : "Coverage reports skipped, partial, or warning records",
-    detailHtml: chinese ? metricHtml(2) + " 条跳过记录；" + metricHtml(3) + " 个不完整 Session；" + metricHtml(4) + " 条覆盖异常·警告级。" : metricHtml(2) + " skipped records; " + metricHtml(3) + " partial Sessions; " + metricHtml(4) + " coverage warnings.",
-    method: localizeMethod(check.method, locale),
+    headline: message.headline,
+    detail: message.detail(evidence(2), evidence(3), evidence(4)),
+    headlineHtml: message.headline,
+    detailHtml: message.detailPrefix + metricHtml(2) + message.detailSkippedSuffix + metricHtml(3) + message.detailPartialSuffix + metricHtml(4) + message.detailWarningsSuffix,
+    method: labels.method(check.method),
   };
 }
 
 function checkLine(check: AutomatedCheck, locale: ReportLocale): string {
   const presented = presentCheck(check, locale);
-  return presented.outcomeLabel + ": " + presented.headline + " — " + presented.detail + " " + (locale === "zh-CN" ? "方法：" : "Method: ") + presented.method;
+  return presented.outcomeLabel + ": " + presented.headline + " — " + presented.detail + " " + labelsFor(locale).methodPrefix + presented.method;
 }
 
 function renderChecks(result: AuditResult, locale: ReportLocale): string {
-  const title = labelsFor(locale).diagnosticSignals;
-  const none = locale === "zh-CN" ? "没有足够的可靠证据支持自动生成发现。" : "No automated finding is supported by the available evidence.";
-  if (result.checks.length === 0) return "<section><h2>" + escapeHtml(title) + "</h2>" + emptyState(labelsFor(locale), none) + "</section>";
-  return "<section class=\"supporting-findings\"><h2>" + escapeHtml(title) + "</h2><p class=\"coverage-note\">" + escapeHtml(labelsFor(locale).checksNote) + "</p><ul>" + result.checks.map((check) => {
+  const labels = labelsFor(locale);
+  const title = labels.diagnosticSignals;
+  if (result.checks.length === 0) return "<section><h2>" + escapeHtml(title) + "</h2>" + emptyState(labels, labels.checks.noFinding) + "</section>";
+  return "<section class=\"supporting-findings\"><h2>" + escapeHtml(title) + "</h2><p class=\"coverage-note\">" + escapeHtml(labels.checksNote) + "</p><ul>" + result.checks.map((check) => {
     const presented = presentCheck(check, locale);
     const severityTag = tagHtml(presented.outcomeLabel);
-    return "<li class=\"editorial-item\" data-outcome=\"" + escapeHtml(check.outcome) + "\"><div class=\"editorial-tags\" aria-label=\"" + escapeHtml(check.outcome) + "\">" + severityTag + "</div><strong class=\"editorial-title\">" + presented.headlineHtml + "</strong><p class=\"editorial-detail\">" + presented.detailHtml + "</p><small class=\"editorial-method\">" + escapeHtml(locale === "zh-CN" ? "方法：" : "Method: ") + escapeHtml(presented.method) + "</small></li>";
+    return "<li class=\"editorial-item\" data-outcome=\"" + escapeHtml(check.outcome) + "\"><div class=\"editorial-tags\" aria-label=\"" + escapeHtml(presented.outcomeLabel) + "\">" + severityTag + "</div><strong class=\"editorial-title\">" + presented.headlineHtml + "</strong><p class=\"editorial-detail\">" + presented.detailHtml + "</p><small class=\"editorial-method\">" + escapeHtml(labels.methodPrefix) + escapeHtml(presented.method) + "</small></li>";
   }).join("") + "</ul></section>";
 }
 function tokenCell(value: EvidenceValue, locale: ReportLocale): string {
@@ -1147,7 +644,7 @@ function shortenedId(value: string): string {
 
 function sessionLabel(row: ContributionEntry, locale: ReportLocale): string {
   if (row.displayName && row.displayName !== row.key) return row.displayName;
-  return (locale === "zh-CN" ? "未命名 Session" : "Untitled Session") + " · " + shortenedId(row.key);
+  return labelsFor(locale).untitledSession + " · " + shortenedId(row.key);
 }
 
 function reportDerivedEvidence(value: number | string | null, method: string): EvidenceValue {
@@ -1169,9 +666,7 @@ function sessionActiveTime(result: AuditResult, sessionId: string): EvidenceValu
 function sessionDriver(result: AuditResult, sessionId: string, locale: ReportLocale): string {
   const candidate = (result.turnCandidates ?? []).find((item) => item.sessionId === sessionId);
   if (!candidate) return "—";
-  const labels: Record<string, string> = locale === "zh-CN"
-    ? { turn_concentration: "轮次集中", input_growth: "输入增长", tool_result_adjacency: "大工具结果邻接", compaction_change: "压缩边界", waiting_hotspot: "等待热点", failed_path: "失败路径" }
-    : { turn_concentration: "round concentration", input_growth: "input growth", tool_result_adjacency: "tool-result adjacency", compaction_change: "compaction boundary", waiting_hotspot: "waiting hotspot", failed_path: "failed path" };
+  const labels = labelsFor(locale).driverLabels;
   return labels[candidate.kind] ?? candidate.kind;
 }
 
@@ -1187,7 +682,7 @@ function sessionTitle(row: ContributionEntry, locale: ReportLocale): string {
     const suffix = " (" + row.key + ")";
     return displayName.endsWith(suffix) ? displayName.slice(0, -suffix.length) : displayName;
   }
-  return locale === "zh-CN" ? "未命名 Session" : "Untitled Session";
+  return labelsFor(locale).untitledSession;
 }
 
 function keyValueText(value: EvidenceValue, locale: ReportLocale, compact = true): string {
@@ -1219,14 +714,10 @@ function durationText(value: EvidenceValue, locale: ReportLocale): string {
   const totalMinutes = Math.floor(totalSeconds / 60);
   const minutes = totalMinutes % 60;
   const hours = Math.floor(totalMinutes / 60);
-  if (locale === "zh-CN") {
-    if (hours > 0) return hours + "小时" + (minutes > 0 ? minutes + "分钟" : "") + (seconds > 0 ? seconds + "秒" : "");
-    if (totalMinutes > 0) return totalMinutes + "分钟" + (seconds > 0 ? seconds + "秒" : "");
-    return seconds + "秒";
-  }
-  if (hours > 0) return hours + "h" + (minutes > 0 ? " " + minutes + "m" : "") + (seconds > 0 ? " " + seconds + "s" : "");
-  if (totalMinutes > 0) return totalMinutes + "m" + (seconds > 0 ? " " + seconds + "s" : "");
-  return seconds + "s";
+  const duration = labelsFor(locale).duration;
+  if (hours > 0) return hours + duration.hour + (minutes > 0 ? duration.separator + minutes + duration.minute : "") + (seconds > 0 ? duration.separator + seconds + duration.second : "");
+  if (totalMinutes > 0) return totalMinutes + duration.minute + (seconds > 0 ? duration.separator + seconds + duration.second : "");
+  return seconds + duration.second;
 }
 
 function keyDurationHtml(value: EvidenceValue, locale: ReportLocale, className = ""): string {
@@ -1238,25 +729,23 @@ function keyDurationHtml(value: EvidenceValue, locale: ReportLocale, className =
 
 function resultSizeText(turn: TurnAnalysisEntry, locale: ReportLocale): string {
   const chars = numericValue(turn.toolResultChars);
-  if (chars !== null) return formatCompact(chars, locale) + (locale === "zh-CN" ? " 字符" : " chars");
+  if (chars !== null) return formatCompact(chars, locale) + labelsFor(locale).resultSizeCharactersSuffix;
   const bytes = numericValue(turn.toolResultBytes);
   return bytes === null ? "—" : formatCompact(bytes, locale) + " B";
 }
 
 function processEvents(turn: TurnAnalysisEntry, locale: ReportLocale): string[] {
-  const labels: Record<string, string> = locale === "zh-CN"
-    ? { retry: "重试", compaction: "自动压缩上下文", subagent: "Subagent", interrupted: "中断" }
-    : { retry: "retry", compaction: "automatic context compaction", subagent: "Subagent", interrupted: "interrupted" };
-  const events = turn.lifecycleMarkers.map((marker) => labels[marker]).filter((marker): marker is string => Boolean(marker));
-  if (typeof turn.errorCount.value === "number" && turn.errorCount.value > 0) events.push(locale === "zh-CN" ? "错误" : "error");
-  for (const skill of turn.skillMarkers ?? []) events.push("Skill: " + skill);
+  const labels = labelsFor(locale);
+  const events = turn.lifecycleMarkers.map((marker) => labels.eventLabels[marker]).filter((marker): marker is string => Boolean(marker));
+  if (typeof turn.errorCount.value === "number" && turn.errorCount.value > 0) events.push(labels.errors);
+  for (const skill of turn.skillMarkers ?? []) events.push(labels.skillPrefix + skill);
   return [...new Set(events)];
 }
 
 function roundLabel(turn: TurnAnalysisEntry, locale: ReportLocale): string {
   const ordinal = numericValue(turn.ordinal);
   if (ordinal === null) return shortenedId(turn.turnId);
-  return locale === "zh-CN" ? "第 " + formatExact(ordinal, locale) + " 轮" : "Round " + formatExact(ordinal, locale);
+  return labelsFor(locale).keySession.roundLabel(formatExact(ordinal, locale));
 }
 
 function hotTurnIds(turns: TurnAnalysisEntry[]): Set<string> {
@@ -1277,24 +766,16 @@ function concentrationText(turns: TurnAnalysisEntry[], sessionTotal: EvidenceVal
   const denominator = numericValue(sessionTotal);
   const valued = turns.filter((turn) => numericValue(turn.tokens.totalTokens) !== null)
     .sort((left, right) => numericValue(right.tokens.totalTokens)! - numericValue(left.tokens.totalTokens)!);
-  if (denominator === null || denominator <= 0 || valued.length === 0) return locale === "zh-CN" ? "前 5 轮合计占比不可用" : "Top 5 round share is unavailable";
+  const messages = labelsFor(locale).keySession;
+  if (denominator === null || denominator <= 0 || valued.length === 0) return messages.concentrationUnavailable;
   const count = Math.min(5, valued.length);
   const numerator = valued.slice(0, count).reduce((sum, turn) => sum + numericValue(turn.tokens.totalTokens)!, 0);
   const percent = Math.round((numerator / denominator) * 10000) / 100;
-  return locale === "zh-CN" ? "前 " + count + " 轮合计占 " + fixedPercent(percent, locale) : "Top " + count + " rounds account for " + fixedPercent(percent, locale);
+  return messages.concentration(count, fixedPercent(percent, locale));
 }
 
 function keySessionUnavailableReason(reason: string | undefined, locale: ReportLocale): string {
-  if (!reason) return locale === "zh-CN" ? "未返回合法的结构化分析。" : "No valid structured analysis was returned.";
-  if (locale !== "zh-CN") return reason;
-  if (reason === "未提供 Host Agent 结构化分析。") return reason;
-  if (reason.includes("Codex Token accounting")) return "Codex Token 口径尚未完成核对。";
-  if (reason.includes("Audit fingerprint")) return "结构化分析与当前审计不匹配。";
-  if (reason.includes("Turn outside")) return "分析引用了当前 Session 之外的轮次。";
-  if (reason.includes("primaryFinding")) return "核心判断没有通过内容或证据校验。";
-  if (reason.includes("recommendation")) return "改善提议没有通过内容或证据校验。";
-  if (reason.includes("evidenceRead")) return "分析没有说明读取的轮次范围。";
-  return "Host Agent 返回的结构化分析未通过校验。";
+  return labelsFor(locale).keySession.unavailableReason(reason);
 }
 
 function renderTurnTrajectory(result: AuditResult, sessionId: string, locale: ReportLocale): string {
@@ -1318,9 +799,10 @@ function renderKeySessionAnalysis(result: AuditResult, locale: ReportLocale, com
   if (topSessions.length === 0) return "";
   const promptRecords = localFirstUserMessages ?? composition?.firstUserMessages ?? [];
   const promptByTurn = new Map(promptRecords.map((record) => [record.sessionId + "\0" + record.turnId, record]));
+  const keySessionMessages = labels.keySession;
   const validated = composition
     ? composeKeySessionAnalyses(result, composition.keySessionAnalyses)
-    : { analyses: [], unavailable: [locale === "zh-CN" ? "未提供 Host Agent 结构化分析。" : "No Host Agent composition was provided."] };
+    : { analyses: [], unavailable: [keySessionMessages.noComposition] };
   const bySession = new Map(validated.analyses.map((analysis) => [analysis.sessionId, analysis]));
   const blocks = topSessions.map((row, index) => {
     const turns = sessionTurns(result, row.key);
@@ -1334,33 +816,31 @@ function renderKeySessionAnalysis(result: AuditResult, locale: ReportLocale, com
     const concentration = concentrationText(turns, row.value, locale);
     const topDuration = [...turns].filter((turn) => numericValue(turn.durationMs) !== null).sort((left, right) => numericValue(right.durationMs)! - numericValue(left.durationMs)!)[0];
     const fact = topDuration
-      ? concentration + "。" + roundLabel(topDuration, locale) + (locale === "zh-CN" ? "本轮耗时 " : " has a round duration of ") + durationText(topDuration.durationMs, locale) + (locale === "zh-CN" ? "。" : ".")
-      : concentration + (locale === "zh-CN" ? "。" : ".");
+      ? keySessionMessages.factWithDuration(concentration, roundLabel(topDuration, locale), durationText(topDuration.durationMs, locale))
+      : keySessionMessages.factWithoutDuration(concentration);
     const primaryFinding = analysis?.primaryFinding;
     const supportLabel = primaryFinding
-      ? (locale === "zh-CN" ? { strong: "强", moderate: "中", limited: "有限" }[primaryFinding.support] : primaryFinding.support)
+      ? keySessionMessages.support[primaryFinding.support]
       : "";
     const finding = !analysis
-      ? "<article class=\"finding\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.interpretation) + "</span></div><p class=\"analysis-unavailable\">" + escapeHtml(labels.analysisUnavailable + keySessionUnavailableReason(unavailableReason, locale)) + "</p><p class=\"quiet\">" + escapeHtml(locale === "zh-CN" ? "确定性轮次轨迹仍保留。" : "The deterministic round trajectory remains available.") + "</p></article>"
-      : "<article class=\"finding\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.interpretation) + "</span>" + (primaryFinding ? "<span class=\"evidence-strength\">" + escapeHtml(locale === "zh-CN" ? "证据强度 · " + supportLabel : "Evidence strength · " + supportLabel) + "</span>" : "") + "</div>" + (primaryFinding
-        ? "<p class=\"finding-lead\">" + escapeHtml(primaryFinding.observation) + "</p><p class=\"fact-line\"><strong>" + escapeHtml(fact) + "</strong></p><p class=\"quiet\">" + escapeHtml([primaryFinding.interpretation, ...primaryFinding.alternativeExplanations].filter(Boolean).join(locale === "zh-CN" ? "；" : " ")) + "</p>"
+      ? "<article class=\"finding\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.interpretation) + "</span></div><p class=\"analysis-unavailable\">" + escapeHtml(labels.analysisUnavailable + keySessionUnavailableReason(unavailableReason, locale)) + "</p><p class=\"quiet\">" + escapeHtml(keySessionMessages.deterministicTrajectoryAvailable) + "</p></article>"
+      : "<article class=\"finding\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.interpretation) + "</span>" + (primaryFinding ? "<span class=\"evidence-strength\">" + escapeHtml(keySessionMessages.evidenceStrength(supportLabel)) + "</span>" : "") + "</div>" + (primaryFinding
+        ? "<p class=\"finding-lead\">" + escapeHtml(primaryFinding.observation) + "</p><p class=\"fact-line\"><strong>" + escapeHtml(fact) + "</strong></p><p class=\"quiet\">" + escapeHtml([primaryFinding.interpretation, ...primaryFinding.alternativeExplanations].filter(Boolean).join(keySessionMessages.alternativeSeparator)) + "</p>"
         : "<p class=\"finding-lead\">" + escapeHtml(labels.noStrongEvidence) + "</p><p class=\"fact-line\"><strong>" + escapeHtml(fact) + "</strong></p>") + "</article>";
     const action = analysis?.recommendation
       ? "<article class=\"action\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.improvementAction) + "</span></div><h4>" + escapeHtml(analysis.recommendation.action) + "</h4><p class=\"action-copy\">" + escapeHtml(analysis.recommendation.rationale) + "</p><p class=\"applicability\">" + escapeHtml(analysis.recommendation.applicability) + (analysis.recommendation.tradeoff ? " · " + escapeHtml(analysis.recommendation.tradeoff) : "") + "</p><p class=\"verify\"><span class=\"analysis-label\">" + escapeHtml(labels.verificationMethod) + "</span>" + escapeHtml(analysis.recommendation.verification) + "</p></article>"
       : "";
-    const taskContext = analysis?.taskContext ?? (locale === "zh-CN" ? "Host Agent 解读不可用；保留确定性轨迹。" : "Host Agent interpretation is unavailable; the deterministic trajectory remains.");
-    const metrics = "<div class=\"key-session-metrics\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "Session 摘要" : "Session summary") + "\"><div class=\"key-session-metric\"><span class=\"key-session-metric-value\">" + escapeHtml(durationText(totalDuration, locale)) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(labels.totalDuration) + "</span></div><div class=\"key-session-metric\"><span class=\"key-session-metric-value\" data-sort=\"" + String(turns.length) + "\">" + escapeHtml(String(turns.length)) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(labels.roundCount) + "</span></div><div class=\"key-session-metric\"><span class=\"key-session-metric-value\">" + escapeHtml(concentration) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(locale === "zh-CN" ? "前 5 轮 Token 占比" : "Top 5 round Token share") + "</span></div></div>";
+    const taskContext = analysis?.taskContext ?? keySessionMessages.fallbackTaskContext;
+    const metrics = "<div class=\"key-session-metrics\" aria-label=\"" + escapeHtml(keySessionMessages.sessionSummaryAria) + "\"><div class=\"key-session-metric\"><span class=\"key-session-metric-value\">" + escapeHtml(durationText(totalDuration, locale)) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(labels.totalDuration) + "</span></div><div class=\"key-session-metric\"><span class=\"key-session-metric-value\" data-sort=\"" + String(turns.length) + "\">" + escapeHtml(String(turns.length)) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(labels.roundCount) + "</span></div><div class=\"key-session-metric\"><span class=\"key-session-metric-value\">" + escapeHtml(concentration) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(keySessionMessages.tokenShareLabel) + "</span></div></div>";
     const sessionTotal = keyValueText(row.value, locale);
     const trajectoryNote = labels.trajectoryIntro;
     const promptCount = turns.filter((turn) => promptByTurn.get(row.key + "\0" + turn.turnId)?.content !== null && promptByTurn.has(row.key + "\0" + turn.turnId)).length;
-    const promptNote = promptCount > 0
-      ? (locale === "zh-CN" ? "本地 Tooltip 可查看 " + promptCount + " 个轮次的完整首条用户消息。" : "Local Tooltips include the complete first user message for " + promptCount + " rounds.")
-      : (locale === "zh-CN" ? "首条用户消息不可用时会保留诚实的缺失说明。" : "Missing first user messages remain explicitly unavailable.");
-    const detailSummary = labels.allRoundDetails + " " + turns.length + (locale === "zh-CN" ? " 个轮次明细" : " round details");
-    const trajectory = "<section class=\"key-session-section key-session-trajectory\" aria-labelledby=\"" + chartId + "-title\"><div class=\"key-session-section-head\"><h4 id=\"" + chartId + "-title\">" + escapeHtml(labels.turnTrajectory) + "</h4><p>" + escapeHtml(trajectoryNote) + "</p></div><figure class=\"key-session-chart-frame\" aria-labelledby=\"" + chartId + "-caption\"><div class=\"key-session-chart-toolbar\"><div><strong>" + escapeHtml(String(turns.length) + (locale === "zh-CN" ? " 个轮次 · Token 占比 / 本轮耗时" : " rounds · Token share / round duration")) + "</strong><small>" + escapeHtml(labels.chartHint) + "</small></div><div class=\"key-session-legend\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "图例" : "Legend") + "\"><span class=\"hot\">" + escapeHtml(locale === "zh-CN" ? "高用量轮次" : "Token hotspots") + "</span><span>" + escapeHtml(locale === "zh-CN" ? "其他轮次" : "Other rounds") + "</span><span class=\"time\">" + escapeHtml(labels.roundDuration) + "</span></div></div><div id=\"" + chartId + "\" class=\"echart key-session-chart\" role=\"img\" aria-label=\"" + escapeHtml(String(turns.length) + (locale === "zh-CN" ? " 个轮次的 Token 占比和本轮耗时轨迹" : " rounds of Token share and round duration")) + "\"></div><figcaption id=\"" + chartId + "-caption\" class=\"key-session-chart-note\"><strong>" + escapeHtml(locale === "zh-CN" ? "重点：" : "Focus: ") + "</strong>" + escapeHtml(fact) + "</figcaption><p class=\"key-session-prompt-note\">" + escapeHtml(promptNote) + "</p><noscript><p class=\"key-session-chart-note\">" + escapeHtml(locale === "zh-CN" ? "图表需要 JavaScript；请展开下方完整轮次明细查看相同数据。" : "The chart needs JavaScript; expand the complete round details below for the equivalent data.") + "</p></noscript></figure><details class=\"key-session-appendix\"><summary><span>" + escapeHtml(detailSummary) + "</span><small>" + escapeHtml(labels.detailNote) + "</small></summary><div class=\"table-scroll\">" + renderTurnTrajectory(result, row.key, locale) + "</div></details></section>";
-    return "<details class=\"key-session-entry" + (index === 0 ? " key-session-entry--primary\" open" : "\"") + "><summary aria-controls=\"" + titleId + "\"><span class=\"key-session-summary\"><span class=\"session-summary-main\"><span class=\"session-summary-title\">" + escapeHtml(title) + "</span><span class=\"session-summary-id\">" + escapeHtml(shortenedId(row.key)) + " · " + escapeHtml(String(turns.length)) + " " + escapeHtml(locale === "zh-CN" ? "轮" : "rounds") + "</span></span><small>" + escapeHtml(index === 0 ? (locale === "zh-CN" ? "默认展开" : "open by default") : (locale === "zh-CN" ? "折叠" : "collapsed")) + "</small></span></summary><div id=\"" + titleId + "\" class=\"key-session-content\"><header class=\"key-session-head\"><div class=\"key-session-heading\"><div><span class=\"session-rank\">" + escapeHtml((locale === "zh-CN" ? "TOKEN 排名 " : "TOKEN rank ") + String(index + 1).padStart(2, "0") + " / " + String(topSessions.length).padStart(2, "0") + " · " + (locale === "zh-CN" ? "当前 Session" : "Current Session")) + "</span><h3 class=\"session-title\">" + escapeHtml(title) + "</h3><p class=\"task-title\">" + escapeHtml(taskContext) + "</p><p class=\"session-id\">" + escapeHtml(row.key) + " · " + escapeHtml(result.scope.harness) + "</p></div><div class=\"session-total\"><strong>" + escapeHtml(sessionTotal) + "</strong><span>" + escapeHtml(labels.sessionToken) + "</span></div></div>" + metrics + "</header><section class=\"key-session-section key-session-judgment\" aria-labelledby=\"" + titleId + "-judgment\"><div class=\"key-session-section-head\"><h4 id=\"" + titleId + "-judgment\">" + escapeHtml(labels.primaryFinding) + "</h4><p>" + escapeHtml(locale === "zh-CN" ? "先陈述证据支持的判断，再单独给出改善提议与验证。" : "State the evidence-backed judgment first, then separate the improvement proposal and verification.") + "</p></div><div class=\"judgment\">" + finding + action + "</div></section>" + trajectory + "</div></details>";
+    const promptNote = promptCount > 0 ? keySessionMessages.promptAvailable(promptCount) : keySessionMessages.promptMissing;
+    const detailSummary = keySessionMessages.roundsSummary(turns.length);
+    const trajectory = "<section class=\"key-session-section key-session-trajectory\" aria-labelledby=\"" + chartId + "-title\"><div class=\"key-session-section-head\"><h4 id=\"" + chartId + "-title\">" + escapeHtml(labels.turnTrajectory) + "</h4><p>" + escapeHtml(trajectoryNote) + "</p></div><figure class=\"key-session-chart-frame\" aria-labelledby=\"" + chartId + "-caption\"><div class=\"key-session-chart-toolbar\"><div><strong>" + escapeHtml(keySessionMessages.chartRounds(turns.length)) + "</strong><small>" + escapeHtml(labels.chartHint) + "</small></div><div class=\"key-session-legend\" aria-label=\"" + escapeHtml(keySessionMessages.legendAria) + "\"><span class=\"hot\">" + escapeHtml(keySessionMessages.hotspots) + "</span><span>" + escapeHtml(keySessionMessages.otherRounds) + "</span><span class=\"time\">" + escapeHtml(labels.roundDuration) + "</span></div></div><div id=\"" + chartId + "\" class=\"echart key-session-chart\" role=\"img\" aria-label=\"" + escapeHtml(keySessionMessages.chartAria(turns.length)) + "\"></div><figcaption id=\"" + chartId + "-caption\" class=\"key-session-chart-note\"><strong>" + escapeHtml(keySessionMessages.focus) + "</strong>" + escapeHtml(fact) + "</figcaption><p class=\"key-session-prompt-note\">" + escapeHtml(promptNote) + "</p><noscript><p class=\"key-session-chart-note\">" + escapeHtml(keySessionMessages.noScript) + "</p></noscript></figure><details class=\"key-session-appendix\"><summary><span>" + escapeHtml(detailSummary) + "</span><small>" + escapeHtml(labels.detailNote) + "</small></summary><div class=\"table-scroll\">" + renderTurnTrajectory(result, row.key, locale) + "</div></details></section>";
+    return "<details class=\"key-session-entry" + (index === 0 ? " key-session-entry--primary\" open" : "\"") + "><summary aria-controls=\"" + titleId + "\"><span class=\"key-session-summary\"><span class=\"session-summary-main\"><span class=\"session-summary-title\">" + escapeHtml(title) + "</span><span class=\"session-summary-id\">" + escapeHtml(shortenedId(row.key)) + " · " + escapeHtml(String(turns.length)) + " " + escapeHtml(keySessionMessages.roundUnit) + "</span></span><small>" + escapeHtml(index === 0 ? keySessionMessages.openByDefault : keySessionMessages.collapsed) + "</small></span></summary><div id=\"" + titleId + "\" class=\"key-session-content\"><header class=\"key-session-head\"><div class=\"key-session-heading\"><div><span class=\"session-rank\">" + escapeHtml(keySessionMessages.rank(index + 1, topSessions.length)) + "</span><h3 class=\"session-title\">" + escapeHtml(title) + "</h3><p class=\"task-title\">" + escapeHtml(taskContext) + "</p><p class=\"session-id\">" + escapeHtml(row.key) + " · " + escapeHtml(result.scope.harness) + "</p></div><div class=\"session-total\"><strong>" + escapeHtml(sessionTotal) + "</strong><span>" + escapeHtml(labels.sessionToken) + "</span></div></div>" + metrics + "</header><section class=\"key-session-section key-session-judgment\" aria-labelledby=\"" + titleId + "-judgment\"><div class=\"key-session-section-head\"><h4 id=\"" + titleId + "-judgment\">" + escapeHtml(labels.primaryFinding) + "</h4><p>" + escapeHtml(keySessionMessages.judgmentNote) + "</p></div><div class=\"judgment\">" + finding + action + "</div></section>" + trajectory + "</div></details>";
   }).join("");
-  return "<section class=\"key-session-analysis-section\"><header class=\"key-session-module-head\"><span class=\"key-session-module-kicker\">" + escapeHtml((locale === "zh-CN" ? "用量诊断 · " : "Usage diagnosis · ") + result.scope.harness) + "</span><h2>" + escapeHtml(labels.keySessionAnalysis) + "</h2><p class=\"key-session-module-deck\">" + escapeHtml(labels.moduleDeck) + "</p><p class=\"key-session-privacy\" role=\"note\">" + escapeHtml(locale === "zh-CN" ? "本地完整 HTML 的 Tooltip 可包含展示轮次的完整首条用户消息；分享稿、JSON 和文本不含 Prompt。" : "Local full HTML Tooltips may include the complete first user message for displayed rounds; share, JSON, and text outputs exclude Prompts.") + "</p></header><div class=\"key-session-list\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "关键 Session 列表" : "Key Session list") + "\">" + blocks + "</div></section>";
+  return "<section class=\"key-session-analysis-section\"><header class=\"key-session-module-head\"><span class=\"key-session-module-kicker\">" + escapeHtml(keySessionMessages.moduleKicker(result.scope.harness)) + "</span><h2>" + escapeHtml(labels.keySessionAnalysis) + "</h2><p class=\"key-session-module-deck\">" + escapeHtml(labels.moduleDeck) + "</p><p class=\"key-session-privacy\" role=\"note\">" + escapeHtml(keySessionMessages.privacyNote) + "</p></header><div class=\"key-session-list\" aria-label=\"" + escapeHtml(keySessionMessages.listAria) + "\">" + blocks + "</div></section>";
 }
 
 function renderExplainableSessions(result: AuditResult, locale: ReportLocale): string {
@@ -1378,7 +858,7 @@ function renderDaily(result: AuditResult, locale: ReportLocale): string {
   const rows = result.report.dailyUsage;
   if (rows.length === 0) return emptyState(labels);
   return "<table class=\"kami-table compact sortable\"><thead><tr><th>" + escapeHtml(labels.date) + "</th><th>" + escapeHtml(labels.totalTokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" +
-    escapeHtml(labels.input) + "</th><th>" + escapeHtml(labels.cachedInput) + "</th><th>" + escapeHtml(labels.cacheWrite) + "</th><th>" + escapeHtml(labels.output) + "</th><th>" + escapeHtml(locale === "zh-CN" ? "未分类部分" : "unclassified remainder") + "</th></tr></thead><tbody>" +
+    escapeHtml(labels.input) + "</th><th>" + escapeHtml(labels.cachedInput) + "</th><th>" + escapeHtml(labels.cacheWrite) + "</th><th>" + escapeHtml(labels.output) + "</th><th>" + escapeHtml(labels.charts.unclassified) + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(formatDateKey(row.key, locale)) + "</th><td>" + tokenCell(row.totalTokens, locale) + "</td><td>" +
       percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(row.inputTokens, locale) + "</td><td>" + tokenCell(row.cachedInputTokens, locale) +
       "</td><td>" + tokenCell(row.cacheWriteTokens, locale) + "</td><td>" + tokenCell(row.outputTokens, locale) + "</td><td>" + tokenCell(row.unclassifiedTokens, locale) + "</td></tr>").join("") +
@@ -1411,7 +891,7 @@ function renderTools(result: AuditResult, locale: ReportLocale): string {
   const rows = result.report.tools;
   if (rows.length === 0) return emptyState(labels, labels.noToolData);
   const showErrors = rows.some((row) => row.errors.value !== null);
-  return "<p class=\"coverage-note\">" + escapeHtml(labels.toolImpactNote) + "</p><table class=\"kami-table compact sortable\"><thead><tr><th>Tool</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.pairedResults) + "</th>" +
+  return "<p class=\"coverage-note\">" + escapeHtml(labels.toolImpactNote) + "</p><table class=\"kami-table compact sortable\"><thead><tr><th>" + escapeHtml(labels.tool) + "</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.pairedResults) + "</th>" +
     (showErrors ? "<th>" + escapeHtml(labels.errors) + "</th>" : "") + "<th>" +
     escapeHtml(labels.injected) + "</th><th>" + escapeHtml(labels.amplified) + "</th><th>" + escapeHtml(labels.share) + "</th></tr></thead><tbody>" +
     rows.map((row: ToolAnalysisEntry) => "<tr><th scope=\"row\">" + escapeHtml(publicLabel(row.key, labels.unavailable)) + "</th><td>" + tokenCell(row.calls, locale) +
@@ -1421,25 +901,20 @@ function renderTools(result: AuditResult, locale: ReportLocale): string {
 }
 
 function methodText(value: EvidenceValue, locale: ReportLocale): string {
-  return localizeMethod(value.method, locale);
+  return labelsFor(locale).method(value.method);
 }
 
 function skillStateLabel(state: AuditResult["report"]["skills"][number]["state"], locale: ReportLocale): string {
-  if (locale === "zh-CN") {
-    return state === "available" ? "可用" : state === "invoked" ? "已调用" : state === "attributed" ? "有据可查" : "无数据";
-  }
-  return state;
+  return labelsFor(locale).skillStates[state] ?? state;
 }
 
 function skillLabel(name: string, locale: ReportLocale): string {
-  if (name === "<unknown-skill>") return locale === "zh-CN" ? "未知 Skill" : "Unknown Skill";
+  if (name === "<unknown-skill>") return labelsFor(locale).unknownSkill;
   return publicLabel(name, labelsFor(locale).unavailable);
 }
 
 function skillEvidenceNote(locale: ReportLocale): string {
-  return locale === "zh-CN"
-    ? "这里的 API 折算金额只统计能够明确关联到该 Skill 的用量；本地历史无法证明 Skill 导致额外成本。"
-    : "API-equivalent cost here includes only usage explicitly attributable to the Skill; local history cannot prove that a Skill caused extra cost.";
+  return labelsFor(locale).skillEvidenceNote;
 }
 
 function renderCacheText(result: AuditResult, locale: ReportLocale): string[] {
@@ -1449,9 +924,9 @@ function renderCacheText(result: AuditResult, locale: ReportLocale): string[] {
     labels.cacheEconomics,
     labels.cacheReadRate + ": " + percentagePlain(cache.cacheReadRatePercent, locale) + "; " + labels.cacheWriteRate + ": " + percentagePlain(cache.cacheWriteRatePercent, locale) + "; " + labels.cacheCoverage + ": " + percentagePlain(cache.coveragePercent, locale) + ".",
     labels.observedApiCost + ": " + currencyPlain(cache.observedApiEquivalentCost, locale, false) + "; " + labels.allUncachedApiCost + ": " + currencyPlain(cache.allUncachedApiEquivalentCost, locale, false) + "; " + labels.cacheSavings + ": " + currencyPlain(cache.cacheSavings, locale, false) + " (" + percentagePlain(cache.cacheSavingsPercent, locale) + "); " + labels.priceCoverage + ": " + percentagePlain(cache.pricedUsageCoveragePercent, locale) + ".",
-    (locale === "zh-CN" ? "方法：" : "Method: ") + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale),
+    labels.methodPrefix + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale),
   ];
-  if (cache.limitations.length > 0) lines.push((locale === "zh-CN" ? "限制：" : "Limitations: ") + cache.limitations.map((limitation) => localizeLimitation(limitation, locale)).join("; "));
+  if (cache.limitations.length > 0) lines.push(labels.limitationPrefix + cache.limitations.map((limitation) => labels.limitation(limitation)).join("; "));
   return lines;
 }
 
@@ -1461,14 +936,14 @@ function renderFirstRequestText(result: AuditResult, locale: ReportLocale): stri
   const lines = [
     labels.firstRequestBurden,
     labels.firstRequestMedian + ": " + evidencePlain(first.medianTokens, locale, false) + "; " + labels.firstRequestShare + ": " + percentagePlain(first.sharePercent, locale) + "; " + labels.firstRequestCoverage + ": " + percentagePlain(first.coveragePercent, locale) + ".",
-    (locale === "zh-CN" ? "缓存构成：普通输入 " : "Cache composition: ordinary input ") + evidencePlain(first.inputTokens, locale, false) + "; " + labels.cachedInput + " " + evidencePlain(first.cachedInputTokens, locale, false) + "; " + labels.cacheWrite + " " + evidencePlain(first.cacheWriteTokens, locale, false) + "; " + labels.output + " " + evidencePlain(first.outputTokens, locale, false) + ".",
+    labels.cacheCompositionPrefix + evidencePlain(first.inputTokens, locale, false) + "; " + labels.cachedInput + " " + evidencePlain(first.cachedInputTokens, locale, false) + "; " + labels.cacheWrite + " " + evidencePlain(first.cacheWriteTokens, locale, false) + "; " + labels.output + " " + evidencePlain(first.outputTokens, locale, false) + ".",
     labels.firstRequestCompositionCoverage + ": " + percentagePlain(first.compositionCoveragePercent, locale) + "; " + labels.coldFirstRequestRate + ": " + percentagePlain(first.coldSessionRatePercent, locale) + ".",
-    (locale === "zh-CN" ? "方法：" : "Method: ") + methodText(first.medianTokens, locale) + "; " + (locale === "zh-CN" ? "这是观测到的最早请求大小，无法精确区分系统、Skill 和用户输入各自占了多少。" : "This is the observed earliest request size; it cannot precisely decompose system, Skill, or user-input overhead."),
+    labels.methodPrefix + methodText(first.medianTokens, locale) + "; " + labels.firstRequestMethodNote,
   ];
-  if (first.topLevel) lines.push((locale === "zh-CN" ? "顶层：" : "Top-level: ") + evidencePlain(first.topLevel.medianTokens, locale, false) + "; " + labels.firstRequestCoverage + " " + percentagePlain(first.topLevel.compositionCoveragePercent, locale) + ".");
-  if (first.subagent) lines.push((locale === "zh-CN" ? "子 Agent：" : "Subagent: ") + evidencePlain(first.subagent.medianTokens, locale, false) + "; " + labels.firstRequestCoverage + " " + percentagePlain(first.subagent.compositionCoveragePercent, locale) + ".");
-  lines.push((locale === "zh-CN" ? labels.identityCoverage + "：" : "Identity coverage: ") + percentagePlain(first.identityCoveragePercent, locale) + ".");
-  if (first.limitations.length > 0) lines.push((locale === "zh-CN" ? "限制：" : "Limitations: ") + first.limitations.map((limitation) => localizeLimitation(limitation, locale)).join("; "));
+  if (first.topLevel) lines.push(labels.topLevelPrefix + evidencePlain(first.topLevel.medianTokens, locale, false) + "; " + labels.firstRequestCoverage + " " + percentagePlain(first.topLevel.compositionCoveragePercent, locale) + ".");
+  if (first.subagent) lines.push(labels.subagentPrefix + evidencePlain(first.subagent.medianTokens, locale, false) + "; " + labels.firstRequestCoverage + " " + percentagePlain(first.subagent.compositionCoveragePercent, locale) + ".");
+  lines.push(labels.identityCoveragePrefix + percentagePlain(first.identityCoveragePercent, locale) + ".");
+  if (first.limitations.length > 0) lines.push(labels.limitationPrefix + first.limitations.map((limitation) => labels.limitation(limitation)).join("; "));
   return lines;
 }
 
@@ -1502,10 +977,8 @@ function renderCacheHtml(result: AuditResult, locale: ReportLocale): string {
     [labels.cacheSavingsPercent, cache.cacheSavingsPercent, "percentage"],
   ];
   const limitations = renderCacheLimitations(cache, locale);
-  const efficiencyTitle = locale === "zh-CN" ? "缓存效率" : "Cache efficiency";
-  const impactTitle = locale === "zh-CN" ? "成本影响" : "Cost impact";
-  const groups = "<div class=\"comparison-grid economic-groups\"><div class=\"ivory-group\"><h3>" + escapeHtml(efficiencyTitle) + "</h3>" + renderMetrics(efficiencyMetrics, locale, "economic") + "</div><div class=\"ivory-group\"><h3>" + escapeHtml(impactTitle) + "</h3>" + renderMetrics(impactMetrics, locale, "economic") + "</div></div>";
-  return "<section class=\"cache-economics\"><h2>" + escapeHtml(labels.cacheEconomics) + "</h2>" + groups + "<p class=\"coverage-note\">" + escapeHtml((locale === "zh-CN" ? "缓存比例的算法：先把各类 Token 分别汇总，再计算比例；金额按 API 单价折算，只作估算，不是订阅账单。方法：" : "Cache ratios sum mutually exclusive Token buckets before division; currency is an API-equivalent estimate, not a subscription bill. Method: ") + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale)) + "</p>" + limitations + "</section>";
+  const groups = "<div class=\"comparison-grid economic-groups\"><div class=\"ivory-group\"><h3>" + escapeHtml(labels.cacheEfficiencyTitle) + "</h3>" + renderMetrics(efficiencyMetrics, locale, "economic") + "</div><div class=\"ivory-group\"><h3>" + escapeHtml(labels.costImpactTitle) + "</h3>" + renderMetrics(impactMetrics, locale, "economic") + "</div></div>";
+  return "<section class=\"cache-economics\"><h2>" + escapeHtml(labels.cacheEconomics) + "</h2>" + groups + "<p class=\"coverage-note\">" + escapeHtml(labels.cacheRatioMethodNotePrefix + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale)) + "</p>" + limitations + "</section>";
 }
 
 function renderFirstGroupHtml(group: AuditResult["report"]["firstRequestBurden"]["topLevel"], label: string, locale: ReportLocale): string {
@@ -1529,17 +1002,17 @@ function renderFirstRequestHtml(result: AuditResult, locale: ReportLocale): stri
     [labels.coldFirstRequestRate, first.coldSessionRatePercent, "percentage"],
     [labels.identityCoverage, first.identityCoveragePercent, "percentage"],
   ];
-  const limitations = first.limitations.length > 0 ? "<ul class=\"editorial-list\">" + first.limitations.map((limitation) => "<li>" + escapeHtml(localizeLimitation(limitation, locale)) + "</li>").join("") + "</ul>" : "";
+  const limitations = first.limitations.length > 0 ? "<ul class=\"editorial-list\">" + first.limitations.map((limitation) => "<li>" + escapeHtml(labels.limitation(limitation)) + "</li>").join("") + "</ul>" : "";
   const comparisonGroups = [renderFirstGroupHtml(first.topLevel, labels.topLevelSessions, locale), renderFirstGroupHtml(first.subagent, labels.subagentSessions, locale)].filter(Boolean).join("");
   const comparison = comparisonGroups ? "<div class=\"comparison-grid\">" + comparisonGroups + "</div>" : "";
-  return "<section class=\"first-request\"><h2>" + escapeHtml(labels.firstRequestBurden) + "</h2>" + renderMetrics(metrics, locale, "first-request") + "<p class=\"coverage-note\">" + escapeHtml(locale === "zh-CN" ? "这是每个 Session 最早有效请求的 Token 量，不是可以精确剥离的启动成本。" : "This is the observed burden in Tokens of each Session's earliest valid request, not an exact decomposable startup tax.") + "</p>" + comparison + limitations + "</section>";
+  return "<section class=\"first-request\"><h2>" + escapeHtml(labels.firstRequestBurden) + "</h2>" + renderMetrics(metrics, locale, "first-request") + "<p class=\"coverage-note\">" + escapeHtml(labels.firstRequestNote) + "</p>" + comparison + limitations + "</section>";
 }
 
 function renderSkillsHtml(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (result.report.skills.length === 0) return "<section><h2>" + escapeHtml(labels.skillEvidence) + "</h2>" + emptyState(labels, labels.noSkillEvidence) + "</section>";
   const rows = result.report.skills.map((skill) => "<tr><th scope=\"row\">" + escapeHtml(skillLabel(skill.name, locale)) + "</th><td>" + evidenceHtml(skill.invocationCount, locale, false) + "</td><td>" + evidenceHtml(skill.sessionCount, locale, false) + "</td><td>" + evidenceHtml(skill.attributedTokens, locale) + "</td><td>" + evidenceHtml(skill.attributedApiEquivalentCost, locale, false, true) + "</td></tr>").join("");
-  return "<section class=\"skill-evidence\"><h2>" + escapeHtml(labels.skillEvidence) + "</h2><p class=\"coverage-note\">" + escapeHtml(skillEvidenceNote(locale)) + "</p><table class=\"kami-table compact sortable skills-table\"><thead><tr><th scope=\"col\">Skill</th><th scope=\"col\">" + escapeHtml(labels.invocationCount) + "</th><th scope=\"col\">" + escapeHtml(labels.skillSessions) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedTokens) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedCost) + "</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
+  return "<section class=\"skill-evidence\"><h2>" + escapeHtml(labels.skillEvidence) + "</h2><p class=\"coverage-note\">" + escapeHtml(skillEvidenceNote(locale)) + "</p><table class=\"kami-table compact sortable skills-table\"><thead><tr><th scope=\"col\">" + escapeHtml(labels.skill) + "</th><th scope=\"col\">" + escapeHtml(labels.invocationCount) + "</th><th scope=\"col\">" + escapeHtml(labels.skillSessions) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedTokens) + "</th><th scope=\"col\">" + escapeHtml(labels.attributedCost) + "</th></tr></thead><tbody>" + rows + "</tbody></table></section>";
 }
 
 function numericValue(value: EvidenceValue): number | null {
@@ -1681,7 +1154,7 @@ function renderHourlyHeatmap(result: AuditResult, locale: ReportLocale): string 
       parts.push("<rect x=\"" + (gridX + hour * cell) + "\" y=\"" + y + "\" width=\"21\" height=\"21\" rx=\"4\" class=\"heat-" + level + "\"><title>" + escapeHtml(description) + "</title></rect>");
     }
   });
-  parts.push("<text x=\"" + gridX + "\" y=\"" + (height - 8) + "\" class=\"heat-hour\">" + escapeHtml(locale === "zh-CN" ? "本地时间" : "Local time") + "</text></svg>");
+  parts.push("<text x=\"" + gridX + "\" y=\"" + (height - 8) + "\" class=\"heat-hour\">" + escapeHtml(labels.charts.localTime) + "</text></svg>");
   return parts.join("");
 }
 
@@ -1690,8 +1163,8 @@ function renderHourly(result: AuditResult, locale: ReportLocale): string {
   const rows = result.report.hourlyActivity;
   if (!result.report.hourlySupported || rows.length === 0) return emptyState(labels, labels.noTimestampData);
   return renderHourlyHeatmap(result, locale) +
-    "<details><summary>" + escapeHtml(locale === "zh-CN" ? "查看小时明细 ↓" : "View hourly details ↓") + "</summary><table class=\"kami-table sortable\"><thead><tr><th>" +
-    escapeHtml(locale === "zh-CN" ? "本地时间" : "Local time") + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.share) + "</th></tr></thead><tbody>" +
+    "<details><summary>" + escapeHtml(labels.charts.hourlyDetails) + "</summary><table class=\"kami-table sortable\"><thead><tr><th>" +
+    escapeHtml(labels.charts.localTime) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.share) + "</th></tr></thead><tbody>" +
     rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(localHour(row.key, locale)?.timeLabel ?? row.key) + "</th><td>" + tokenCell(row.totalTokens, locale) + "</td><td>" +
       tokenCell(row.modelCallCount, locale) + "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td></tr>").join("") + "</tbody></table></details>";
 }
@@ -1703,7 +1176,7 @@ function renderRolling(result: AuditResult, locale: ReportLocale): string {
   const quotaMetrics: Array<[string, EvidenceValue, MetricKind]> = [];
   if (rolling.providerQuota.value !== null) quotaMetrics.push([labels.providerQuota, rolling.providerQuota, "metric"]);
   if (rolling.resetAt.value !== null) quotaMetrics.push([labels.resetTime, rolling.resetAt, "metric"]);
-  return "<div class=\"ivory-group rolling-activity\"><span class=\"tag tag--quiet\">" + escapeHtml(locale === "zh-CN" ? "本地活动" : "Local observation") + "</span><p class=\"coverage-note\">" + escapeHtml(labels.localOnly) + "</p><div class=\"window-note\"><span>" + escapeHtml(formatDateTime(rolling.startAt, locale) + " → " + formatDateTime(rolling.endAt, locale)) + "</span></div>" +
+  return "<div class=\"ivory-group rolling-activity\"><span class=\"tag tag--quiet\">" + escapeHtml(labels.charts.localObservation) + "</span><p class=\"coverage-note\">" + escapeHtml(labels.localOnly) + "</p><div class=\"window-note\"><span>" + escapeHtml(formatDateTime(rolling.startAt, locale) + " → " + formatDateTime(rolling.endAt, locale)) + "</span></div>" +
     renderMetrics([
       [labels.calls, rolling.observedModelCallCount, "metric"],
       [labels.latestWindowTokens, rolling.observedTokens, "metric"],
@@ -1716,7 +1189,7 @@ function renderRolling(result: AuditResult, locale: ReportLocale): string {
 function renderWeekChanges(rows: WeekStructureChange[], heading: string, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   if (rows.length === 0) return "<h3>" + escapeHtml(heading) + "</h3>" + emptyState(labels);
-  return "<h3>" + escapeHtml(heading) + "</h3><table class=\"kami-table sortable\"><thead><tr><th>Key</th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" +
+  return "<h3>" + escapeHtml(heading) + "</h3><table class=\"kami-table sortable\"><thead><tr><th>" + escapeHtml(labels.key) + "</th><th>" + escapeHtml(labels.currentWeek) + "</th><th>" +
     escapeHtml(labels.previousWeek) + "</th><th>" + escapeHtml(labels.change) + "</th></tr></thead><tbody>" +
     rows.slice(0, 20).map((row) => "<tr><th scope=\"row\">" + escapeHtml(publicLabel(row.key, labels.unavailable)) + "</th><td>" + tokenCell(row.current, locale) +
       "</td><td>" + tokenCell(row.previous, locale) + "</td><td>" + tokenCell(row.change, locale) + "</td></tr>").join("") + "</tbody></table>";
@@ -1815,8 +1288,8 @@ function keySessionChartData(result: AuditResult, locale: ReportLocale, firstUse
           event: events.join(" · "),
           prompt: prompt?.content ?? null,
           promptNote: prompt?.content === null
-            ? locale === "zh-CN" ? "首条用户消息内容不可用" : "The first user message content is unavailable"
-            : prompt ? "" : locale === "zh-CN" ? "日志未记录本轮独立的用户消息" : "No independent user message was recorded for this round",
+            ? labelsFor(locale).keySession.promptUnavailable
+            : prompt ? "" : labelsFor(locale).noUserMessage,
           hot: hot.has(turn.turnId),
         };
       }),
@@ -1834,7 +1307,9 @@ function keyChartScript(locale: ReportLocale): string {
     tools: labels.toolCalls,
     result: labels.resultSize,
     events: labels.processEvents,
-    shareAxis: locale === "zh-CN" ? "Token 占比" : "Token share",
+    shareAxis: labels.charts.keyShareAxis,
+    durationUnits: labels.duration,
+    keyTrajectoryDescription: labels.charts.keyTrajectoryDescription,
     unavailable: labels.unavailable,
   });
   return [
@@ -1842,8 +1317,8 @@ function keyChartScript(locale: ReportLocale): string {
     "const escapeTooltip=value=>String(value??'').replace(/[&<>]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[char])).replace(/\"/g,'&quot;').replace(/'/g,'&#39;');",
     "const fmtInt=value=>value==null?'—':new Intl.NumberFormat(d.locale,{maximumFractionDigits:0}).format(value);",
     "const fmtPct=value=>value==null?'—':Number(value).toFixed(2)+'%';",
-    "const fmtDuration=value=>{if(value==null)return'—';const total=Math.max(0,Math.round(value/1000)),seconds=total%60,minutes=Math.floor(total/60)%60,hours=Math.floor(total/3600);if(d.locale==='zh-CN'){if(hours)return hours+'小时'+(minutes?minutes+'分钟':'')+(seconds?seconds+'秒':'');if(minutes)return Math.floor(total/60)+'分钟'+(seconds?seconds+'秒':'');return seconds+'秒'}if(hours)return hours+'h'+(minutes?' '+minutes+'m':'')+(seconds?' '+seconds+'s':'');if(minutes)return Math.floor(total/60)+'m'+(seconds?' '+seconds+'s':'');return seconds+'s'};",
-    "d.keySessions.forEach(session=>{const tooltip=params=>{const item=Array.isArray(params)?params[0]:params;const turn=session.turns[item?.dataIndex??-1];if(!turn)return'';const prompt=turn.prompt===null?'<div class=\"key-session-tooltip-prompt key-session-tooltip-unavailable\"><div class=\"key-session-tooltip-label\">'+escapeTooltip(keyUi.firstUserMessage)+' · '+escapeTooltip(keyUi.unavailable)+'</div><div>'+escapeTooltip(turn.promptNote)+'</div></div>':'<div class=\"key-session-tooltip-prompt\"><div class=\"key-session-tooltip-label\">'+escapeTooltip(keyUi.firstUserMessage)+'</div><div class=\"key-session-tooltip-text\">'+escapeTooltip(turn.prompt)+'</div></div>';return'<div class=\"key-session-tooltip\"><div class=\"key-session-tooltip-title\">'+escapeTooltip(turn.label)+'</div><div class=\"key-session-tooltip-grid\"><span>'+escapeTooltip(keyUi.tokens)+'</span><b>'+fmtInt(turn.token)+'</b><span>'+escapeTooltip(keyUi.share)+'</span><b>'+fmtPct(turn.share)+'</b><span>'+escapeTooltip(keyUi.duration)+'</span><b>'+fmtDuration(turn.duration)+'</b><span>'+escapeTooltip(keyUi.tools)+'</span><b>'+(turn.tools==null?'—':fmtInt(turn.tools))+'</b><span>'+escapeTooltip(keyUi.result)+'</span><b>'+escapeTooltip(turn.result||'—')+'</b><span>'+escapeTooltip(keyUi.events)+'</span><b>'+escapeTooltip(turn.event||'—')+'</b></div>'+prompt+'</div>'};const shares=session.turns.map(turn=>({value:turn.share==null?0:turn.share,itemStyle:{color:turn.hot?p.brand:p.chartMuted,opacity:turn.share==null?.22:turn.hot?1:.78}}));const maxShare=Math.max(10,...session.turns.map(turn=>turn.share??0));make(session.chartId,{aria:{show:true,description:d.locale==='zh-CN'?'每个轮次的 Token 占比和本轮耗时轨迹；Tooltip 包含完整首条用户消息。':'Token share and round duration by round; the Tooltip includes the complete first user message.'},animationDuration:450,tooltip:{trigger:'axis',enterable:true,confine:true,backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},axisPointer:{type:'shadow',shadowStyle:{color:'rgba(27,54,93,.08)'}},extraCssText:'max-width:min(460px,88vw);max-height:420px;overflow:auto;white-space:normal;border-radius:2px;box-shadow:0 8px 24px rgba(20,20,19,.12);padding:12px 14px;',formatter:tooltip},grid:{left:54,right:58,top:42,bottom:78,containLabel:true},xAxis:{type:'category',data:session.turns.map(turn=>turn.n==null?turn.label.replace(/^.*?([0-9]+)/,'$1'):String(turn.n)),axisLabel:{...axis.axisLabel,fontSize:11,hideOverlap:true},axisLine:axis.axisLine,axisTick:{show:false}},yAxis:[{type:'value',name:keyUi.shareAxis,max:Math.min(100,Math.max(10,Math.ceil(maxShare/5)*5)),axisLabel:{...axis.axisLabel,formatter:value=>value+'%'},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},{type:'value',name:keyUi.duration,axisLabel:{...axis.axisLabel,formatter:value=>Math.round(value/60000)+(d.locale==='zh-CN'?'分钟':'m')},axisLine:axis.axisLine,splitLine:{show:false}}],dataZoom:[{type:'inside',start:0,end:session.turns.length>14?42:100},{type:'slider',height:16,bottom:18,start:0,end:session.turns.length>14?42:100,borderColor:'#e8e6dc',fillerColor:'rgba(27,54,93,.14)',handleStyle:{color:p.brand},textStyle:{color:p.stone,fontFamily:serifFont}}],series:[{name:keyUi.shareAxis,type:'bar',yAxisIndex:0,barMaxWidth:22,data:shares,emphasis:{itemStyle:{color:p.brandLight,opacity:1}}},{name:keyUi.duration,type:'line',yAxisIndex:1,smooth:.18,symbol:'circle',symbolSize:5,data:session.turns.map(turn=>turn.duration),lineStyle:{color:p.olive,width:1.6},itemStyle:{color:p.olive},connectNulls:false}]})});",
+    "const fmtDuration=value=>{if(value==null)return'—';const total=Math.max(0,Math.round(value/1000)),seconds=total%60,minutes=Math.floor(total/60)%60,hours=Math.floor(total/3600),d=keyUi.durationUnits;if(hours)return hours+d.hour+(minutes?d.separator+minutes+d.minute:'')+(seconds?d.separator+seconds+d.second:'');if(minutes)return Math.floor(total/60)+d.minute+(seconds?d.separator+seconds+d.second:'');return seconds+d.second};",
+    "d.keySessions.forEach(session=>{const tooltip=params=>{const item=Array.isArray(params)?params[0]:params;const turn=session.turns[item?.dataIndex??-1];if(!turn)return'';const prompt=turn.prompt===null?'<div class=\"key-session-tooltip-prompt key-session-tooltip-unavailable\"><div class=\"key-session-tooltip-label\">'+escapeTooltip(keyUi.firstUserMessage)+' · '+escapeTooltip(keyUi.unavailable)+'</div><div>'+escapeTooltip(turn.promptNote)+'</div></div>':'<div class=\"key-session-tooltip-prompt\"><div class=\"key-session-tooltip-label\">'+escapeTooltip(keyUi.firstUserMessage)+'</div><div class=\"key-session-tooltip-text\">'+escapeTooltip(turn.prompt)+'</div></div>';return'<div class=\"key-session-tooltip\"><div class=\"key-session-tooltip-title\">'+escapeTooltip(turn.label)+'</div><div class=\"key-session-tooltip-grid\"><span>'+escapeTooltip(keyUi.tokens)+'</span><b>'+fmtInt(turn.token)+'</b><span>'+escapeTooltip(keyUi.share)+'</span><b>'+fmtPct(turn.share)+'</b><span>'+escapeTooltip(keyUi.duration)+'</span><b>'+fmtDuration(turn.duration)+'</b><span>'+escapeTooltip(keyUi.tools)+'</span><b>'+(turn.tools==null?'—':fmtInt(turn.tools))+'</b><span>'+escapeTooltip(keyUi.result)+'</span><b>'+escapeTooltip(turn.result||'—')+'</b><span>'+escapeTooltip(keyUi.events)+'</span><b>'+escapeTooltip(turn.event||'—')+'</b></div>'+prompt+'</div>'};const shares=session.turns.map(turn=>({value:turn.share==null?0:turn.share,itemStyle:{color:turn.hot?p.brand:p.chartMuted,opacity:turn.share==null?.22:turn.hot?1:.78}}));const maxShare=Math.max(10,...session.turns.map(turn=>turn.share??0));make(session.chartId,{aria:{show:true,description:keyUi.keyTrajectoryDescription},animationDuration:450,tooltip:{trigger:'axis',enterable:true,confine:true,backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},axisPointer:{type:'shadow',shadowStyle:{color:'rgba(27,54,93,.08)'}},extraCssText:'max-width:min(460px,88vw);max-height:420px;overflow:auto;white-space:normal;border-radius:2px;box-shadow:0 8px 24px rgba(20,20,19,.12);padding:12px 14px;',formatter:tooltip},grid:{left:54,right:58,top:42,bottom:78,containLabel:true},xAxis:{type:'category',data:session.turns.map(turn=>turn.n==null?turn.label.replace(/^.*?([0-9]+)/,'$1'):String(turn.n)),axisLabel:{...axis.axisLabel,fontSize:11,hideOverlap:true},axisLine:axis.axisLine,axisTick:{show:false}},yAxis:[{type:'value',name:keyUi.shareAxis,max:Math.min(100,Math.max(10,Math.ceil(maxShare/5)*5)),axisLabel:{...axis.axisLabel,formatter:value=>value+'%'},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},{type:'value',name:keyUi.duration,axisLabel:{...axis.axisLabel,formatter:value=>Math.round(value/60000)+keyUi.durationUnits.minute},axisLine:axis.axisLine,splitLine:{show:false}}],dataZoom:[{type:'inside',start:0,end:session.turns.length>14?42:100},{type:'slider',height:16,bottom:18,start:0,end:session.turns.length>14?42:100,borderColor:'#e8e6dc',fillerColor:'rgba(27,54,93,.14)',handleStyle:{color:p.brand},textStyle:{color:p.stone,fontFamily:serifFont}}],series:[{name:keyUi.shareAxis,type:'bar',yAxisIndex:0,barMaxWidth:22,data:shares,emphasis:{itemStyle:{color:p.brandLight,opacity:1}}},{name:keyUi.duration,type:'line',yAxisIndex:1,smooth:.18,symbol:'circle',symbolSize:5,data:session.turns.map(turn=>turn.duration),lineStyle:{color:p.olive,width:1.6},itemStyle:{color:p.olive},connectNulls:false}]})});",
   ].join("");
 }
 
@@ -1857,12 +1332,12 @@ function renderInteractiveCharts(result: AuditResult, locale: ReportLocale, firs
   const keySessions = keySessionChartData(result, locale, firstUserMessages);
   const cost = result.report.apiEquivalentCost;
   const costVisible = typeof cost.total.value === "number";
-  const data = scriptSafeJson({ rows, models, tools, keySessions, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: locale === "zh-CN" ? "未分类部分" : "unclassified remainder", cost: locale === "zh-CN" ? "按 API 单价折算的估算金额（USD）" : "API-equivalent estimate (USD)" }, costVisible });
+  const data = scriptSafeJson({ rows, models, tools, keySessions, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: labels.charts.unclassified, cost: labels.charts.cost }, costVisible });
   const runtime = chartRuntime();
   if (!runtime || (rows.length === 0 && !keySessions.some((session) => session.turns.length > 0))) return "";
   const chartPalette = { brand: "#1b365d", brandLight: "#2d4e7a", olive: "#504e49", stone: "#6b6a64", darkWarm: "#3d3d3a", lightStone: "#b8b7b0", chartMuted: "#d4d3cd" };
-  const unavailableLabel = JSON.stringify(locale === "zh-CN" ? "无数据" : "unavailable");
-  const chartAria = JSON.stringify(locale === "zh-CN" ? "每条曲线和悬停值均为该分量原始 Token 值；各分量不堆叠。" : "Each curve and hover value is the raw Token value of that component; components are not stacked.");
+  const unavailableLabel = JSON.stringify(labels.unavailable);
+  const chartAria = JSON.stringify(labels.charts.tokenTrendDescription);
   const chartScript = [
     "addEventListener('DOMContentLoaded',()=>{const d=", data, ";const p=", JSON.stringify(chartPalette), ";const serifFont=getComputedStyle(document.documentElement).getPropertyValue('--serif').trim();const compact=new Intl.NumberFormat(d.locale,{notation:'compact',maximumFractionDigits:2});",
     "const axis={axisLine:{lineStyle:{color:'#e8e6dc'}},axisLabel:{fontFamily:serifFont,color:p.stone}};",
@@ -1871,14 +1346,14 @@ function renderInteractiveCharts(result: AuditResult, locale: ReportLocale, firs
     "const series=[['input',d.labels.input,p.brand,'solid','circle',true],['cached',d.labels.cached,p.stone,'dashed','rect',false],['cacheWrite',d.labels.cacheWrite,p.olive,'dotted','diamond',false],['output',d.labels.output,p.brandLight,'solid','triangle',false],['unclassified',d.labels.unclassified,p.lightStone,'dashed','emptyCircle',false]].map(([key,name,color,lineType,symbol,focus])=>({name,type:'line',smooth:false,symbol,showSymbol:d.rows.length<=14,symbolSize:5,lineStyle:{color,width:focus?2.5:2,opacity:focus?1:.92,type:lineType},itemStyle:{color},...(focus?{areaStyle:{color,opacity:.1}}:{}),emphasis:{focus:'series',lineStyle:{color,width:3,opacity:1},...(focus?{areaStyle:{color,opacity:.12}}:{})},data:d.rows.map(r=>r[key])}));",
     "if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'diamond',showSymbol:d.rows.length<=14,symbolSize:5,connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:p.darkWarm,width:2,type:'dashed'},itemStyle:{color:p.darkWarm},emphasis:{focus:'series',lineStyle:{color:p.darkWarm,width:3,opacity:1}}});",
     "if(d.rows.length)make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:tooltip},legend:{type:'scroll',textStyle:{fontFamily:serifFont,color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
-    "make('model-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按模型的 Token 分布；下方表格提供等价数据。" : "Token distribution by model; the table below provides equivalent data."), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand}}]});",
-    "if(d.models.length>0&&d.models.length<=6)make('model-share-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按模型查看 Token 占比；悬停可查看精确 Token 和占比。" : "Token share by model; hover to inspect exact Tokens and share."), "},color:[p.brand,p.brandLight,p.olive,p.stone,p.lightStone,p.chartMuted],tooltip:{trigger:'item',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:item=>item.name+': '+compact.format(item.value)+' ('+item.percent.toFixed(2)+'%)'},legend:{type:'scroll',orient:'vertical',right:0,top:24,bottom:24,textStyle:{fontFamily:serifFont,color:p.olive}},series:[{type:'pie',radius:['48%','72%'],center:['36%','50%'],label:{show:false},emphasis:{label:{show:true,color:p.darkWarm,fontFamily:serifFont,formatter:item=>item.percent.toFixed(2)+'%'}},itemStyle:{borderColor:'#f5f4ed',borderWidth:2},data:d.models.map(r=>({name:r.name,value:r.value}))}]});",
-    "make('tool-chart',{aria:{show:true,description:", JSON.stringify(locale === "zh-CN" ? "按工具统计工具结果被算入上下文的估算大小；下方表格提供对应数据。" : "Estimated tool-result injection by tool; the table below provides equivalent data."), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.brandLight}}]});",
+    "make('model-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.modelAria), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand}}]});",
+    "if(d.models.length>0&&d.models.length<=6)make('model-share-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.modelShareDescription), "},color:[p.brand,p.brandLight,p.olive,p.stone,p.lightStone,p.chartMuted],tooltip:{trigger:'item',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:item=>item.name+': '+compact.format(item.value)+' ('+item.percent.toFixed(2)+'%)'},legend:{type:'scroll',orient:'vertical',right:0,top:24,bottom:24,textStyle:{fontFamily:serifFont,color:p.olive}},series:[{type:'pie',radius:['48%','72%'],center:['36%','50%'],label:{show:false},emphasis:{label:{show:true,color:p.darkWarm,fontFamily:serifFont,formatter:item=>item.percent.toFixed(2)+'%'}},itemStyle:{borderColor:'#f5f4ed',borderWidth:2},data:d.models.map(r=>({name:r.name,value:r.value}))}]});",
+    "make('tool-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.toolDescription), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.brandLight}}]});",
     keyChartScript(locale),
     "document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent.trim();const b=document.createElement('button');b.type='button';b.className='sort-button';b.textContent=label;b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})});</script>"
   ].join('');
   const script = "<script>" + runtime + "</script><script>" + chartScript;
-  return `<div id="token-trend" class="echart" role="img" aria-label="${escapeHtml(labels.dailyUsage)}"></div><p class="chart-summary">${escapeHtml(locale === "zh-CN" ? "每条线的纵坐标和悬停值都是该 Token 分量自身的值；各分量不堆叠。" : "Each curve and hover value is the raw Token value of that component; components are not stacked.")}</p>${script}`;
+  return `<div id="token-trend" class="echart" role="img" aria-label="${escapeHtml(labels.dailyUsage)}"></div><p class="chart-summary">${escapeHtml(labels.charts.summary)}</p>${script}`;
 }
 function renderStyles(): string {
   const fontFaces = authorizedFontFaces();
@@ -2038,7 +1513,7 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US", 
   const prompts = result.view === "share" ? [] : localFirstUserMessages ?? composition?.firstUserMessages ?? [];
   const modelBars = result.rankings.models.map((row) => ({ key: modelLabel(row.key, locale), value: row.value }));
   const parts = [
-    "<!doctype html><html lang=\"" + (locale === "zh-CN" ? "zh-CN" : "en") + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
+    "<!doctype html><html lang=\"" + labels.htmlLang + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
       escapeHtml(labels.title) + "</title>" + renderStyles() + "</head><body><main>",
     renderReportHeader(result, locale),
     "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "<p class=\"report-method-note\">" + escapeHtml(labels.methodNote) + "</p></section>",
@@ -2053,9 +1528,9 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US", 
       "<h3>" + escapeHtml(labels.hourlyActivity) + "</h3>" + renderHourly(result, locale) +
       "<h3>" + escapeHtml(labels.observedActivity) + "</h3>" + renderRolling(result, locale) + "</section>",
     "<section><h2>" + escapeHtml(labels.models) + "</h2><div class=\"model-chart-grid\"><div id=\"model-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.models) + "\"></div>" +
-      (result.rankings.models.length > 0 && result.rankings.models.length <= 6 ? "<div id=\"model-share-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "按模型查看 Token 占比" : "Token share by model") + "\"></div>" : "") +
+      (result.rankings.models.length > 0 && result.rankings.models.length <= 6 ? "<div id=\"model-share-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.charts.modelShareAria) + "\"></div>" : "") +
       "</div>" + renderModels(result, locale) + "</section>",
-    "<section class=\"tool-impact\"><h2>" + escapeHtml(labels.tools) + "</h2><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(locale === "zh-CN" ? "按工具统计工具结果被算入上下文的估算大小" : "Estimated tool-result injection by tool") + "\"></div>" + renderTools(result, locale) + "</section>",
+    "<section class=\"tool-impact\"><h2>" + escapeHtml(labels.tools) + "</h2><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.charts.toolAria) + "\"></div>" + renderTools(result, locale) + "</section>",
     "<section><h2>" + escapeHtml(labels.sessionsByUsage) + "</h2>" + renderSessions(result, locale) + "</section>",
     renderKeySessionAnalysis(result, locale, composition, prompts),
     "<section><h2>" + escapeHtml(labels.limitations) + "</h2>" +
@@ -2072,7 +1547,7 @@ function renderTopLine(result: AuditResult, locale: ReportLocale): string[] {
     ? "; " + labels.topLevelSessions + ": " + evidencePlain(result.summary.topLevelSessionCount, locale, false) + "; " + labels.subagentSessions + ": " + evidencePlain(result.summary.subagentSessionCount, locale, false)
     : "";
   return [
-    (locale === "zh-CN" ? "审计：" : "Audit: ") + result.scope.harness + "; " + (result.scope.allProjects ? labels.allProjects : labels.currentProject) + "; " + labels.since + " " + formatDateTime(result.scope.since, locale),
+    labels.auditPrefix + result.scope.harness + "; " + (result.scope.allProjects ? labels.allProjects : labels.currentProject) + "; " + labels.since + " " + formatDateTime(result.scope.since, locale),
     labels.coverage + ": " + coverageLineText(result, locale),
     labels.totalTokens + ": " + evidencePlain(result.summary.totalTokens, locale) + "; " + labels.sessions + ": " + evidencePlain(result.summary.sessionCount, locale, false) + sessionBreakdown + "; " + labels.modelCalls + ": " + evidencePlain(result.summary.modelCallCount, locale, false) + ".",
   ];
@@ -2118,15 +1593,15 @@ export function renderText(result: AuditResult, locale: ReportLocale = "en-US", 
   const topSession = result.rankings.sessions[0];
   if (topSession) {
     lines.push(
-      (locale === "zh-CN" ? "主要 Session" : "Top Session") + ": " + sessionLabel(topSession, locale) +
-      "; " + evidencePlain(topSession.value, locale, false) + "; " + (locale === "zh-CN" ? "占比" : "share") + ": " +
+      labels.topSession + ": " + sessionLabel(topSession, locale) +
+      "; " + evidencePlain(topSession.value, locale, false) + "; " + labels.share + ": " +
       percentageText(topSession.sharePercent, locale) + ".",
     );
   }
   const modelSummary = result.rankings.models.slice(0, 5)
     .map((entry) => modelLabel(entry.key, locale) + ": " + formatExact(entry.value.value, locale) + " " + labels.tokens + " (" + percentageText(entry.sharePercent, locale) + ")")
     .join(", ");
-  if (modelSummary) lines.push((locale === "zh-CN" ? labels.models : "Models") + ": " + modelSummary + ".");
+  if (modelSummary) lines.push(labels.modelsHeading + ": " + modelSummary + ".");
   return lines.join("\n") + "\n";
 }
 
@@ -2148,8 +1623,8 @@ export function renderWeekText(comparison: WeekComparison, locale: ReportLocale 
   ].join("\n") + "\n";
 }
 
-function redactedModelKey(row: ContributionEntry): string {
-  return publicLabel(row.key, "other-model");
+function redactedModelKey(row: ContributionEntry, locale: ReportLocale): string {
+  return publicLabel(row.key, labelsFor(locale).otherModel);
 }
 
 export function renderShare(result: AuditResult, locale: ReportLocale = "en-US"): string {
@@ -2181,23 +1656,23 @@ export function renderShare(result: AuditResult, locale: ReportLocale = "en-US")
     "| " + labels.model + " | " + labels.tokens + " | " + labels.share + " |",
     "| --- | ---: | ---: |",
   ];
-  for (const row of result.rankings.models) lines.push("| " + redactedModelKey(row) + " | " + evidencePlain(row.value, locale, false) + " | " + percentageText(row.sharePercent, locale) + " |");
+  for (const row of result.rankings.models) lines.push("| " + redactedModelKey(row, locale) + " | " + evidencePlain(row.value, locale, false) + " | " + percentageText(row.sharePercent, locale) + " |");
   lines.push("", "## " + labels.time, "", "| " + labels.date + " | " + labels.tokens + " | " + labels.share + " |", "| --- | ---: | ---: |");
   for (const row of result.report.dailyUsage) lines.push("| " + formatDateKey(row.key, locale) + " | " + evidencePlain(row.totalTokens, locale, false) + " | " + percentageText(row.sharePercent, locale) + " |");
-  lines.push("", "## " + labels.tools, "", "| Tool category | " + labels.calls + " | " + labels.amplified + " | " + labels.share + " |", "| --- | ---: | ---: |");
-  for (const row of result.report.tools) lines.push("| " + publicLabel(row.key, "other-tool") + " | " + evidencePlain(row.calls, locale, false) + " | " + evidencePlain(row.amplifiedTokens, locale, false) + " | " + percentageText(row.sharePercent, locale) + " |");
+  lines.push("", "## " + labels.tools, "", "| " + labels.toolCategory + " | " + labels.calls + " | " + labels.amplified + " | " + labels.share + " |", "| --- | ---: | ---: |");
+  for (const row of result.report.tools) lines.push("| " + publicLabel(row.key, labels.otherTool) + " | " + evidencePlain(row.calls, locale, false) + " | " + evidencePlain(row.amplifiedTokens, locale, false) + " | " + percentageText(row.sharePercent, locale) + " |");
   lines.push("", "## " + labels.skillEvidence, "");
   if (result.report.skills.length === 0) {
     lines.push(labels.noSkillEvidence);
   } else {
     lines.push(skillEvidenceNote(locale));
-    lines.push("| Skill | " + labels.invocationCount + " | " + labels.skillSessions + " | " + labels.attributedTokens + " | " + labels.attributedCost + " |", "| --- | ---: | ---: | ---: | ---: |");
+    lines.push("| " + labels.skill + " | " + labels.invocationCount + " | " + labels.skillSessions + " | " + labels.attributedTokens + " | " + labels.attributedCost + " |", "| --- | ---: | ---: | ---: | ---: |");
     for (const skill of result.report.skills) lines.push("| " + skillLabel(skill.name, locale) + " | " + evidencePlain(skill.invocationCount, locale, false) + " | " + evidencePlain(skill.sessionCount, locale, false) + " | " + evidencePlain(skill.attributedTokens, locale, false) + " | " + currencyPlain(skill.attributedApiEquivalentCost, locale, false) + " |");
   }
-  lines.push((locale === "zh-CN" ? "缓存方法：" : "Cache method: ") + methodText(result.report.cacheEconomics.cacheReadRatePercent, locale) + "; " + methodText(result.report.cacheEconomics.observedApiEquivalentCost, locale));
-  lines.push((locale === "zh-CN" ? "首次请求方法：" : "First-request method: ") + methodText(result.report.firstRequestBurden.medianTokens, locale));
-  if (result.report.cacheEconomics.limitations.length > 0) lines.push((locale === "zh-CN" ? "缓存限制：" : "Cache limitations: ") + result.report.cacheEconomics.limitations.map((limitation) => localizeLimitation(limitation, locale)).join("; "));
-  if (result.report.firstRequestBurden.limitations.length > 0) lines.push((locale === "zh-CN" ? "首次请求限制：" : "First-request limitations: ") + result.report.firstRequestBurden.limitations.map((limitation) => localizeLimitation(limitation, locale)).join("; "));
+  lines.push(labels.cacheMethodPrefix + methodText(result.report.cacheEconomics.cacheReadRatePercent, locale) + "; " + methodText(result.report.cacheEconomics.observedApiEquivalentCost, locale));
+  lines.push(labels.firstRequestMethodPrefix + methodText(result.report.firstRequestBurden.medianTokens, locale));
+  if (result.report.cacheEconomics.limitations.length > 0) lines.push(labels.cacheLimitationsPrefix + result.report.cacheEconomics.limitations.map((limitation) => labels.limitation(limitation)).join("; "));
+  if (result.report.firstRequestBurden.limitations.length > 0) lines.push(labels.firstRequestLimitationsPrefix + result.report.firstRequestBurden.limitations.map((limitation) => labels.limitation(limitation)).join("; "));
   lines.push("", "## " + labels.diagnosticSignals);
   for (const check of result.checks) lines.push("- " + checkLine(check, locale));
   lines.push("", labels.privacyNote);

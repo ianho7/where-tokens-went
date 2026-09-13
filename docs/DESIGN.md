@@ -255,6 +255,8 @@ interface ReportComposition {
 }
 ```
 
+Report localization belongs to the presentation layer. The authoritative JSON, `AuditResult`, `KeySessionAnalysis`, and `ReportComposition` remain language-independent; fixed report copy comes from the typed language table, while the renderer keeps HTML, text, share structure, data binding, and escaping.
+
 The renderer accepts at most one validated analysis for each of up to three Token-ranked Sessions. It rejects stale Audit bindings, cross-Scope or cross-Session Evidence references, and malformed analysis. Rejection removes only the AI-authored block; deterministic rankings, Turn trajectories, checks, and limitations remain renderable.
 
 Contribution rankings include the exact token `value` and a derived `sharePercent` in percentage points. Session entries may include `displayName`, which combines an explicit Harness title with the Session ID; when no title exists, the ID remains the display name. Codex titles come only from its local Session index metadata. The Host Agent formats these values for the user's language without changing the authoritative JSON.

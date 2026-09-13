@@ -6,7 +6,7 @@ export type CacheWriteTtl = "5m" | "1h" | "mixed";
 
 export type AuditView = "full" | "usage" | "window" | "report" | "tools" | "week" | "share" | "question";
 
-export type ReportLocale = "zh-CN" | "en-US";
+export type { ReportLocale } from "./report-messages";
 
 export type ApiPricingSourceKind = "litellm";
 
