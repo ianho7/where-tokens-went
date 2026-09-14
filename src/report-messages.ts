@@ -141,6 +141,12 @@ interface ChartMessages {
   summary: string;
   localTime: string;
   hourlyDetails: string;
+  hourlySummary: string;
+  hourlyDescription: string;
+  hourlyAveragePerCall: string;
+  hourlyShare: string;
+  hourlyNoActivity: string;
+  hourlyNoTokenData: string;
   localObservation: string;
   modelShareAria: string;
   toolAria: string;
@@ -773,6 +779,12 @@ const EN: ReportMessages = {
     summary: "Each curve and hover value is the raw Token value of that component; components are not stacked.",
     localTime: "Local time",
     hourlyDetails: "View hourly details ↓",
+    hourlySummary: "Cell color reflects observed Tokens in each local hour; hover to inspect Tokens, model calls, audit share, and average Tokens per call.",
+    hourlyDescription: "Hourly activity by local date and hour; hover each cell to inspect observed Tokens, model calls, audit share, and average Tokens per call. The table below provides equivalent data.",
+    hourlyAveragePerCall: "Avg Tokens / call (derived)",
+    hourlyShare: "Share of audit period",
+    hourlyNoActivity: "No model call observed in this hour.",
+    hourlyNoTokenData: "Token total unavailable for this hour.",
     localObservation: "Local observation",
     modelShareAria: "Token share by model",
     toolAria: "Estimated tool-result injection by tool",
@@ -1120,6 +1132,12 @@ const ZH: ReportMessages = {
     summary: "每条线的纵坐标和悬停值都是该 Token 分量自身的值；各分量不堆叠。",
     localTime: "本地时间",
     hourlyDetails: "查看小时明细 ↓",
+    hourlySummary: "颜色表示每个本地小时观测到的 Token；悬停查看 Token、模型调用、占审计周期比例和平均每次调用 Token。",
+    hourlyDescription: "按本地日期和小时展示活动；悬停每个方块查看观测 Token、模型调用、占审计周期比例和平均每次调用 Token。下方表格提供等价数据。",
+    hourlyAveragePerCall: "平均每次调用 Token（计算值）",
+    hourlyShare: "占审计周期",
+    hourlyNoActivity: "该小时未观察到模型调用。",
+    hourlyNoTokenData: "该小时 Token 总量不可用。",
     localObservation: "本地活动",
     modelShareAria: "按模型查看 Token 占比",
     toolAria: "按工具统计工具结果被算入上下文的估算大小",

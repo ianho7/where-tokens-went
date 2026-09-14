@@ -79,12 +79,16 @@ test('standalone report keeps interactive chart reading units in ivory container
   const html = renderHtml(fixture(), 'zh-CN');
   const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
   const tokenCard = html.match(/<div class="ivory-group chart-ivory"><div id="token-trend"[\s\S]*?<\/div><p class="chart-summary">[\s\S]*?<\/p><\/div>/)?.[0] ?? '';
+  const hourlyCard = html.match(/<div class="ivory-group chart-ivory"><div id="hourly-heatmap"[\s\S]*?<\/div><p id="hourly-heatmap-description" class="chart-summary">[\s\S]*?<\/p><\/div>/)?.[0] ?? '';
   const modelCard = html.match(/<div class="ivory-group chart-ivory"><div class="model-chart-grid">[\s\S]*?<\/div><\/div>/)?.[0] ?? '';
   const toolCard = html.match(/<div class="ivory-group chart-ivory"><div id="tool-chart"[\s\S]*?<\/div><\/div>/)?.[0] ?? '';
   const trajectoryCards = [...html.matchAll(/<figure class="key-session-chart-frame ivory-group chart-ivory"[\s\S]*?<\/figure>/g)].map((match) => match[0]);
 
   assert.match(tokenCard, /id="token-trend"/);
   assert.match(tokenCard, /class="chart-summary"/);
+  assert.match(hourlyCard, /id="hourly-heatmap"/);
+  assert.match(hourlyCard, /aria-describedby="hourly-heatmap-description"/);
+  assert.match(hourlyCard, /颜色表示每个本地小时观测到的 Token/);
   assert.match(modelCard, /id="model-chart"/);
   assert.match(modelCard, /id="model-share-chart"/);
   assert.match(toolCard, /id="tool-chart"/);
@@ -102,6 +106,7 @@ test('standalone report keeps interactive chart reading units in ivory container
   assert.match(css, /\.ivory-group\{border-radius:8px;padding:24px;background:var\(--ivory\);box-shadow:none\}/);
   assert.match(css, /\.chart-ivory\{padding:24px\}/);
   assert.match(css, /\.chart-ivory\{padding:20px\}/);
+  assert.match(css, /\.hourly-tooltip-grid\{display:grid/);
   assert.match(html, /borderColor:p\.ivory/);
   assert.doesNotMatch(css, /\.key-session-chart-frame\{[^}]*border-top/);
 });

@@ -1056,52 +1056,51 @@ function localHour(value, locale) {
         timeLabel: formatDateTime(value, locale),
     };
 }
-function renderHourlyHeatmap(result, locale) {
-    const labels = labelsFor(locale);
+function hourlyChartData(result, locale) {
     const entries = result.report.hourlyActivity.flatMap((row) => {
         const local = localHour(row.key, locale);
-        const value = numericValue(row.totalTokens);
-        return local && value !== null ? [{ row, local, value }] : [];
+        return local ? [{ row, local }] : [];
     });
-    if (entries.length === 0)
-        return "";
-    const dates = [...new Map(entries.map((entry) => [entry.local.dateKey, entry.local.dateLabel])).entries()].sort(([left], [right]) => left.localeCompare(right));
+    const dates = [...new Map(entries.map((entry) => [entry.local.dateKey, entry.local.dateLabel])).entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, label]) => ({ key, label }));
     const values = new Map(entries.map((entry) => [entry.local.dateKey + ":" + entry.local.hour, entry]));
-    const max = Math.max(...entries.map((entry) => entry.value), 1);
-    const width = 880;
-    const cell = 26;
-    const gridX = 155;
-    const gridY = 34;
-    const height = gridY + dates.length * cell + 35;
-    const titleId = "chart-title-hourly";
-    const parts = [
-        "<svg class=\"chart hourly-heatmap\" role=\"img\" aria-labelledby=\"" + titleId + "\" viewBox=\"0 0 " + width + " " + height + "\">",
-        "<title id=\"" + titleId + "\">" + escapeHtml(labels.hourlyActivity) + "</title>",
-    ];
-    for (let hour = 0; hour < 24; hour += 3) {
-        parts.push("<text x=\"" + (gridX + hour * cell + 9) + "\" y=\"18\" text-anchor=\"middle\" class=\"heat-hour\">" + String(hour).padStart(2, "0") + "</text>");
-    }
-    dates.forEach(([dateKey, dateLabel], dateIndex) => {
-        const y = gridY + dateIndex * cell;
-        parts.push("<text x=\"140\" y=\"" + (y + 16) + "\" text-anchor=\"end\" class=\"chart-label\">" + escapeHtml(dateLabel) + "</text>");
-        for (let hour = 0; hour < 24; hour++) {
-            const entry = values.get(dateKey + ":" + hour);
-            const level = entry ? Math.max(1, Math.min(4, Math.ceil((entry.value / max) * 4))) : 0;
-            const description = entry
-                ? dateLabel + " " + String(hour).padStart(2, "0") + ":00: " + metricPlain(entry.row.totalTokens, locale)
-                : dateLabel + " " + String(hour).padStart(2, "0") + ":00: 0";
-            parts.push("<rect x=\"" + (gridX + hour * cell) + "\" y=\"" + y + "\" width=\"21\" height=\"21\" rx=\"4\" class=\"heat-" + level + "\"><title>" + escapeHtml(description) + "</title></rect>");
-        }
-    });
-    parts.push("<text x=\"" + gridX + "\" y=\"" + (height - 8) + "\" class=\"heat-hour\">" + escapeHtml(labels.charts.localTime) + "</text></svg>");
-    return parts.join("");
+    const cells = dates.flatMap(({ key: dateKey, label: dateLabel }, dateIndex) => Array.from({ length: 24 }, (_, hour) => {
+        const entry = values.get(dateKey + ":" + hour);
+        const tokens = entry ? numericValue(entry.row.totalTokens) : null;
+        const calls = entry ? numericValue(entry.row.modelCallCount) : null;
+        const share = entry ? numericValue(entry.row.sharePercent) : null;
+        const average = tokens !== null && calls !== null && calls > 0 ? tokens / calls : null;
+        const endHour = hour === 23 ? "24" : String(hour + 1).padStart(2, "0");
+        return {
+            dateKey,
+            dateLabel,
+            dateIndex,
+            hour,
+            label: dateLabel + " " + String(hour).padStart(2, "0") + ":00–" + endHour + ":00",
+            hasRecord: Boolean(entry),
+            tokens,
+            calls,
+            share,
+            average,
+        };
+    }));
+    return {
+        dates,
+        cells,
+        max: Math.max(...cells.map((cell) => cell.tokens ?? 0), 1),
+    };
 }
 function renderHourly(result, locale) {
     const labels = labelsFor(locale);
     const rows = result.report.hourlyActivity;
     if (!result.report.hourlySupported || rows.length === 0)
         return emptyState(labels, labels.noTimestampData);
-    return renderHourlyHeatmap(result, locale) +
+    const data = hourlyChartData(result, locale);
+    if (data.dates.length === 0)
+        return emptyState(labels, labels.noTimestampData);
+    const chartHeight = Math.min(760, Math.max(300, data.dates.length * 30 + 64));
+    return "<div class=\"ivory-group chart-ivory\"><div id=\"hourly-heatmap\" class=\"echart hourly-heatmap\" role=\"img\" aria-label=\"" + escapeHtml(labels.charts.hourlyDescription) + "\" aria-describedby=\"hourly-heatmap-description\" style=\"height:" + chartHeight + "px\"></div><p id=\"hourly-heatmap-description\" class=\"chart-summary\">" + escapeHtml(labels.charts.hourlySummary) + "</p></div>" +
         "<details><summary>" + escapeHtml(labels.charts.hourlyDetails) + "</summary><table class=\"kami-table sortable\"><thead><tr><th>" +
         escapeHtml(labels.charts.localTime) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.calls) + "</th><th>" + escapeHtml(labels.share) + "</th></tr></thead><tbody>" +
         rows.map((row) => "<tr><th scope=\"row\">" + escapeHtml(localHour(row.key, locale)?.timeLabel ?? row.key) + "</th><td>" + tokenCell(row.totalTokens, locale) + "</td><td>" +
@@ -1260,24 +1259,54 @@ function renderInteractiveCharts(result, locale, firstUserMessages = []) {
     }));
     const models = result.rankings.models.map((row) => ({ name: modelLabel(row.key, locale), value: numericValue(row.value), share: numericValue(row.sharePercent) }));
     const tools = result.report.tools.map((row) => ({ name: publicLabel(row.key, labels.unavailable), value: numericValue(row.injectedTokens) }));
+    const hourly = hourlyChartData(result, locale);
     const keySessions = keySessionChartData(result, locale, firstUserMessages);
     const cost = result.report.apiEquivalentCost;
     const costVisible = typeof cost.total.value === "number";
-    const data = scriptSafeJson({ rows, models, tools, keySessions, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: labels.charts.unclassified, cost: labels.charts.cost }, costVisible });
+    const data = scriptSafeJson({
+        rows,
+        models,
+        tools,
+        hourly,
+        keySessions,
+        locale,
+        labels: {
+            input: labels.input,
+            cached: labels.cachedInput,
+            cacheWrite: labels.cacheWrite,
+            output: labels.output,
+            unclassified: labels.charts.unclassified,
+            cost: labels.charts.cost,
+            tokens: labels.tokens,
+            calls: labels.calls,
+            share: labels.charts.hourlyShare,
+            hourly: {
+                description: labels.charts.hourlyDescription,
+                average: labels.charts.hourlyAveragePerCall,
+                noActivity: labels.charts.hourlyNoActivity,
+                noTokenData: labels.charts.hourlyNoTokenData,
+            },
+            unavailable: labels.unavailable,
+        },
+        costVisible,
+    });
     const runtime = chartRuntime();
-    if (!runtime || (rows.length === 0 && !keySessions.some((session) => session.turns.length > 0)))
+    if (!runtime || (rows.length === 0 && hourly.dates.length === 0 && !keySessions.some((session) => session.turns.length > 0)))
         return "";
-    const chartPalette = { brand: "#1b365d", brandLight: "#2d4e7a", olive: "#504e49", stone: "#6b6a64", darkWarm: "#3d3d3a", lightStone: "#b8b7b0", chartMuted: "#d4d3cd", ivory: "#faf9f5" };
+    const chartPalette = { parchment: "#f5f4ed", tagQuiet: "#eef2f7", tagBg: "#e4ecf5", brand: "#1b365d", brandLight: "#2d4e7a", olive: "#504e49", stone: "#6b6a64", darkWarm: "#3d3d3a", lightStone: "#b8b7b0", chartMuted: "#d4d3cd", ivory: "#faf9f5" };
     const unavailableLabel = JSON.stringify(labels.unavailable);
     const chartAria = JSON.stringify(labels.charts.tokenTrendDescription);
     const chartScript = [
-        "addEventListener('DOMContentLoaded',()=>{const d=", data, ";const p=", JSON.stringify(chartPalette), ";const serifFont=getComputedStyle(document.documentElement).getPropertyValue('--serif').trim();const compact=new Intl.NumberFormat(d.locale,{notation:'compact',maximumFractionDigits:2});",
+        "addEventListener('DOMContentLoaded',()=>{const d=", data, ";const p=", JSON.stringify(chartPalette), ";const serifFont=getComputedStyle(document.documentElement).getPropertyValue('--serif').trim();const compact=new Intl.NumberFormat(d.locale,{notation:'compact',maximumFractionDigits:2});const exact=new Intl.NumberFormat(d.locale,{maximumFractionDigits:0});const escapeChart=value=>String(value??'').replace(/[&<>]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[char])).replace(/\"/g,'&quot;').replace(/'/g,'&#39;');",
         "const axis={axisLine:{lineStyle:{color:'#e8e6dc'}},axisLabel:{fontFamily:serifFont,color:p.stone}};",
-        "const make=(id,option)=>{const el=document.getElementById(id);if(!el||!window.echarts)return;const c=echarts.init(el,null,{renderer:'svg'});c.setOption({backgroundColor:'transparent',textStyle:{fontFamily:serifFont,color:p.olive},...option});addEventListener('resize',()=>c.resize())};",
+        "const make=(id,option,fit)=>{const el=document.getElementById(id);if(!el||!window.echarts)return;if(fit)fit(el);const c=echarts.init(el,null,{renderer:'svg'});c.setOption({backgroundColor:'transparent',textStyle:{fontFamily:serifFont,color:p.olive},...option});addEventListener('resize',()=>{if(fit)fit(el);c.resize()})};",
         "const tooltip=params=>params.map(item=>item.value==null?item.seriesName+': '+" + unavailableLabel + ":item.seriesName===d.labels.cost?item.seriesName+': $'+compact.format(item.value):item.seriesName+': '+compact.format(item.value)).join('<br>');",
+        "const hourlyTooltip=params=>{const item=Array.isArray(params)?params[0]:params;const cell=item?.data;if(!cell)return'';const title=escapeChart(cell.label);if(!cell.hasRecord)return'<div class=\"hourly-tooltip\"><div class=\"hourly-tooltip-title\">'+title+'</div><p class=\"hourly-tooltip-empty\">'+escapeChart(d.labels.hourly.noActivity)+'</p></div>';const token=cell.tokens==null?escapeChart(d.labels.unavailable):exact.format(cell.tokens);const calls=cell.calls==null?escapeChart(d.labels.unavailable):exact.format(cell.calls);const share=cell.share==null?escapeChart(d.labels.unavailable):Number(cell.share).toFixed(2)+'%';const average=cell.average==null?escapeChart(d.labels.unavailable):exact.format(Math.round(cell.average));const noToken=cell.tokens==null?'<p class=\"hourly-tooltip-empty\">'+escapeChart(d.labels.hourly.noTokenData)+'</p>':'';return'<div class=\"hourly-tooltip\"><div class=\"hourly-tooltip-title\">'+title+'</div><div class=\"hourly-tooltip-grid\"><span>'+escapeChart(d.labels.tokens)+'</span><b>'+token+'</b><span>'+escapeChart(d.labels.calls)+'</span><b>'+calls+'</b><span>'+escapeChart(d.labels.share)+'</span><b>'+share+'</b><span>'+escapeChart(d.labels.hourly.average)+'</span><b>'+average+'</b></div>'+noToken+'</div>'};",
+        "const heatMax=Math.max(1,d.hourly.max);const heatPieces=[{value:0,color:p.parchment},{gt:0,lte:heatMax*.25,color:p.tagQuiet},{gt:heatMax*.25,lte:heatMax*.5,color:p.tagBg},{gt:heatMax*.5,lte:heatMax*.75,color:p.stone},{gt:heatMax*.75,color:p.brand}];const hourlyGrid={left:84,right:16,top:18,bottom:36,containLabel:false};const fitHourly=el=>{const plotWidth=Math.max(1,el.clientWidth-hourlyGrid.left-hourlyGrid.right);const cell=plotWidth/24;el.style.height=Math.ceil(hourlyGrid.top+hourlyGrid.bottom+cell*d.hourly.dates.length)+'px'};",
         "const series=[['input',d.labels.input,p.brand,'solid','circle',true],['cached',d.labels.cached,p.stone,'dashed','rect',false],['cacheWrite',d.labels.cacheWrite,p.olive,'dotted','diamond',false],['output',d.labels.output,p.brandLight,'solid','triangle',false],['unclassified',d.labels.unclassified,p.lightStone,'dashed','emptyCircle',false]].map(([key,name,color,lineType,symbol,focus])=>({name,type:'line',smooth:false,symbol,showSymbol:d.rows.length<=14,symbolSize:5,lineStyle:{color,width:focus?2.5:2,opacity:focus?1:.92,type:lineType},itemStyle:{color},...(focus?{areaStyle:{color,opacity:.1}}:{}),emphasis:{focus:'series',lineStyle:{color,width:3,opacity:1},...(focus?{areaStyle:{color,opacity:.12}}:{})},data:d.rows.map(r=>r[key])}));",
         "if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'diamond',showSymbol:d.rows.length<=14,symbolSize:5,connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:p.darkWarm,width:2,type:'dashed'},itemStyle:{color:p.darkWarm},emphasis:{focus:'series',lineStyle:{color:p.darkWarm,width:3,opacity:1}}});",
         "if(d.rows.length)make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:tooltip},legend:{type:'scroll',textStyle:{fontFamily:serifFont,color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
+        "if(d.hourly.dates.length)make('hourly-heatmap',{aria:{show:true,description:d.labels.hourly.description},tooltip:{trigger:'item',confine:true,enterable:true,backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},extraCssText:'max-width:min(360px,88vw);white-space:normal;border-radius:2px;box-shadow:0 8px 24px rgba(20,20,19,.12);padding:12px 14px;',formatter:hourlyTooltip},grid:hourlyGrid,xAxis:{type:'category',data:Array.from({length:24},(_,hour)=>String(hour).padStart(2,'0')),axisLabel:{...axis.axisLabel,interval:2},axisLine:axis.axisLine,axisTick:{show:false},splitLine:{show:false}},yAxis:{type:'category',data:d.hourly.dates.map(date=>date.label),axisLabel:{...axis.axisLabel},axisLine:axis.axisLine,axisTick:{show:false}},visualMap:{show:false,type:'piecewise',dimension:2,pieces:heatPieces},series:[{type:'heatmap',data:d.hourly.cells.map(cell=>({value:[cell.hour,cell.dateIndex,cell.tokens??0],...cell,itemStyle:{borderColor:p.ivory,borderWidth:2,borderRadius:3,...(cell.hasRecord?{}:{color:p.parchment,opacity:.64})}})),itemStyle:{borderColor:p.ivory,borderWidth:2,borderRadius:3},emphasis:{itemStyle:{borderColor:p.brand,borderWidth:2,shadowBlur:0}}}]},fitHourly);",
         "make('model-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.modelAria), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand,borderRadius:[4,4,0,0]}}]});",
         "if(d.models.length>0&&d.models.length<=6)make('model-share-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.modelShareDescription), "},color:[p.brand,p.brandLight,p.olive,p.stone,p.lightStone,p.chartMuted],tooltip:{trigger:'item',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:item=>item.name+': '+compact.format(item.value)+' ('+item.percent.toFixed(2)+'%)'},legend:{type:'scroll',orient:'vertical',right:0,top:24,bottom:24,textStyle:{fontFamily:serifFont,color:p.olive}},series:[{type:'pie',radius:['48%','72%'],center:['36%','50%'],label:{show:false},emphasis:{label:{show:true,color:p.darkWarm,fontFamily:serifFont,formatter:item=>item.percent.toFixed(2)+'%'}},itemStyle:{borderColor:p.ivory,borderWidth:2,borderRadius:4},data:d.models.map(r=>({name:r.name,value:r.value}))}]});",
         "make('tool-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.toolDescription), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.brandLight}}]});",
@@ -1301,6 +1330,7 @@ main{max-width:1120px;margin:0 auto;padding:56px 64px 120px}.report-header{margi
 .editorial-list{margin:12px 0 0;padding-left:20px;color:var(--olive);font-size:13px;line-height:1.5}.editorial-list li+li{margin-top:8px}.supporting-findings ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 32px;list-style:none;margin:0;padding:0}.editorial-item{padding:18px 0;border-top:1px solid var(--border-soft)}.editorial-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}.editorial-title{display:block;font-size:16px;font-weight:500;line-height:1.4}.editorial-detail{margin:6px 0 0;color:var(--olive);font-size:14px;line-height:1.5}.editorial-method{display:block;margin-top:8px;color:var(--stone);font-size:12px;line-height:1.45}
 .kami-table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;line-height:1.45;font-variant-numeric:lining-nums tabular-nums}.kami-table th,.kami-table td{text-align:left;border-bottom:.5px solid var(--border-soft);padding:8px 0 8px 16px;vertical-align:top}.kami-table th:first-child,.kami-table td:first-child{padding-left:0}.kami-table thead th{color:var(--dark-warm);font-size:12px;font-weight:500;line-height:1.35;border-bottom:1px solid var(--border)}.kami-table th:not(:first-child),.kami-table td:not(:first-child){text-align:right}.kami-table tbody th{font-weight:500;text-align:left}.kami-table tbody tr:last-child th,.kami-table tbody tr:last-child td{border-bottom:0}.kami-table.skills-table th:nth-child(2),.kami-table.skills-table td:nth-child(2),.kami-table.skills-table th:nth-child(9),.kami-table.skills-table td:nth-child(9),.kami-table.skills-table th:nth-child(10),.kami-table.skills-table td:nth-child(10){text-align:left}.kami-table.compact th,.kami-table.compact td{padding-top:6px;padding-bottom:6px}.sortable button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-weight:500;padding:0;cursor:pointer;text-align:left;width:100%}.sort-button::after{color:var(--stone);font-size:.9em;font-weight:400}.kami-table th:not([aria-sort]) .sort-button:hover::after,.kami-table th:not([aria-sort]) .sort-button:focus-visible::after{content:" ↕"}.kami-table th[aria-sort="ascending"] .sort-button::after{content:" ↑"}.kami-table th[aria-sort="descending"] .sort-button::after{content:" ↓"}.kami-table th:not(:first-child) button{text-align:right}.sortable button:focus-visible,summary:focus-visible{outline:2px solid var(--brand);outline-offset:3px}.empty{margin:8px 0}
 .echart{width:100%;height:300px;margin:0 0 12px;background:transparent;border:0;border-radius:0}.chart-summary{color:var(--olive);font-size:12px;line-height:1.45}.chart{display:block;width:100%;height:auto;margin:0 0 20px;background:transparent;border-radius:0;padding:0;overflow:visible}.chart-label,.chart-value,.heat-hour{font-family:var(--serif);font-size:12px;fill:var(--stone)}.chart-value{font-variant-numeric:lining-nums tabular-nums;fill:var(--near-black)}.chart-bar{fill:var(--brand)}.chart-track{fill:var(--border)}.segment-input{fill:var(--brand)}.segment-cached{fill:var(--stone)}.segment-cache-write{fill:var(--olive)}.segment-output{fill:var(--brand-light)}.segment-reasoning{fill:var(--chart-muted)}.heat-0{fill:var(--parchment)}.heat-1{fill:var(--tag-quiet)}.heat-2{fill:var(--tag-bg)}.heat-3{fill:var(--stone)}.heat-4{fill:var(--brand)}
+.hourly-tooltip{min-width:230px;max-width:340px;color:var(--dark-warm);font-family:var(--serif);font-size:12px;line-height:1.5}.hourly-tooltip-title{color:var(--near-black);font-size:16px;line-height:1.2}.hourly-tooltip-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 14px;margin:10px 0 0}.hourly-tooltip-grid span{color:var(--stone)}.hourly-tooltip-grid b{color:var(--dark-warm);font-weight:500}.hourly-tooltip-empty{margin:10px 0 0;color:var(--stone)}
 details{margin-top:24px;padding-top:4px}summary{cursor:pointer;list-style:none;color:var(--brand);font-weight:500;line-height:1.4;margin:0}summary::-webkit-details-marker{display:none}summary::after{content:""}.window-note{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 0 16px}.window-note span,.week-ranges span{color:var(--stone);font-size:12px;line-height:1.4}.week-ranges{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-bottom:24px}.week-ranges div{background:var(--ivory);border-radius:8px;padding:14px 16px}.week-ranges strong,.week-ranges span{display:block}footer{color:var(--stone);font-size:12px;line-height:1.45;border-top:1px solid var(--border-soft);margin-top:24px;padding-top:24px}footer p{margin:6px 0 16px}
 @media print{@page{size:A4;margin:14mm 16mm;background:#f5f4ed}body{background:#f5f4ed;-webkit-print-color-adjust:exact;print-color-adjust:exact}main{max-width:none;padding:0}.report-header{break-inside:avoid}.report-header__metrics{break-inside:avoid}section{break-inside:auto;margin-bottom:36px}.quiet-callout,.ivory-group,.editorial-item,.week-ranges div,.kami-table,.echart,.chart{break-inside:avoid}.sortable button{color:inherit}}
 @media(max-width:880px){main{padding:48px 32px 88px}.report-header__main{gap:28px}.report-header__project{font-size:32px}.report-header__suffix{font-size:16px}.report-header__metrics{gap:16px}.metadata-grid,.metrics--coverage,.metrics--summary,.metrics--economic,.metrics--first-request,.metrics--group,.metrics--window{grid-template-columns:repeat(2,minmax(0,1fr))}.comparison-grid{gap:18px}.week-ranges{grid-template-columns:1fr}h1{font-size:40px}.supporting-findings ul{grid-template-columns:1fr}}

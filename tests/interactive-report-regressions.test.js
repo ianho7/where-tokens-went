@@ -561,7 +561,10 @@ test('time presentation uses numeric editorial dates and yearless chart labels',
   const chineseVisible = chineseHtml.replace(/<(?:style|script)\b[\s\S]*?<\/(?:style|script)>/gi, '');
   const englishVisible = englishHtml.replace(/<(?:style|script)\b[\s\S]*?<\/(?:style|script)>/gi, '');
   assert.match(chineseVisible, /2026\.09\.01 \d{2}:\d{2}/);
-  assert.match(chineseVisible, /<text[^>]*class="chart-label">09\.08<\/text>/);
+  assert.match(chineseHtml, /id="hourly-heatmap" class="echart hourly-heatmap"/);
+  assert.match(chineseHtml, /type:'heatmap'/);
+  assert.match(chineseHtml, /hourlyTooltip/);
+  assert.match(chineseHtml, /"label":"09\.08 16:00–17:00"/);
   assert.match(chineseHtml, /"time":"09\.08"/);
   assert.match(chineseVisible, /2026\.09\.08 \d{2}:\d{2}/);
   assert.doesNotMatch(chineseVisible, /GMT|\d{4}年\d{1,2}月\d{1,2}日/);

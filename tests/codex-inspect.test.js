@@ -1150,9 +1150,13 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.match(html, /id="token-trend" class="echart"/);
     assert.match(html, /renderer:'svg'/);
     assert.match(html, /table class="kami-table compact sortable"/);
-    assert.match(html, /class="chart hourly-heatmap"/);
-    assert.match(html, /viewBox="0 0 880/);
-    assert.equal(html.includes('x="745"'), false);
+    assert.match(html, /id="hourly-heatmap" class="echart hourly-heatmap"/);
+    assert.match(html, /type:'heatmap'/);
+    assert.match(html, /const hourlyTooltip=/);
+    assert.match(html, /const hourlyGrid=\{left:84,right:16,top:18,bottom:36,containLabel:false\}/);
+    assert.match(html, /const fitHourly=el=>/);
+    assert.match(html, /class="ivory-group chart-ivory"[^>]*><div id="hourly-heatmap"/);
+    assert.match(html, /平均每次调用 Token/);
     assert.match(html, /gpt-5\.6-terra/);
     assert.match(html, /Tare current report/);
     assert.match(html, /未命名 Session · tare-untitled/);
