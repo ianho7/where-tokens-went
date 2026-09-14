@@ -276,7 +276,8 @@ async function composeReportMain(args: string[]): Promise<number> {
     : { valid: false, errors: ["The supplied Audit fingerprint does not match the current Audit."], synthesis: null };
   const validatedSynthesis = synthesisValidation.valid ? synthesisValidation.synthesis : null;
   const analyses = (Array.isArray(parsed.keySessionAnalyses) ? parsed.keySessionAnalyses : []) as KeySessionAnalysis[];
-  const composition = reportComposition(audit, analyses, validatedSynthesis);
+  const projectName = typeof parsed.projectName === "string" && parsed.projectName.trim() ? parsed.projectName.trim() : undefined;
+  const composition = { ...reportComposition(audit, analyses, validatedSynthesis), ...(projectName ? { projectName } : {}) };
   const firstUserMessages = (Array.isArray(parsed.firstUserMessages) ? parsed.firstUserMessages : []) as FirstUserMessageRecord[];
   const output = await writeLocalFile(options.htmlPath, renderHtml(audit, options.locale, composition, firstUserMessages));
   process.stdout.write("Output: final HTML report written to " + output + ".\n");

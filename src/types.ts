@@ -458,6 +458,8 @@ export interface ReportComposition {
   audit: AuditResult;
   reportSynthesis: ReportSynthesis | null;
   keySessionAnalyses: KeySessionAnalysis[];
+  /** Local-only resolved project display name; never part of AuditResult. */
+  projectName?: string;
   /** Optional local-only projection used by the full HTML renderer. */
   firstUserMessages?: FirstUserMessageRecord[];
 }

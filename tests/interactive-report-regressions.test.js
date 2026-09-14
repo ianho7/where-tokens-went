@@ -4,7 +4,7 @@ const vm = require('node:vm');
 
 const { analyseAudit } = require('../dist/src/analysis.js');
 const { renderHtml } = require('../dist/src/report.js');
-const { auditFingerprint, validateReportSynthesis } = require('../dist/src/key-session-analysis.js');
+const { auditFingerprint, validateReportSynthesis, composeKeySessionAnalyses } = require('../dist/src/key-session-analysis.js');
 const { snapshotHtml } = require('../scripts/kami-report-content-snapshot.js');
 const { scoreHtml } = require('../scripts/score-kami-report.js');
 const contentBaseline = require('./fixtures/kami-report-content-baseline.json');
@@ -248,7 +248,8 @@ test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sor
   assert.match(html, /\.key-session-list\{margin-top:26px\}/);
   assert.doesNotMatch(html, /\.key-session-list\{[^}]*border-top/);
   assert.match(html, /\.key-session-judgment \.judgment\{border-top:\.5px solid var\(--border\)/);
-  assert.match(html, /\.key-session-chart-frame\{margin:0;border-top:\.5px solid var\(--border\)/);
+  assert.match(keySection, /<figure class="key-session-chart-frame ivory-group chart-ivory"/);
+  assert.match(html, /\.key-session-chart-frame\{margin:0\}/);
   assert.doesNotMatch(html, /\.key-session-(?:judgment \.judgment|chart-frame)\{[^}]*var\(--near-black\)/);
   assert.match(html, /前 2 轮合计占 100\.00%/);
   assert.match(visible, /核心判断[\s\S]*改善提议[\s\S]*如何验证/);
@@ -287,6 +288,41 @@ test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sor
   assert.match(fallbackSection, /分析不可用/);
   assert.match(fallbackSection, /轮次轨迹/);
   assert.match(fallbackSection, /turn-detail-table/);
+});
+
+test('Key Session composition rejects exact duplicate narrative across Sessions', () => {
+  const audit = keySessionResult();
+  const fingerprint = auditFingerprint(audit);
+  const analysisFor = (sessionId) => {
+    const turn = audit.turns.find((candidate) => candidate.sessionId === sessionId && candidate.turnId.endsWith('-r2'));
+    const evidenceId = turn.evidenceId;
+    return {
+      sessionId,
+      auditFingerprint: fingerprint,
+      taskContext: 'Different task context is intentionally omitted from the duplicate core.',
+      primaryFinding: {
+        observation: 'The same core observation is not enough for a Session-specific analysis.',
+        interpretation: 'The same interpretation is repeated without a Session-specific mechanism.',
+        evidenceIds: [evidenceId],
+        support: 'moderate',
+        alternativeExplanations: ['The tasks may still have a legitimate common pattern.'],
+      },
+      recommendation: {
+        action: 'Inspect the same generic target without a Session-specific anchor.',
+        rationale: 'The duplicate gate should require the Host Agent to bind the action to this Session.',
+        applicability: 'Use only after Session-specific Evidence is present.',
+        tradeoff: null,
+        verification: 'Compare the next Session using its own selected Turn Evidence.',
+        targetEvidenceIds: [evidenceId],
+      },
+      evidenceRead: { turnIds: [turn.turnId], selectionReason: 'select the largest complete Turn', unreadScope: 'remaining Turns' },
+      limitations: ['Exact duplicate prose is a quality failure, not proof that the tasks are identical.'],
+    };
+  };
+  const composition = composeKeySessionAnalyses(audit, [analysisFor('key-s1'), analysisFor('key-s2')]);
+  assert.equal(composition.analyses.length, 1);
+  assert.equal(composition.unavailable.length, 1);
+  assert.match(composition.unavailable[0], /duplicate Session analysis prose/);
 });
 
 test('Kami restyle preserves the normalized bilingual content contract', () => {

@@ -75,6 +75,94 @@ test('standalone report exposes the Kami visual contract', () => {
   assert.equal(score.overall.status, 'unavailable');
 });
 
+test('standalone report keeps interactive chart reading units in ivory containers', () => {
+  const html = renderHtml(fixture(), 'zh-CN');
+  const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
+  const tokenCard = html.match(/<div class="ivory-group chart-ivory"><div id="token-trend"[\s\S]*?<\/div><p class="chart-summary">[\s\S]*?<\/p><\/div>/)?.[0] ?? '';
+  const modelCard = html.match(/<div class="ivory-group chart-ivory"><div class="model-chart-grid">[\s\S]*?<\/div><\/div>/)?.[0] ?? '';
+  const toolCard = html.match(/<div class="ivory-group chart-ivory"><div id="tool-chart"[\s\S]*?<\/div><\/div>/)?.[0] ?? '';
+  const trajectoryCards = [...html.matchAll(/<figure class="key-session-chart-frame ivory-group chart-ivory"[\s\S]*?<\/figure>/g)].map((match) => match[0]);
+
+  assert.match(tokenCard, /id="token-trend"/);
+  assert.match(tokenCard, /class="chart-summary"/);
+  assert.match(modelCard, /id="model-chart"/);
+  assert.match(modelCard, /id="model-share-chart"/);
+  assert.match(toolCard, /id="tool-chart"/);
+  assert.ok(trajectoryCards.length >= 1);
+  assert.match(trajectoryCards[0], /key-session-chart-toolbar/);
+  assert.match(trajectoryCards[0], /key-session-legend/);
+  assert.match(trajectoryCards[0], /<figcaption/);
+  assert.match(trajectoryCards[0], /key-session-prompt-note/);
+  assert.doesNotMatch(tokenCard, /<table\b/);
+  assert.doesNotMatch(modelCard, /<table\b/);
+  assert.doesNotMatch(toolCard, /<table\b/);
+  assert.match(html.slice(html.indexOf(modelCard) + modelCard.length), /<table class="kami-table sortable">/);
+  assert.doesNotMatch(html, /<section[^>]*class="[^"]*chart-ivory/);
+  assert.doesNotMatch(html, /<details class="key-session-entry[^>]*chart-ivory/);
+  assert.match(css, /\.ivory-group\{border-radius:8px;padding:24px;background:var\(--ivory\);box-shadow:none\}/);
+  assert.match(css, /\.chart-ivory\{padding:24px\}/);
+  assert.match(css, /\.chart-ivory\{padding:20px\}/);
+  assert.match(html, /borderColor:p\.ivory/);
+  assert.doesNotMatch(css, /\.key-session-chart-frame\{[^}]*border-top/);
+});
+
+test('standalone report adds five stable localized chapter markers without changing module order', () => {
+  const expected = {
+    'en-US': {
+      markers: ['01 · Orient', '02 · Diagnose', '03 · Patterns', '04 · Trace', '05 · Caveats'],
+      modules: ['Audit scope', 'Coverage', 'Findings', 'Cache economics', 'First-request burden', 'Skill evidence', 'Time distribution', 'Model distribution', 'Tool context impact', 'Heavy Sessions', 'Key Session Analysis', 'Limitations and missing data'],
+    },
+    'zh-CN': {
+      markers: ['01 · 概览', '02 · 诊断', '03 · 模式', '04 · 追踪', '05 · 限制'],
+      modules: ['审计范围', '覆盖情况', '发现', '缓存经济性', '首次请求 Token 量', 'Skill 使用证据', '时间分布', '模型分布', '工具上下文影响', '高用量 Session', '关键 Session 分析', '限制与缺失'],
+    },
+  };
+
+  for (const [locale, contract] of Object.entries(expected)) {
+    const html = renderHtml(fixture(), locale);
+    const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
+    const markers = [...html.matchAll(/<div class="section-num">([^<]+)<\/div>/g)].map((match) => match[1]);
+    const headings = [...html.matchAll(/<h2>([^<]+)<\/h2>/g)].map((match) => match[1]);
+
+    assert.deepEqual(markers, contract.markers, locale);
+    assert.match(css, /\.section-num\{display:block;margin:0 0 14px;color:var\(--brand\);font-family:var\(--sans\);font-size:12px;font-weight:500;line-height:1\.3;letter-spacing:\.08em\}/);
+    assert.doesNotMatch(css, /\.section-num[^}]*content:/);
+    assert.doesNotMatch(css, /\.section-num\{[^}]*?(?:background|border|box-shadow)/);
+    assert.doesNotMatch(html, /\/ 05|<progress\b|<nav\b|table[-_ ]of[-_ ]contents|class="[^"]*(?:toc|progress)[^"]*"/i);
+    assert.deepEqual(headings, contract.modules, locale);
+
+    const markerPosition = (label) => html.indexOf('<div class="section-num">' + label + '</div>');
+    const headingPosition = (label) => html.indexOf('<h2>' + label + '</h2>');
+    assert.ok(markerPosition(contract.markers[0]) < headingPosition(contract.modules[0]), locale);
+    assert.ok(markerPosition(contract.markers[1]) < headingPosition(contract.modules[2]), locale);
+    assert.ok(markerPosition(contract.markers[3]) < headingPosition(contract.modules[10]), locale);
+    assert.ok(markerPosition(contract.markers[4]) < headingPosition(contract.modules[11]), locale);
+  }
+
+  const withoutWeek = renderHtml(fixture(), 'en-US');
+  const withWeek = fixture();
+  const previous = fixture();
+  const snapshot = (result) => ({ ...result, weekComparison: undefined });
+  withWeek.weekComparison = {
+    currentFrom: '2026-09-01T00:00:00.000Z',
+    currentTo: '2026-09-08T00:00:00.000Z',
+    previousFrom: '2026-08-25T00:00:00.000Z',
+    previousTo: '2026-09-01T00:00:00.000Z',
+    current: snapshot(withWeek),
+    previous: snapshot(previous),
+    changes: {
+      totalTokens: withWeek.summary.totalTokens,
+      modelCallCount: withWeek.summary.modelCallCount,
+      toolAmplifiedTokens: withWeek.report.totalToolAmplifiedTokens,
+    },
+    modelChanges: [],
+    toolChanges: [],
+  };
+  const withWeekHtml = renderHtml(withWeek, 'en-US');
+  assert.ok(withoutWeek.indexOf('<div class="section-num">03 · Patterns</div>') < withoutWeek.indexOf('<h2>Time distribution</h2>'));
+  assert.ok(withWeekHtml.indexOf('<div class="section-num">03 · Patterns</div>') < withWeekHtml.indexOf('<h2>Current and previous week</h2>'));
+});
+
 test('report header keeps the primary metric beside the identity and removes the lower divider', () => {
   const html = renderHtml(fixture(), 'zh-CN');
   const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';

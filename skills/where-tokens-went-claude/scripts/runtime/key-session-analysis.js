@@ -42,6 +42,21 @@ function sameSessionEvidence(audit, sessionId, evidenceIds) {
         return !turn || turn.sessionId !== sessionId;
     });
 }
+function evidenceNotRead(audit, sessionId, turnIds, evidenceIds) {
+    const readEvidence = new Set((audit.turns ?? [])
+        .filter((turn) => turn.sessionId === sessionId && turnIds.includes(turn.turnId))
+        .map((turn) => turn.evidenceId));
+    return evidenceIds.filter((evidenceId) => !readEvidence.has(evidenceId));
+}
+function normalizedFinding(analysis) {
+    if (analysis.primaryFinding === null)
+        return null;
+    return [
+        analysis.primaryFinding.observation,
+        analysis.primaryFinding.interpretation,
+        analysis.recommendation?.action ?? "",
+    ].map((value) => value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase()).join("\n");
+}
 function resolveReportEvidence(audit, reference) {
     if (!nonEmpty(reference))
         return null;
@@ -170,8 +185,8 @@ function validateKeySessionAnalysis(audit, analysis, packets) {
         errors.push("taskContext is required.");
     if (!Array.isArray(analysis.limitations) || !analysis.limitations.every(nonEmpty))
         errors.push("limitations must be a list of non-empty strings.");
-    if (!analysis.evidenceRead || !strings(analysis.evidenceRead.turnIds) || !nonEmpty(analysis.evidenceRead.selectionReason) || !nonEmpty(analysis.evidenceRead.unreadScope))
-        errors.push("evidenceRead must describe selected Turns and unread scope.");
+    if (!analysis.evidenceRead || !Array.isArray(analysis.evidenceRead.turnIds) || analysis.evidenceRead.turnIds.length === 0 || !strings(analysis.evidenceRead.turnIds) || !nonEmpty(analysis.evidenceRead.selectionReason) || !nonEmpty(analysis.evidenceRead.unreadScope))
+        errors.push("evidenceRead must describe at least one selected Turn and the unread scope.");
     const sessionTurns = new Set((audit.turns ?? []).filter((turn) => turn.sessionId === analysis.sessionId).map((turn) => turn.turnId));
     if (analysis.evidenceRead?.turnIds.some((turnId) => !sessionTurns.has(turnId)))
         errors.push("evidenceRead contains a Turn outside the selected Session.");
@@ -189,6 +204,9 @@ function validateKeySessionAnalysis(audit, analysis, packets) {
         if (!strings(analysis.primaryFinding.alternativeExplanations))
             errors.push("alternativeExplanations must be a list of non-empty strings.");
         errors.push(...sameSessionEvidence(audit, analysis.sessionId, analysis.primaryFinding.evidenceIds).map((id) => "primaryFinding Evidence is unknown or cross-Session: " + id));
+        if (analysis.evidenceRead && strings(analysis.evidenceRead.turnIds) && strings(analysis.primaryFinding.evidenceIds)) {
+            errors.push(...evidenceNotRead(audit, analysis.sessionId, analysis.evidenceRead.turnIds, analysis.primaryFinding.evidenceIds).map((id) => "primaryFinding Evidence was not read in evidenceRead: " + id));
+        }
         if (!analysis.recommendation)
             errors.push("a supported primaryFinding requires one recommendation or an explicit data-gap explanation.");
     }
@@ -201,6 +219,9 @@ function validateKeySessionAnalysis(audit, analysis, packets) {
         if (!strings(recommendation.targetEvidenceIds))
             errors.push("recommendation targetEvidenceIds must be a list of Evidence IDs.");
         errors.push(...sameSessionEvidence(audit, analysis.sessionId, recommendation.targetEvidenceIds).map((id) => "recommendation Evidence is unknown or cross-Session: " + id));
+        if (analysis.evidenceRead && strings(analysis.evidenceRead.turnIds) && strings(recommendation.targetEvidenceIds)) {
+            errors.push(...evidenceNotRead(audit, analysis.sessionId, analysis.evidenceRead.turnIds, recommendation.targetEvidenceIds).map((id) => "recommendation Evidence was not read in evidenceRead: " + id));
+        }
     }
     if (containsRawEvidence(analysis, packets))
         errors.push("analysis repeats raw historical content instead of a paraphrase.");
@@ -217,8 +238,15 @@ function composeKeySessionAnalyses(audit, analyses, packets = []) {
         try {
             const analysis = candidate;
             const result = validateKeySessionAnalysis(audit, analysis, packets.filter((packet) => packet.sessionId === sessionId));
-            if (result.valid && result.analysis)
-                valid.push(result.analysis);
+            if (result.valid && result.analysis) {
+                const finding = normalizedFinding(result.analysis);
+                // ponytail: exact normalized prose only; add semantic similarity only if this misses real duplicates.
+                const duplicate = finding !== null && valid.some((accepted) => normalizedFinding(accepted) === finding);
+                if (duplicate)
+                    unavailable.push(sessionId + ": duplicate Session analysis prose; regenerate with Session-specific Evidence.");
+                else
+                    valid.push(result.analysis);
+            }
             else
                 unavailable.push(sessionId + ": " + result.errors.join(" "));
         }

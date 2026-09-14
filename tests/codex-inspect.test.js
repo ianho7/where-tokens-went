@@ -9,7 +9,7 @@ const { analyseAudit } = require('../dist/src/analysis.js');
 const { readContentEvidence } = require('../dist/src/content-evidence.js');
 const { auditFingerprint, validateKeySessionAnalysis, validateReportSynthesis, composeKeySessionAnalyses } = require('../dist/src/key-session-analysis.js');
 const { resolveApiPricing } = require('../dist/src/rates.js');
-const { renderHtml, renderText, renderShare } = require('../dist/src/report.js');
+const { renderHtml, renderText, renderShare, resolveReportProjectName } = require('../dist/src/report.js');
 const { readCodex } = require('../dist/src/codex-reader.js');
 const { readClaude } = require('../dist/src/claude-reader.js');
 
@@ -18,6 +18,22 @@ const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 const bundledCodexPath = path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js');
 const bundledClaudePath = path.resolve(__dirname, '..', 'skills', 'where-tokens-went-claude', 'scripts', 'where-tokens-went.js');
 const { parseArgs } = require('../dist/src/cli.js');
+
+test('report project name prefers remote, package, directory, then fallback', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-project-name-'));
+  try {
+    await mkdir(path.join(root, '.git'), { recursive: true });
+    await writeFile(path.join(root, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/example/remote-name.git\n');
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'package-name' }));
+    assert.equal(resolveReportProjectName(root), 'remote-name');
+    await rm(path.join(root, '.git'), { recursive: true, force: true });
+    assert.equal(resolveReportProjectName(root), 'package-name');
+    await rm(path.join(root, 'package.json'), { force: true });
+    assert.equal(resolveReportProjectName(root), path.basename(root));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 function isoHoursAgo(hours) {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
@@ -83,6 +99,8 @@ test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', 
   assert.match(skill, /Open only that final HTML/i);
   assert.match(skill, /same conversation turn produces and opens the final local HTML containing a validated Audit Overview and report-level Findings/i);
   assert.match(skill, /do not return a diagnosis without the requested report/i);
+  assert.match(skill, /normalized core prose/i);
+  assert.match(skill, /regenerate only the affected analysis once/i);
 });
 
 test('Claude Code Skill preserves the same atomic report and evidence contract', async () => {
@@ -96,6 +114,8 @@ test('Claude Code Skill preserves the same atomic report and evidence contract',
     assert.match(skill, /Open only that final HTML/i);
     assert.match(skill, /same conversation turn produces and opens the final local HTML containing a validated Audit Overview and report-level Findings/i);
     assert.match(skill, /rather than manufacture a verdict/i);
+    assert.match(skill, /normalized core prose/i);
+    assert.match(skill, /regenerate only the affected analysis once/i);
   }
 });
 
@@ -199,6 +219,7 @@ test('normal Skill acquisition does not create preliminary HTML and both package
       audit,
       reportSynthesis: synthesis,
       keySessionAnalyses: [analysis],
+      projectName: 'where-tokens-went',
       firstUserMessages: [],
     });
 
@@ -210,6 +231,7 @@ test('normal Skill acquisition does not create preliminary HTML and both package
       assert.match(html, /AI 综合发现来自当前审计/);
       assert.match(html, /关键 Session 分析/);
       assert.match(html, /composition-session/);
+      assert.match(html, /<span class="report-header__project">where-tokens-went<\/span>/);
     }
 
     const fallbackPath = path.join(root, 'fallback-final.html');
@@ -793,6 +815,10 @@ test('Key Session Analysis validation binds prose to the audit, Session, and Tur
       limitations: ['No causal effect is proven by this report.'],
     };
     assert.equal(validateKeySessionAnalysis(audit, analysis).valid, true);
+    const unbound = { ...analysis, evidenceRead: { ...analysis.evidenceRead, turnIds: [] } };
+    const unboundResult = validateKeySessionAnalysis(audit, unbound);
+    assert.equal(unboundResult.valid, false);
+    assert.match(unboundResult.errors.join(' '), /Evidence was not read in evidenceRead/);
     const composedHtml = renderHtml(audit, 'en-US', { auditFingerprint: auditFingerprint(audit), audit, keySessionAnalyses: [analysis] });
     assert.match(composedHtml, /Key Session Analysis/);
     assert.match(composedHtml, /The Session handled a scoped implementation task/);

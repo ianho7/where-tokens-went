@@ -251,6 +251,9 @@ function emptyState(labels: ReportMessages, message = labels.noData): string {
   return "<p class=\"empty\">" + escapeHtml(message) + "</p>";
 }
 
+function renderSectionMarker(label: string): string {
+  return "<div class=\"section-num\">" + escapeHtml(label) + "</div>";
+}
 
 function isPricingLimitation(limitation: string): boolean {
   return /LiteLLM|price|priced Usage|Provider|model identifier|resolved price entry|currency requires|cost estimate|cost dimension/i.test(limitation);
@@ -450,7 +453,9 @@ export function resolveReportProjectName(cwd: string | null): string | null {
   return metadata.repositoryName ?? metadata.name ?? cwd?.split(/[\\/]/).filter(Boolean).pop() ?? null;
 }
 
-function projectName(result: AuditResult, metadata: ProjectMetadata, locale: ReportLocale): string {
+function projectName(result: AuditResult, metadata: ProjectMetadata, locale: ReportLocale, composition?: ReportComposition): string {
+  const composed = composition?.projectName;
+  if (typeof composed === "string" && composed.trim()) return composed.trim();
   const explicit = (result as AuditResult & { projectName?: unknown }).projectName;
   if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
   if (metadata.repositoryName) return metadata.repositoryName;
@@ -482,7 +487,7 @@ function renderReportOverviewEvidence(result: AuditResult, overview: ReportOverv
 function renderReportHeader(result: AuditResult, locale: ReportLocale, composition?: ReportComposition): string {
   const labels = labelsFor(locale);
   const metadata = readProjectMetadata(result.scope.cwd);
-  const subject = result.scope.allProjects ? labels.allProjects : projectName(result, metadata, locale);
+  const subject = result.scope.allProjects ? labels.allProjects : projectName(result, metadata, locale, composition);
   const eyebrow = labels.header.eyebrow(reportDateRange(result, locale));
   const synthesis = validatedReportSynthesis(result, composition);
   const overview = synthesis?.overview;
@@ -861,7 +866,7 @@ function renderKeySessionAnalysis(result: AuditResult, locale: ReportLocale, com
     const promptCount = turns.filter((turn) => promptByTurn.get(row.key + "\0" + turn.turnId)?.content !== null && promptByTurn.has(row.key + "\0" + turn.turnId)).length;
     const promptNote = promptCount > 0 ? keySessionMessages.promptAvailable(promptCount) : keySessionMessages.promptMissing;
     const detailSummary = keySessionMessages.roundsSummary(turns.length);
-    const trajectory = "<section class=\"key-session-section key-session-trajectory\" aria-labelledby=\"" + chartId + "-title\"><div class=\"key-session-section-head\"><h4 id=\"" + chartId + "-title\">" + escapeHtml(labels.turnTrajectory) + "</h4><p>" + escapeHtml(trajectoryNote) + "</p></div><figure class=\"key-session-chart-frame\" aria-labelledby=\"" + chartId + "-caption\"><div class=\"key-session-chart-toolbar\"><div><strong>" + escapeHtml(keySessionMessages.chartRounds(turns.length)) + "</strong><small>" + escapeHtml(labels.chartHint) + "</small></div><div class=\"key-session-legend\" aria-label=\"" + escapeHtml(keySessionMessages.legendAria) + "\"><span class=\"hot\">" + escapeHtml(keySessionMessages.hotspots) + "</span><span>" + escapeHtml(keySessionMessages.otherRounds) + "</span><span class=\"time\">" + escapeHtml(labels.roundDuration) + "</span></div></div><div id=\"" + chartId + "\" class=\"echart key-session-chart\" role=\"img\" aria-label=\"" + escapeHtml(keySessionMessages.chartAria(turns.length)) + "\"></div><figcaption id=\"" + chartId + "-caption\" class=\"key-session-chart-note\"><strong>" + escapeHtml(keySessionMessages.focus) + "</strong>" + escapeHtml(fact) + "</figcaption><p class=\"key-session-prompt-note\">" + escapeHtml(promptNote) + "</p><noscript><p class=\"key-session-chart-note\">" + escapeHtml(keySessionMessages.noScript) + "</p></noscript></figure><details class=\"key-session-appendix\"><summary><span>" + escapeHtml(detailSummary) + "</span><small>" + escapeHtml(labels.detailNote) + "</small></summary><div class=\"table-scroll\">" + renderTurnTrajectory(result, row.key, locale) + "</div></details></section>";
+    const trajectory = "<section class=\"key-session-section key-session-trajectory\" aria-labelledby=\"" + chartId + "-title\"><div class=\"key-session-section-head\"><h4 id=\"" + chartId + "-title\">" + escapeHtml(labels.turnTrajectory) + "</h4><p>" + escapeHtml(trajectoryNote) + "</p></div><figure class=\"key-session-chart-frame ivory-group chart-ivory\" aria-labelledby=\"" + chartId + "-caption\"><div class=\"key-session-chart-toolbar\"><div><strong>" + escapeHtml(keySessionMessages.chartRounds(turns.length)) + "</strong><small>" + escapeHtml(labels.chartHint) + "</small></div><div class=\"key-session-legend\" aria-label=\"" + escapeHtml(keySessionMessages.legendAria) + "\"><span class=\"hot\">" + escapeHtml(keySessionMessages.hotspots) + "</span><span>" + escapeHtml(keySessionMessages.otherRounds) + "</span><span class=\"time\">" + escapeHtml(labels.roundDuration) + "</span></div></div><div id=\"" + chartId + "\" class=\"echart key-session-chart\" role=\"img\" aria-label=\"" + escapeHtml(keySessionMessages.chartAria(turns.length)) + "\"></div><figcaption id=\"" + chartId + "-caption\" class=\"key-session-chart-note\"><strong>" + escapeHtml(keySessionMessages.focus) + "</strong>" + escapeHtml(fact) + "</figcaption><p class=\"key-session-prompt-note\">" + escapeHtml(promptNote) + "</p><noscript><p class=\"key-session-chart-note\">" + escapeHtml(keySessionMessages.noScript) + "</p></noscript></figure><details class=\"key-session-appendix\"><summary><span>" + escapeHtml(detailSummary) + "</span><small>" + escapeHtml(labels.detailNote) + "</small></summary><div class=\"table-scroll\">" + renderTurnTrajectory(result, row.key, locale) + "</div></details></section>";
     return "<details class=\"key-session-entry" + (index === 0 ? " key-session-entry--primary\" open" : "\"") + "><summary aria-controls=\"" + titleId + "\"><span class=\"key-session-summary\"><span class=\"session-summary-main\"><span class=\"session-summary-title\">" + escapeHtml(title) + "</span><span class=\"session-summary-id\">" + escapeHtml(shortenedId(row.key)) + " · " + escapeHtml(String(turns.length)) + " " + escapeHtml(keySessionMessages.roundUnit) + "</span></span><small>" + escapeHtml(index === 0 ? keySessionMessages.openByDefault : keySessionMessages.collapsed) + "</small></span></summary><div id=\"" + titleId + "\" class=\"key-session-content\"><header class=\"key-session-head\"><div class=\"key-session-heading\"><div><span class=\"session-rank\">" + escapeHtml(keySessionMessages.rank(index + 1, topSessions.length)) + "</span><h3 class=\"session-title\">" + escapeHtml(title) + "</h3><p class=\"task-title\">" + escapeHtml(taskContext) + "</p><p class=\"session-id\">" + escapeHtml(row.key) + " · " + escapeHtml(result.scope.harness) + "</p></div><div class=\"session-total\"><strong>" + escapeHtml(sessionTotal) + "</strong><span>" + escapeHtml(labels.sessionToken) + "</span></div></div>" + metrics + "</header><section class=\"key-session-section key-session-judgment\" aria-labelledby=\"" + titleId + "-judgment\"><div class=\"key-session-section-head\"><h4 id=\"" + titleId + "-judgment\">" + escapeHtml(labels.primaryFinding) + "</h4><p>" + escapeHtml(keySessionMessages.judgmentNote) + "</p></div><div class=\"judgment\">" + finding + action + "</div></section>" + trajectory + "</div></details>";
   }).join("");
   return "<section class=\"key-session-analysis-section\"><header class=\"key-session-module-head\"><span class=\"key-session-module-kicker\">" + escapeHtml(keySessionMessages.moduleKicker(result.scope.harness)) + "</span><h2>" + escapeHtml(labels.keySessionAnalysis) + "</h2><p class=\"key-session-module-deck\">" + escapeHtml(labels.moduleDeck) + "</p><p class=\"key-session-privacy\" role=\"note\">" + escapeHtml(keySessionMessages.privacyNote) + "</p></header><div class=\"key-session-list\" aria-label=\"" + escapeHtml(keySessionMessages.listAria) + "\">" + blocks + "</div></section>";
@@ -1359,7 +1364,7 @@ function renderInteractiveCharts(result: AuditResult, locale: ReportLocale, firs
   const data = scriptSafeJson({ rows, models, tools, keySessions, locale, labels: { input: labels.input, cached: labels.cachedInput, cacheWrite: labels.cacheWrite, output: labels.output, unclassified: labels.charts.unclassified, cost: labels.charts.cost }, costVisible });
   const runtime = chartRuntime();
   if (!runtime || (rows.length === 0 && !keySessions.some((session) => session.turns.length > 0))) return "";
-  const chartPalette = { brand: "#1b365d", brandLight: "#2d4e7a", olive: "#504e49", stone: "#6b6a64", darkWarm: "#3d3d3a", lightStone: "#b8b7b0", chartMuted: "#d4d3cd" };
+  const chartPalette = { brand: "#1b365d", brandLight: "#2d4e7a", olive: "#504e49", stone: "#6b6a64", darkWarm: "#3d3d3a", lightStone: "#b8b7b0", chartMuted: "#d4d3cd", ivory: "#faf9f5" };
   const unavailableLabel = JSON.stringify(labels.unavailable);
   const chartAria = JSON.stringify(labels.charts.tokenTrendDescription);
   const chartScript = [
@@ -1370,14 +1375,14 @@ function renderInteractiveCharts(result: AuditResult, locale: ReportLocale, firs
     "const series=[['input',d.labels.input,p.brand,'solid','circle',true],['cached',d.labels.cached,p.stone,'dashed','rect',false],['cacheWrite',d.labels.cacheWrite,p.olive,'dotted','diamond',false],['output',d.labels.output,p.brandLight,'solid','triangle',false],['unclassified',d.labels.unclassified,p.lightStone,'dashed','emptyCircle',false]].map(([key,name,color,lineType,symbol,focus])=>({name,type:'line',smooth:false,symbol,showSymbol:d.rows.length<=14,symbolSize:5,lineStyle:{color,width:focus?2.5:2,opacity:focus?1:.92,type:lineType},itemStyle:{color},...(focus?{areaStyle:{color,opacity:.1}}:{}),emphasis:{focus:'series',lineStyle:{color,width:3,opacity:1},...(focus?{areaStyle:{color,opacity:.12}}:{})},data:d.rows.map(r=>r[key])}));",
     "if(d.costVisible)series.push({name:d.labels.cost,type:'line',yAxisIndex:1,symbol:'diamond',showSymbol:d.rows.length<=14,symbolSize:5,connectNulls:false,data:d.rows.map(r=>r.cost),lineStyle:{color:p.darkWarm,width:2,type:'dashed'},itemStyle:{color:p.darkWarm},emphasis:{focus:'series',lineStyle:{color:p.darkWarm,width:3,opacity:1}}});",
     "if(d.rows.length)make('token-trend',{aria:{show:true,description:", chartAria, "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:tooltip},legend:{type:'scroll',textStyle:{fontFamily:serifFont,color:p.olive},itemWidth:28,itemHeight:8},grid:{left:56,right:d.costVisible?64:22,top:42,bottom:48,containLabel:true},xAxis:{type:'category',data:d.rows.map(r=>r.time),axisLabel:{...axis.axisLabel,hideOverlap:true},axisLine:axis.axisLine},yAxis:[{type:'value',name:'Token',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},...(d.costVisible?[{type:'value',name:'USD',axisLabel:{...axis.axisLabel,formatter:v=>'$'+compact.format(v)},axisLine:axis.axisLine,splitLine:{show:false}}]:[])],series});",
-    "make('model-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.modelAria), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand}}]});",
-    "if(d.models.length>0&&d.models.length<=6)make('model-share-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.modelShareDescription), "},color:[p.brand,p.brandLight,p.olive,p.stone,p.lightStone,p.chartMuted],tooltip:{trigger:'item',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:item=>item.name+': '+compact.format(item.value)+' ('+item.percent.toFixed(2)+'%)'},legend:{type:'scroll',orient:'vertical',right:0,top:24,bottom:24,textStyle:{fontFamily:serifFont,color:p.olive}},series:[{type:'pie',radius:['48%','72%'],center:['36%','50%'],label:{show:false},emphasis:{label:{show:true,color:p.darkWarm,fontFamily:serifFont,formatter:item=>item.percent.toFixed(2)+'%'}},itemStyle:{borderColor:'#f5f4ed',borderWidth:2},data:d.models.map(r=>({name:r.name,value:r.value}))}]});",
+    "make('model-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.modelAria), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:24,right:24,top:18,bottom:48,containLabel:true},xAxis:{type:'category',data:d.models.map(r=>r.name),axisLabel:{...axis.axisLabel,interval:0,rotate:24,hideOverlap:true},axisLine:axis.axisLine},yAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},series:[{type:'bar',barMaxWidth:42,data:d.models.map(r=>r.value),itemStyle:{color:p.brand,borderRadius:[4,4,0,0]}}]});",
+    "if(d.models.length>0&&d.models.length<=6)make('model-share-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.modelShareDescription), "},color:[p.brand,p.brandLight,p.olive,p.stone,p.lightStone,p.chartMuted],tooltip:{trigger:'item',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},formatter:item=>item.name+': '+compact.format(item.value)+' ('+item.percent.toFixed(2)+'%)'},legend:{type:'scroll',orient:'vertical',right:0,top:24,bottom:24,textStyle:{fontFamily:serifFont,color:p.olive}},series:[{type:'pie',radius:['48%','72%'],center:['36%','50%'],label:{show:false},emphasis:{label:{show:true,color:p.darkWarm,fontFamily:serifFont,formatter:item=>item.percent.toFixed(2)+'%'}},itemStyle:{borderColor:p.ivory,borderWidth:2,borderRadius:4},data:d.models.map(r=>({name:r.name,value:r.value}))}]});",
     "make('tool-chart',{aria:{show:true,description:", JSON.stringify(labels.charts.toolDescription), "},tooltip:{trigger:'axis',backgroundColor:'#faf9f5',borderColor:'#e8e6dc',borderWidth:1,textStyle:{fontFamily:serifFont,color:p.darkWarm},valueFormatter:v=>compact.format(v)},grid:{left:96,right:24,top:18,bottom:18,containLabel:true},xAxis:{type:'value',axisLabel:{...axis.axisLabel,formatter:v=>compact.format(v)},axisLine:axis.axisLine,splitLine:{lineStyle:{color:'#e5e3d8'}}},yAxis:{type:'category',data:d.tools.map(r=>r.name),axisLabel:{...axis.axisLabel,width:88,overflow:'truncate'},axisLine:axis.axisLine},series:[{type:'bar',barMaxWidth:42,data:d.tools.map(r=>r.value),itemStyle:{color:p.brandLight}}]});",
     keyChartScript(locale),
     "document.querySelectorAll('table.sortable').forEach(table=>{const headers=[...table.tHead.rows[0].cells];headers.forEach((th,index)=>{const label=th.textContent.trim();const b=document.createElement('button');b.type='button';b.className='sort-button';b.textContent=label;b.setAttribute('aria-label',label+' sort');th.textContent='';th.append(b);b.onclick=()=>{const asc=th.getAttribute('aria-sort')!=='ascending';headers.forEach(h=>h.removeAttribute('aria-sort'));th.setAttribute('aria-sort',asc?'ascending':'descending');const rows=[...table.tBodies[0].rows].map((row,order)=>({row,order,key:(row.cells[index].querySelector('[data-sort]')?.getAttribute('data-sort')??row.cells[index].getAttribute('data-sort')??row.cells[index].textContent.trim())}));rows.sort((a,b)=>{const an=Number(a.key),bn=Number(b.key),am=a.key===''||a.key==='unavailable',bm=b.key===''||b.key==='unavailable';if(am||bm)return am===bm?a.order-b.order:am?1:-1;const cmp=Number.isFinite(an)&&Number.isFinite(bn)?an-bn:a.key.localeCompare(b.key,d.locale);return cmp===0?a.order-b.order:(asc?cmp:-cmp)});rows.forEach(x=>table.tBodies[0].append(x.row))}})})});</script>"
   ].join('');
   const script = "<script>" + runtime + "</script><script>" + chartScript;
-  return `<div id="token-trend" class="echart" role="img" aria-label="${escapeHtml(labels.dailyUsage)}"></div><p class="chart-summary">${escapeHtml(labels.charts.summary)}</p>${script}`;
+  return `<div class="ivory-group chart-ivory"><div id="token-trend" class="echart" role="img" aria-label="${escapeHtml(labels.dailyUsage)}"></div><p class="chart-summary">${escapeHtml(labels.charts.summary)}</p></div>${script}`;
 }
 function renderStyles(): string {
   const fontFaces = authorizedFontFaces();
@@ -1419,6 +1424,7 @@ main{padding:88px 64px 120px}
 .report-section,
 section{margin-bottom:72px}
 section > h2{font-size:32px;line-height:1.2;margin:0 0 24px;letter-spacing:0}
+.section-num{display:block;margin:0 0 14px;color:var(--brand);font-family:var(--sans);font-size:12px;font-weight:500;line-height:1.3;letter-spacing:.08em}
 section > h3{font-size:18px;line-height:1.3;margin:32px 0 14px}
 .metadata-grid{gap:24px;margin-bottom:32px}
 .metadata-grid div{padding:0 16px 14px 0;border-bottom:1px solid var(--border-soft)}
@@ -1436,9 +1442,9 @@ section > h3{font-size:18px;line-height:1.3;margin:32px 0 14px}
 .supporting-findings ul{gap:0 32px}
 .editorial-item{padding:20px 0}
 @media(max-width:880px){section{margin-bottom:54px}section > h2{font-size:28px}.metrics--coverage,.metrics--window{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics--summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}.metrics--summary .metric-value{font-size:32px}}
-@media(max-width:480px){section{margin-bottom:48px}section > h2{font-size:24px;margin-bottom:20px}section > h3{font-size:16px;margin:24px 0 12px}.metrics--coverage,.metrics--summary,.metrics--window{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.metrics--summary{margin-bottom:32px}.metrics--summary .metric-value,.metrics--coverage .metric-value,.metrics--window .metric-value{font-size:30px}.ivory-group{padding:20px}.editorial-item{padding:18px 0}}
+@media(max-width:480px){section{margin-bottom:48px}section > h2{font-size:24px;margin-bottom:20px}section > h3{font-size:16px;margin:24px 0 12px}.metrics--coverage,.metrics--summary,.metrics--window{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.metrics--summary{margin-bottom:32px}.metrics--summary .metric-value,.metrics--coverage .metric-value,.metrics--window .metric-value{font-size:30px}.ivory-group{padding:20px}.chart-ivory{padding:20px}.editorial-item{padding:18px 0}}
 html,body{overflow-x:clip}
-.model-chart-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(260px,.85fr);gap:32px;align-items:center}.model-chart-grid .echart{min-width:0}
+.chart-ivory{padding:24px}.model-chart-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(260px,.85fr);gap:32px;align-items:center}.model-chart-grid .echart{min-width:0}
 .kami-table th,.kami-table td{padding-top:10px;padding-bottom:10px}
 .echart{max-width:100%;overflow:hidden}
 .key-session-analysis-section{margin-top:72px}
@@ -1491,7 +1497,7 @@ html,body{overflow-x:clip}
 .verify{max-width:78ch;margin:18px 0 0;padding-top:13px;border-top:.5px solid var(--border);color:var(--olive);font-size:13px;line-height:1.5}
 .verify .analysis-label{display:inline;margin:0 10px 0 0;color:var(--stone);font-size:11px}
 .analysis-unavailable{margin:0;color:var(--stone);font-size:14px;line-height:1.5}
-.key-session-chart-frame{margin:0;border-top:.5px solid var(--border)}
+.key-session-chart-frame{margin:0}
 .key-session-chart-toolbar{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:14px 0 3px;color:var(--stone);font-size:12px}
 .key-session-chart-toolbar strong{display:block;color:var(--dark-warm);font-size:14px;font-weight:500}
 .key-session-chart-toolbar small{display:block;margin-top:3px;color:var(--stone);font-size:12px}
@@ -1540,23 +1546,28 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US", 
     "<!doctype html><html lang=\"" + labels.htmlLang + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
       escapeHtml(labels.title) + "</title>" + renderStyles() + "</head><body><main>",
     renderReportHeader(result, locale, composition),
+    renderSectionMarker(labels.sectionMarkers.overview),
     "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "<p class=\"report-method-note\">" + escapeHtml(labels.methodNote) + "</p></section>",
     renderKpis(result, locale),
+    renderSectionMarker(labels.sectionMarkers.diagnosis),
     renderFindings(result, locale, composition),
     renderCacheHtml(result, locale),
     renderFirstRequestHtml(result, locale),
     renderSkillsHtml(result, locale),
+    renderSectionMarker(labels.sectionMarkers.patterns),
     result.weekComparison ? "<section><h2>" + escapeHtml(labels.weekView) + "</h2>" + renderWeek(result, locale) + "</section>" : "",
     "<section><h2>" + escapeHtml(labels.time) + "</h2><h3>" + escapeHtml(labels.dailyUsage) + "</h3>" +
       renderInteractiveCharts(result, locale, prompts) + renderDaily(result, locale) +
       "<h3>" + escapeHtml(labels.hourlyActivity) + "</h3>" + renderHourly(result, locale) +
       "<h3>" + escapeHtml(labels.observedActivity) + "</h3>" + renderRolling(result, locale) + "</section>",
-    "<section><h2>" + escapeHtml(labels.models) + "</h2><div class=\"model-chart-grid\"><div id=\"model-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.models) + "\"></div>" +
+    "<section><h2>" + escapeHtml(labels.models) + "</h2><div class=\"ivory-group chart-ivory\"><div class=\"model-chart-grid\"><div id=\"model-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.models) + "\"></div>" +
       (result.rankings.models.length > 0 && result.rankings.models.length <= 6 ? "<div id=\"model-share-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.charts.modelShareAria) + "\"></div>" : "") +
-      "</div>" + renderModels(result, locale) + "</section>",
-    "<section class=\"tool-impact\"><h2>" + escapeHtml(labels.tools) + "</h2><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.charts.toolAria) + "\"></div>" + renderTools(result, locale) + "</section>",
+      "</div></div>" + renderModels(result, locale) + "</section>",
+    "<section class=\"tool-impact\"><h2>" + escapeHtml(labels.tools) + "</h2><div class=\"ivory-group chart-ivory\"><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.charts.toolAria) + "\"></div></div>" + renderTools(result, locale) + "</section>",
     "<section><h2>" + escapeHtml(labels.sessionsByUsage) + "</h2>" + renderSessions(result, locale) + "</section>",
+    renderSectionMarker(labels.sectionMarkers.trace),
     renderKeySessionAnalysis(result, locale, composition, prompts),
+    renderSectionMarker(labels.sectionMarkers.caveats),
     "<section><h2>" + escapeHtml(labels.limitations) + "</h2>" +
       renderWarningList(result, locale) + "</section>",
     "<footer><strong>" + escapeHtml(labels.privacy) + "</strong><p>" + escapeHtml(labels.privacyNote) + "</p></footer>",

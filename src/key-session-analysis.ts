@@ -72,6 +72,24 @@ function sameSessionEvidence(audit: AuditResult, sessionId: string, evidenceIds:
   });
 }
 
+function evidenceNotRead(audit: AuditResult, sessionId: string, turnIds: string[], evidenceIds: string[]): string[] {
+  const readEvidence = new Set(
+    (audit.turns ?? [])
+      .filter((turn) => turn.sessionId === sessionId && turnIds.includes(turn.turnId))
+      .map((turn) => turn.evidenceId),
+  );
+  return evidenceIds.filter((evidenceId) => !readEvidence.has(evidenceId));
+}
+
+function normalizedFinding(analysis: KeySessionAnalysis): string | null {
+  if (analysis.primaryFinding === null) return null;
+  return [
+    analysis.primaryFinding.observation,
+    analysis.primaryFinding.interpretation,
+    analysis.recommendation?.action ?? "",
+  ].map((value) => value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase()).join("\n");
+}
+
 export function resolveReportEvidence(audit: AuditResult, reference: string): ReportEvidenceMatch | null {
   if (!nonEmpty(reference)) return null;
 
@@ -189,7 +207,7 @@ export function validateKeySessionAnalysis(
   if (audit.scope.harness === "codex" && (selectedSessionAccounting ?? audit.summary.keySessionTokenAccountingStatus?.value ?? audit.summary.tokenAccountingStatus?.value) !== "reconciled") errors.push("Codex Token accounting is not reconciled for the selected Key Session; AI conclusions are blocked.");
   if (!nonEmpty(analysis.taskContext)) errors.push("taskContext is required.");
   if (!Array.isArray(analysis.limitations) || !analysis.limitations.every(nonEmpty)) errors.push("limitations must be a list of non-empty strings.");
-  if (!analysis.evidenceRead || !strings(analysis.evidenceRead.turnIds) || !nonEmpty(analysis.evidenceRead.selectionReason) || !nonEmpty(analysis.evidenceRead.unreadScope)) errors.push("evidenceRead must describe selected Turns and unread scope.");
+  if (!analysis.evidenceRead || !Array.isArray(analysis.evidenceRead.turnIds) || analysis.evidenceRead.turnIds.length === 0 || !strings(analysis.evidenceRead.turnIds) || !nonEmpty(analysis.evidenceRead.selectionReason) || !nonEmpty(analysis.evidenceRead.unreadScope)) errors.push("evidenceRead must describe at least one selected Turn and the unread scope.");
   const sessionTurns = new Set((audit.turns ?? []).filter((turn) => turn.sessionId === analysis.sessionId).map((turn) => turn.turnId));
   if (analysis.evidenceRead?.turnIds.some((turnId) => !sessionTurns.has(turnId))) errors.push("evidenceRead contains a Turn outside the selected Session.");
   if (analysis.primaryFinding === null) {
@@ -200,6 +218,9 @@ export function validateKeySessionAnalysis(
     if (!['strong', 'moderate', 'limited'].includes(analysis.primaryFinding.support)) errors.push("primaryFinding support is invalid.");
     if (!strings(analysis.primaryFinding.alternativeExplanations)) errors.push("alternativeExplanations must be a list of non-empty strings.");
     errors.push(...sameSessionEvidence(audit, analysis.sessionId, analysis.primaryFinding.evidenceIds).map((id) => "primaryFinding Evidence is unknown or cross-Session: " + id));
+    if (analysis.evidenceRead && strings(analysis.evidenceRead.turnIds) && strings(analysis.primaryFinding.evidenceIds)) {
+      errors.push(...evidenceNotRead(audit, analysis.sessionId, analysis.evidenceRead.turnIds, analysis.primaryFinding.evidenceIds).map((id) => "primaryFinding Evidence was not read in evidenceRead: " + id));
+    }
     if (!analysis.recommendation) errors.push("a supported primaryFinding requires one recommendation or an explicit data-gap explanation.");
   }
   if (analysis.recommendation !== null) {
@@ -208,6 +229,9 @@ export function validateKeySessionAnalysis(
     if (recommendation.tradeoff !== null && !nonEmpty(recommendation.tradeoff)) errors.push("recommendation tradeoff must be null or a non-empty string.");
     if (!strings(recommendation.targetEvidenceIds)) errors.push("recommendation targetEvidenceIds must be a list of Evidence IDs.");
     errors.push(...sameSessionEvidence(audit, analysis.sessionId, recommendation.targetEvidenceIds).map((id) => "recommendation Evidence is unknown or cross-Session: " + id));
+    if (analysis.evidenceRead && strings(analysis.evidenceRead.turnIds) && strings(recommendation.targetEvidenceIds)) {
+      errors.push(...evidenceNotRead(audit, analysis.sessionId, analysis.evidenceRead.turnIds, recommendation.targetEvidenceIds).map((id) => "recommendation Evidence was not read in evidenceRead: " + id));
+    }
   }
   if (containsRawEvidence(analysis, packets)) errors.push("analysis repeats raw historical content instead of a paraphrase.");
   return { valid: errors.length === 0, errors: [...new Set(errors)], analysis: errors.length === 0 ? analysis : null };
@@ -228,7 +252,13 @@ export function composeKeySessionAnalyses(
     try {
       const analysis = candidate as KeySessionAnalysis;
       const result = validateKeySessionAnalysis(audit, analysis, packets.filter((packet) => packet.sessionId === sessionId));
-      if (result.valid && result.analysis) valid.push(result.analysis);
+      if (result.valid && result.analysis) {
+        const finding = normalizedFinding(result.analysis);
+        // ponytail: exact normalized prose only; add semantic similarity only if this misses real duplicates.
+        const duplicate = finding !== null && valid.some((accepted) => normalizedFinding(accepted) === finding);
+        if (duplicate) unavailable.push(sessionId + ": duplicate Session analysis prose; regenerate with Session-specific Evidence.");
+        else valid.push(result.analysis);
+      }
       else unavailable.push(sessionId + ": " + result.errors.join(" "));
     } catch {
       unavailable.push(sessionId + ": malformed Key Session Analysis.");

@@ -2,6 +2,13 @@
 
 The formal external project name and current CLI/Skill/plugin namespace is `where-tokens-went`. Keep this namespace consistent across user-facing text, executable names, Skill IDs, plugin IDs, paths, and generated artifacts.
 
+## Report generation hard boundary
+
+- When the user asks to generate and show a report or invokes `$where-tokens-went`, treat the Skill as the user-facing entry and run its complete workflow internally. Do not substitute or expose a direct Node command or low-level `inspect --html` invocation.
+- For full/report views, use `inspect` only for data acquisition without `--html`; then generate and validate the Host Agent synthesis and Key Session analyses, call `compose-report` once with the validated envelope, and open only that final HTML.
+- For the final report header, carry a local-only `projectName` outside `AuditResult`, resolved in this order: remote repository name, package/project name, directory basename, then `project`; never derive it from the sanitized `<current-project>` placeholder.
+- A report request is complete only after the composed final HTML is opened. A deterministic `inspect --html` file without Host Agent composition is a fallback artifact, not the requested final report.
+
 ## Simple Task Fast Path
 
 Use this path by default for small, local, low-risk changes, especially UI, copy, formatting, symbol, single-file, and localized logic changes:

@@ -175,6 +175,13 @@ const EN = {
     key: "Key",
     toolCategory: "Tool category",
     title: "where-tokens-went diagnostic report",
+    sectionMarkers: {
+        overview: "01 · Orient",
+        diagnosis: "02 · Diagnose",
+        patterns: "03 · Patterns",
+        trace: "04 · Trace",
+        caveats: "05 · Caveats",
+    },
     scope: "Audit scope",
     coverage: "Coverage",
     currentProject: "current project",
@@ -412,7 +419,13 @@ const EN = {
         concentration: (count, percent) => "Top " + count + " rounds account for " + percent,
         factWithDuration: (concentration, round, duration) => concentration + "." + round + " has a round duration of " + duration + ".",
         factWithoutDuration: (concentration) => concentration + ".",
-        unavailableReason: (reason) => reason || "No valid structured analysis was returned.",
+        unavailableReason: (reason) => {
+            if (!reason)
+                return "No valid structured analysis was returned.";
+            if (reason.includes("duplicate Session analysis prose"))
+                return "AI interpretation was duplicated across Sessions; the deterministic trajectory remains.";
+            return reason;
+        },
         support: { strong: "strong", moderate: "moderate", limited: "limited" },
         fallbackTaskContext: "Host Agent interpretation is unavailable; the deterministic trajectory remains.",
         deterministicTrajectoryAvailable: "The deterministic round trajectory remains available.",
@@ -503,6 +516,13 @@ const ZH = {
     key: "Key",
     toolCategory: "Tool category",
     title: "where-tokens-went 诊断报告",
+    sectionMarkers: {
+        overview: "01 · 概览",
+        diagnosis: "02 · 诊断",
+        patterns: "03 · 模式",
+        trace: "04 · 追踪",
+        caveats: "05 · 限制",
+    },
     scope: "审计范围",
     coverage: "覆盖情况",
     currentProject: "当前项目",
@@ -745,6 +765,8 @@ const ZH = {
                 return "未返回合法的结构化分析。";
             if (reason === "未提供 Host Agent 结构化分析。")
                 return reason;
+            if (reason.includes("duplicate Session analysis prose"))
+                return "不同 Session 的 AI 解读重复，已保留确定性轨迹。";
             if (reason.includes("Codex Token accounting"))
                 return "Codex Token 口径尚未完成核对。";
             if (reason.includes("Audit fingerprint"))
