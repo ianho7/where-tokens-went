@@ -95,12 +95,13 @@ test('CLI uses LiteLLM pricing by default and accepts the explicit pricing flag'
 test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', async () => {
   const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'SKILL.md'), 'utf8');
   assert.match(skill, /report-synthesis\.md.*in full/i);
+  assert.match(skill, /key-session-analysis\.md` in full/i);
   assert.match(skill, /ReportSynthesis.*overview.*Findings/i);
   assert.match(skill, /Open only that final HTML/i);
   assert.match(skill, /same conversation turn produces and opens the final local HTML containing a validated Audit Overview and report-level Findings/i);
   assert.match(skill, /do not return a diagnosis without the requested report/i);
-  assert.match(skill, /normalized core prose/i);
-  assert.match(skill, /regenerate only the affected analysis once/i);
+  assert.match(skill, /cross-Session portability test/i);
+  assert.match(skill, /Regenerate an affected invalid entry once/i);
 });
 
 test('Claude Code Skill preserves the same atomic report and evidence contract', async () => {
@@ -110,12 +111,13 @@ test('Claude Code Skill preserves the same atomic report and evidence contract',
     assert.match(skill, /Current Project versus Global Audit/);
     assert.match(skill, /Finding, Evidence, mechanism, action when justified, and material uncertainty/);
     assert.match(skill, /report-synthesis\.md.*in full/i);
+    assert.match(skill, /key-session-analysis\.md` in full/i);
     assert.match(skill, /validated .*reportSynthesis.*null/);
     assert.match(skill, /Open only that final HTML/i);
     assert.match(skill, /same conversation turn produces and opens the final local HTML containing a validated Audit Overview and report-level Findings/i);
     assert.match(skill, /rather than manufacture a verdict/i);
-    assert.match(skill, /normalized core prose/i);
-    assert.match(skill, /regenerate only the affected analysis once/i);
+    assert.match(skill, /cross-Session portability test/i);
+    assert.match(skill, /Regenerate an affected invalid entry once/i);
   }
 });
 
@@ -148,17 +150,18 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
   }
 });
 
-test('packaging copies the single Report Synthesis Prompt into both Skills', async () => {
+test('packaging copies both authoritative report Prompts into both Skills', async () => {
   const repoRoot = path.resolve(__dirname, '..');
-  const sourcePath = path.join(repoRoot, 'prompts', 'report-synthesis.md');
-  const source = await readFile(sourcePath, 'utf8');
+  const prompts = ['report-synthesis.md', 'key-session-analysis.md'];
   for (const harness of ['codex', 'claude']) {
     const skillRoot = path.join(repoRoot, 'skills', 'where-tokens-went-' + harness);
-    const bundledPrompt = await readFile(path.join(skillRoot, 'references', 'report-synthesis.md'), 'utf8');
     const skill = await readFile(path.join(skillRoot, 'SKILL.md'), 'utf8');
-    assert.equal(bundledPrompt, source);
-    assert.match(skill, /references\/report-synthesis\.md/);
-    assert.match(skill, /read `references\/report-synthesis\.md` in full/i);
+    for (const prompt of prompts) {
+      const source = await readFile(path.join(repoRoot, 'prompts', prompt), 'utf8');
+      const bundledPrompt = await readFile(path.join(skillRoot, 'references', prompt), 'utf8');
+      assert.equal(bundledPrompt, source, `${harness} ${prompt}`);
+      assert.match(skill, new RegExp('references/' + prompt.replace('.', '\\.') + '` in full', 'i'));
+    }
     assert.match(skill, /compose-report --locale <locale> --html <final-report-path>/);
     assert.match(skill, /validated `reportSynthesis` or `null`/);
   }
@@ -191,12 +194,12 @@ test('normal Skill acquisition does not create preliminary HTML and both package
       const synthesis = {
         auditFingerprint: fingerprint,
         overview: {
-          summary: '当前审计呈现出一个 Session 占主导、同时存在多个模型调用的用量形态。',
+          summary: '本次统计中有一个任务占主导，且用量来自多个模型调用。',
           evidenceRefs: ['summary:totalTokens', 'ranking:sessions:composition-session'],
         },
         findings: [{
-        title: 'AI 综合发现来自当前审计',
-        analysis: 'Host Agent 综合当前审计证据后识别出需要优先确认的跨指标关系。',
+        title: '主要任务占据大部分用量，工具结果也出现在后续上下文中',
+        analysis: '主要任务占据大部分用量，同时出现工具结果后续暴露的证据，这两个事实需要放在同一用量关系中理解。',
         evidenceRefs: ['summary:totalTokens'],
         support: 'strong',
         uncertainty: '相关性不单独证明因果关系。',
@@ -207,7 +210,7 @@ test('normal Skill acquisition does not create preliminary HTML and both package
     const analysis = {
       sessionId: 'composition-session',
       auditFingerprint: fingerprint,
-      taskContext: 'The selected Session contains one bounded Turn.',
+      taskContext: '该任务只包含一轮有界记录。',
       primaryFinding: null,
       recommendation: null,
       evidenceRead: { turnIds: ['composition-turn'], selectionReason: 'largest complete Turn', unreadScope: 'remaining Turns' },
@@ -227,9 +230,9 @@ test('normal Skill acquisition does not create preliminary HTML and both package
       const htmlPath = path.join(root, harness + '-final.html');
       await runBundledWithInput(harness, ['compose-report', '--locale', 'zh-CN', '--html', htmlPath], payload, env);
       const html = await readFile(htmlPath, 'utf8');
-      assert.match(html, /<h2>发现<\/h2>/);
-      assert.match(html, /AI 综合发现来自当前审计/);
-      assert.match(html, /关键 Session 分析/);
+      assert.match(html, /<h2>补充发现<\/h2>/);
+      assert.match(html, /以下解释根据本次脱敏用量记录生成/);
+      assert.match(html, /关键任务分析/);
       assert.match(html, /composition-session/);
       assert.match(html, /<span class="report-header__project">where-tokens-went<\/span>/);
     }
@@ -241,9 +244,9 @@ test('normal Skill acquisition does not create preliminary HTML and both package
       reportSynthesis: { ...synthesis, auditFingerprint: 'stale-audit' },
     }), env);
     const fallback = await readFile(fallbackPath, 'utf8');
-    assert.match(fallback, /<h2>发现<\/h2>/);
-    assert.match(fallback, /Host Agent 综合不可用/);
-    assert.match(fallback, /确定性自动检查的降级内容/);
+    assert.match(fallback, /<h2>补充发现<\/h2>/);
+    assert.match(fallback, /直接解释不可用或未通过核对/);
+    assert.match(fallback, /确定性检查作为降级证据/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -469,8 +472,8 @@ test('Codex Skill path reports a deterministic long-session check without raw co
       ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'],
       { CODEX_HOME: codexHome },
     );
-    assert.match(textOutput, /One Session accounts for/i);
-    assert.match(textOutput, /Top Session: Codex usage deep dive \(thread-codex-1\)/);
+    assert.match(textOutput, /One task accounts for/i);
+    assert.match(textOutput, /Largest task: Codex usage deep dive \(thread-codex-1\)/);
     assert.match(textOutput, /share: 100%/);
     assert.match(textOutput, /Models: .*tokens \(65\.12%\).*tokens \(34\.88%\)/);
     assert.equal(textOutput.includes('PRIVATE_PROMPT'), false);
@@ -795,20 +798,20 @@ test('Key Session Analysis validation binds prose to the audit, Session, and Tur
     const analysis = {
       sessionId: 'analysis-session',
       auditFingerprint: auditFingerprint(audit),
-      taskContext: 'The Session handled a scoped implementation task.',
+      taskContext: 'The task handled a scoped implementation task.',
       primaryFinding: {
-        observation: 'The largest Turn contains the observed Token total.',
+        observation: 'The largest round contains the observed Token total.',
         interpretation: 'The concentration is worth checking before changing the workflow.',
         evidenceIds: [evidenceId],
         support: 'strong',
         alternativeExplanations: ['The task may have been legitimately complex.'],
       },
       recommendation: {
-        action: 'Compare the next similar Session with one smaller Turn boundary.',
+        action: 'Compare the next similar task with one smaller round boundary.',
         rationale: 'This tests whether concentration is repeatable.',
         applicability: 'Use when the next task has the same shape.',
         tradeoff: 'More boundaries may add coordination overhead.',
-        verification: 'Compare the largest Turn share in the next report.',
+        verification: 'Compare the largest round share in the next report.',
         targetEvidenceIds: [evidenceId],
       },
       evidenceRead: { turnIds: ['analysis-turn'], selectionReason: 'largest complete Turn', unreadScope: 'remaining Turns' },
@@ -820,10 +823,10 @@ test('Key Session Analysis validation binds prose to the audit, Session, and Tur
     assert.equal(unboundResult.valid, false);
     assert.match(unboundResult.errors.join(' '), /Evidence was not read in evidenceRead/);
     const composedHtml = renderHtml(audit, 'en-US', { auditFingerprint: auditFingerprint(audit), audit, keySessionAnalyses: [analysis] });
-    assert.match(composedHtml, /Key Session Analysis/);
-    assert.match(composedHtml, /The Session handled a scoped implementation task/);
+    assert.match(composedHtml, /Key task analysis/);
+    assert.match(composedHtml, /The task handled a scoped implementation task/);
     assert.match(composedHtml, /<details class="key-session-entry key-session-entry--primary" open>/);
-    assert.match(renderHtml(audit, 'en-US'), /Key Session Analysis unavailable/);
+    assert.match(renderHtml(audit, 'en-US'), /Key task analysis unavailable/);
     const invalid = { ...analysis, auditFingerprint: 'stale', primaryFinding: { ...analysis.primaryFinding, evidenceIds: ['turn:other'] } };
     const invalidResult = validateKeySessionAnalysis(audit, invalid);
     assert.equal(invalidResult.valid, false);
@@ -859,7 +862,7 @@ test('Codex reports source-proven top-level and subagent Session counts separate
     assert.equal(result.rankings.sessions.find((entry) => entry.key === 'parent').value.value, 100);
     assert.equal(result.rankings.sessions.find((entry) => entry.key === 'child').value.value, 50);
     const { stdout: text } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'], { CODEX_HOME: codexHome });
-    assert.match(text, /Sessions: 2; top-level tasks: 1; subagent Sessions: 1/);
+    assert.match(text, /tasks: 2; top-level tasks: 1; subagent tasks: 1/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -900,8 +903,8 @@ test('Codex reports source-proven partial Session composition without guessing',
       ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text'],
       { CODEX_HOME: codexHome },
     );
-    assert.match(textOutput, /1 of 2 Sessions \(50%/);
-    assert.match(textOutput, /All partial Sessions are source-proven subagent Sessions/);
+    assert.match(textOutput, /1 of 2 tasks \(50%/);
+    assert.match(textOutput, /All partial tasks are source-proven subagent tasks/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1159,14 +1162,14 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     assert.match(html, /平均每次调用 Token/);
     assert.match(html, /gpt-5\.6-terra/);
     assert.match(html, /Tare current report/);
-    assert.match(html, /未命名 Session · tare-untitled/);
+    assert.match(html, /未命名任务 · tare-untitled/);
     assert.match(html, /class="percentage"[^>]*>100%</);
     assert.equal(/2026-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z/.test(html), false);
     assert.doesNotMatch(html, /证据标识|Evidence markers/);
     assert.match(html, /注入估算表示工具结果被算入上下文的大小；后续暴露估算/);
     assert.match(html, /方法：/);
     assert.equal(html.includes('long_session'), false);
-    assert.equal((html.match(/2 个 Codex Session 包含本报告暂时无法解析的用量记录/g) ?? []).length, 1);
+    assert.equal((html.match(/2 个 Codex 任务包含暂时无法解析的 Token 记录，数据可能不完整。/g) ?? []).length, 1);
     assert.equal(html.includes('A Codex Session contains unsupported accounting records'), false);
     assert.doesNotMatch(html, /Provider 额度|重置时间|没有该工具官方提供的额度数据/);
     assert.equal(html.includes('PRIVATE_ARGS'), false);
@@ -1365,7 +1368,7 @@ test('every supported Harness emits the same safe empty-result contract', async 
       assert.ok(result.checks.every((check) => check.id === 'data_quality'));
 
       const { stdout: textOutput } = await runAudit([...args.slice(0, -1), 'text'], env);
-      assert.match(textOutput, new RegExp(`Audit: ${harness}`));
+      assert.match(textOutput, new RegExp(`Usage: ${harness}`));
       assert.match(textOutput, /unavailable/);
     }
   } finally {
@@ -1544,7 +1547,7 @@ test('Chinese presentation localizes first-request limitations', () => {
   );
   const text = renderText(result, 'zh-CN');
   assert.match(text, /首次请求 Token 量是观测到的最早请求大小，不是可以精确剥离的启动成本/);
-  assert.match(text, /没有有效时间戳的 Session，不计入首次请求完整度/);
+  assert.match(text, /没有有效时间戳的任务，不计入首次请求完整度/);
   assert.doesNotMatch(text, /Sessions without a timestamped valid ModelCall|is an observed earliest request size/);
 });
 

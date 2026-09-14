@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const vm = require('node:vm');
 
 const { analyseAudit } = require('../dist/src/analysis.js');
-const { renderHtml } = require('../dist/src/report.js');
+const { renderHtml, renderText } = require('../dist/src/report.js');
 const { auditFingerprint, validateReportSynthesis, composeKeySessionAnalyses } = require('../dist/src/key-session-analysis.js');
 const { snapshotHtml } = require('../scripts/kami-report-content-snapshot.js');
 const { scoreHtml } = require('../scripts/score-kami-report.js');
@@ -76,12 +76,12 @@ function reportSynthesisFor(audit, overrides = {}) {
   return {
     auditFingerprint: fingerprint,
     overview: {
-      summary: 'The audit is concentrated in a small number of Sessions while activity spans two models.',
+      summary: 'The audit is concentrated in a small number of tasks while activity spans two models.',
       evidenceRefs: ['summary:totalTokens', 'ranking:sessions:large'],
     },
     findings: [{
       title: '跨指标关系比单项规则更值得先看',
-      analysis: 'Session 集中度与工具结果后续暴露同时出现，优先验证上下文边界是否反复携带结果。',
+      analysis: 'Task concentration and tool-result carry-forward appear together, so these two evidence types should be read as one context relationship.',
       evidenceRefs: ['summary:totalTokens', 'ranking:sessions:large', 'check:long_session'],
       support: 'strong',
       uncertainty: '这些指标显示相关模式，但不能单独证明因果。',
@@ -91,13 +91,60 @@ function reportSynthesisFor(audit, overrides = {}) {
   };
 }
 
-function reportCompositionFor(audit, reportSynthesis) {
+function reportCompositionFor(audit, reportSynthesis, keySessionAnalyses = []) {
   return {
     auditFingerprint: auditFingerprint(audit),
     audit,
     reportSynthesis,
-    keySessionAnalyses: [],
+    keySessionAnalyses,
   };
+}
+
+function emptyReportSynthesisFor(audit) {
+  return {
+    auditFingerprint: auditFingerprint(audit),
+    overview: {
+      summary: '最大 Token 去向已经确定，但当前证据不足以确认具体机制。',
+      evidenceRefs: ['summary:totalTokens', 'ranking:sessions:key-s1'],
+    },
+    findings: [],
+    noStrongFindingReason: '当前证据不足以支持额外的跨任务发现。',
+  };
+}
+
+function keyAnalysisFor(audit, mechanism = true) {
+  const fingerprint = auditFingerprint(audit);
+  const turn = audit.turns.find((candidate) => candidate.sessionId === 'key-s1' && candidate.turnId.endsWith('-r2'));
+  return {
+    sessionId: 'key-s1',
+    auditFingerprint: fingerprint,
+    taskContext: '正在阅读规范并整理实现边界。',
+    primaryFinding: mechanism ? {
+      observation: '第二轮在读取文档后 Token 明显增加。',
+      interpretation: '文档读取结果在第二轮重新带入上下文，形成了可解释的输入增长。',
+      evidenceIds: [turn.evidenceId],
+      support: 'strong',
+      alternativeExplanations: [],
+    } : null,
+    recommendation: mechanism ? {
+      action: '把长文档读取拆成可验证的上下文片段。',
+      rationale: '动作直接针对第二轮重新带入文档结果这一已解释机制。',
+      applicability: '适用于后续同类规范阅读任务。',
+      tradeoff: null,
+      verification: '比较下一次同类任务第二轮的输入 Token。',
+      targetEvidenceIds: [turn.evidenceId],
+    } : null,
+    evidenceRead: { turnIds: [turn.turnId], selectionReason: '选择已读取的关键轮次', unreadScope: '其余轮次' },
+    limitations: mechanism ? [] : ['缺少该任务的完整轮次内容，无法确认具体机制。'],
+  };
+}
+
+function visibleHtmlText(html) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ');
 }
 
 function injectedChartResult() {
@@ -141,7 +188,7 @@ test('validated report synthesis replaces fixed checks in the original Findings 
   const html = renderHtml(audit, 'en-US', reportCompositionFor(audit, synthesis));
   const header = html.match(/<header class="report-header">[\s\S]*?<\/header>/)?.[0] ?? '';
   const findings = html.match(/<section class="supporting-findings">[\s\S]*?<\/section>/)?.[0] ?? '';
-  assert.match(header, /The audit is concentrated in a small number of Sessions while activity spans two models\./);
+  assert.match(header, /The audit is concentrated in a small number of tasks while activity spans two models\./);
   assert.match(header, /data-evidence-ref="summary:totalTokens"/);
   assert.match(header, /data-evidence-ref="ranking:sessions:large"/);
   assert.doesNotMatch(header, /AI agent analytics tool|CLI tool|High cache hits|main cost|stable diagnostic/);
@@ -155,6 +202,48 @@ test('validated report synthesis replaces fixed checks in the original Findings 
   assert.doesNotMatch(findings, /automated findings/i);
 });
 
+test('Primary Answer leads with the largest task, supported mechanism, action, and one material limitation', () => {
+  const audit = keySessionResult();
+  audit.coverage.warnings.push('Some Codex Sessions have Turn snapshots that do not reconcile to their per-response Usage; only individually reconciled Sessions are eligible for AI analysis.');
+  const synthesis = emptyReportSynthesisFor(audit);
+  const html = renderHtml(audit, 'zh-CN', reportCompositionFor(audit, synthesis, [keyAnalysisFor(audit)]));
+  const primaryStart = html.indexOf('<section class="primary-answer"');
+  const scopeStart = html.indexOf('<section><h2>本次统计范围</h2>');
+  const primary = html.slice(primaryStart, scopeStart > primaryStart ? scopeStart : undefined);
+  assert.ok(primaryStart >= 0);
+  assert.ok(scopeStart > primaryStart);
+  assert.match(primary, /最大 Token 去向/);
+  assert.match(primary, /阅读文档并准备 to-spec/);
+  assert.match(primary, /文档读取结果在第二轮重新带入上下文/);
+  assert.match(primary, /下一步/);
+  assert.match(primary, /数据完整度/);
+  assert.ok(primary.indexOf('图表') === -1);
+});
+
+test('insufficient mechanism evidence shows a concrete unknown without inventing an action', () => {
+  const audit = keySessionResult();
+  const html = renderHtml(audit, 'zh-CN', reportCompositionFor(audit, emptyReportSynthesisFor(audit), [keyAnalysisFor(audit, false)]));
+  const primaryStart = html.indexOf('<section class="primary-answer"');
+  const scopeStart = html.indexOf('<section><h2>本次统计范围</h2>');
+  const primary = html.slice(primaryStart, scopeStart > primaryStart ? scopeStart : undefined);
+  assert.match(primary, /阅读文档并准备 to-spec/);
+  assert.match(primary, /具体机制未知/);
+  assert.match(primary, /缺少.*完整轮次内容/);
+  assert.doesNotMatch(primary, /下一步|改善提议|长文档读取拆分/);
+});
+
+test('Chinese visible report copy keeps internal provenance terms and mechanical punctuation out', () => {
+  const audit = keySessionResult();
+  audit.coverage.warnings.push('Some Codex Sessions have Turn snapshots that do not reconcile to their per-response Usage; only individually reconciled Sessions are eligible for AI analysis.');
+  const synthesis = emptyReportSynthesisFor(audit);
+  const html = renderHtml(audit, 'zh-CN', reportCompositionFor(audit, synthesis, [keyAnalysisFor(audit, false)]));
+  const visible = visibleHtmlText(html);
+  assert.doesNotMatch(visible, /Host Agent|Content Evidence|Accounting mismatch|Some Codex Sessions|summary:|check:|turn:/i);
+  assert.doesNotMatch(visible, /。；|。\./);
+  assert.match(visible, /本次统计范围|数据完整度|模型调用|第 1 轮/);
+  assert.doesNotMatch(renderText(audit, 'en-US'), /\.;/);
+});
+
 test('invalid report synthesis falls back to Automated Checks in the same Findings module', () => {
   const audit = findingsResult();
   const invalid = reportSynthesisFor(audit, { auditFingerprint: 'stale-audit', findings: [{ ...reportSynthesisFor(audit).findings[0], evidenceRefs: ['summary:not-present'] }] });
@@ -164,9 +253,9 @@ test('invalid report synthesis falls back to Automated Checks in the same Findin
   const findings = html.match(/<section class="supporting-findings">[\s\S]*?<\/section>/)?.[0] ?? '';
   assert.match(header, /AI overview unavailable/);
   assert.doesNotMatch(header, /AI agent analytics tool|CLI tool|High cache hits|main cost|stable diagnostic/);
-  assert.match(findings, /Host Agent synthesis is unavailable/);
-  assert.match(findings, /deterministic Automated Checks are fallback content/);
-  assert.match(findings, /One Session accounts for/);
+  assert.match(findings, /A direct explanation was unavailable or could not be verified/);
+  assert.match(findings, /deterministic checks are shown as fallback evidence/);
+  assert.match(findings, /One task accounts for/);
   assert.equal((html.match(/<h2>Findings<\/h2>/g) ?? []).length, 1);
   assert.doesNotMatch(html, /class="supporting-findings"[\s\S]*class="supporting-findings"/);
 });
@@ -236,7 +325,7 @@ test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sor
   const sectionEnd = html.indexOf('<section><h2>限制与缺失</h2>', sectionStart);
   const keySection = html.slice(sectionStart, sectionEnd > sectionStart ? sectionEnd : undefined);
   const visible = keySection.replace(/<[^>]+>/g, '');
-  assert.match(keySection, /<h2>关键 Session 分析<\/h2>/);
+  assert.match(keySection, /<h2>关键任务分析<\/h2>/);
   assert.match(keySection, /<h3 class="session-title">阅读文档并准备 to-spec<\/h3>/);
   assert.match(keySection, /<p class="session-id">key-s1 · codex<\/p>/);
   assert.equal((keySection.match(/<details class="key-session-entry/g) ?? []).length, 3);
@@ -329,17 +418,17 @@ test('Key Session composition rejects a rank-and-number template for three diffe
   const audit = keySessionResult();
   const fingerprint = auditFingerprint(audit);
   const tasks = [
-    ['key-s1', '为配置解析器补充错误处理', 1, 800],
-    ['key-s2', '修复报告渲染布局', 2, 500],
-    ['key-s3', '检查回归测试覆盖', 3, 300],
+    ['key-s1', 1, 800],
+    ['key-s2', 2, 500],
+    ['key-s3', 3, 300],
   ];
-  const analyses = tasks.map(([sessionId, task, rank, tokens]) => {
+  const analyses = tasks.map(([sessionId, rank, tokens]) => {
     const turn = audit.turns.find((candidate) => candidate.sessionId === sessionId && candidate.turnId.endsWith('-r2'));
     const evidenceId = turn.evidenceId;
     return {
       sessionId,
       auditFingerprint: fingerprint,
-      taskContext: `Session 正在${task}。`,
+      taskContext: `任务正在${audit.rankings.sessions.find((entry) => entry.key === sessionId).displayName}。`,
       primaryFinding: {
         observation: `第 ${rank} 高用量 Session 在 ${turn.turnId} 读取 ${evidenceId} 后产生 ${tokens} Tokens。`,
         interpretation: `第 ${rank} 高用量 Session 的上下文在 ${turn.turnId} 后扩大，可能影响后续请求。`,
@@ -525,7 +614,7 @@ test('Skill evidence keeps only actionable usage and cost columns', () => {
   const html = renderHtml(report, 'zh-CN');
   const skillSection = html.match(/<section class="skill-evidence">[\s\S]*?<\/section>/)?.[0] ?? '';
   assert.match(skillSection, /调用次数/);
-  assert.match(skillSection, /调用 Session/);
+  assert.match(skillSection, /调用任务/);
   assert.match(skillSection, /约 \$31\.52/);
   assert.match(skillSection, /精确值：\$31\.51641688/);
   assert.match(skillSection, /API 折算金额只统计能够明确关联到该 Skill 的用量/);
@@ -657,10 +746,10 @@ test('Findings keep values quiet and describe estimates naturally', () => {
   const finding = findingsResult();
   const html = renderHtml(finding, 'en-US');
   const text = require('../dist/src/report.js').renderText(finding, 'en-US');
-  assert.match(html, /One Session accounts for[\s\S]*?99%/);
+  assert.match(html, /One task accounts for[\s\S]*?99%/);
   assert.match(html, /class="finding-evidence" data-provenance="derived"[\s\S]*?99%/);
   assert.doesNotMatch(html, /One Session accounts for 99 \(derived\)/);
-  assert.match(text, /One Session accounts for 99% of observed tokens/);
+  assert.match(text, /One task accounts for 99% of observed tokens/);
   assert.match(text, /One tool result may be carried forward/);
   const toolFinding = text.split('\n').find((line) => line.includes('One tool result may be carried forward')) ?? '';
   assert.match(toolFinding, /about 10/);
@@ -683,15 +772,15 @@ test('Coverage narrative proves partial subagent overlap or stays unavailable', 
   assert.match(provenHtml, /\.turn-detail-table tr\.hot-row\{background:transparent\}/);
   assert.doesNotMatch(provenHtml, /\.turn-detail-table tr\.hot-row\{[^}]*?(?:gradient|box-shadow|border)/);
   const provenCoverageText = provenHtml.replace(/<[^>]+>/g, '');
-  assert.match(provenCoverageText, /1 of 2 Sessions[\s\S]*50%/);
-  assert.match(provenCoverageText, /All partial Sessions are source-proven subagent Sessions/);
-  assert.match(renderText(proven, 'en-US'), /Coverage: 1 of 2 Sessions \(50%\)/);
-  assert.match(renderShare(proven, 'en-US'), /- Coverage: 1 of 2 Sessions \(50%\)/);
+  assert.match(provenCoverageText, /1 of 2 tasks[\s\S]*50%/);
+  assert.match(provenCoverageText, /All partial tasks are source-proven subagent tasks/);
+  assert.match(renderText(proven, 'en-US'), /Data completeness: 1 of 2 tasks \(50%\)/);
+  assert.match(renderShare(proven, 'en-US'), /- Data completeness: 1 of 2 tasks \(50%\)/);
   assert.doesNotMatch(provenHtml, /[●◆≈]\s|Evidence markers/);
 
   const unknown = partialCoverageResult(false);
   const unknownText = renderText(unknown, 'en-US');
-  assert.match(unknownText, /partial Session composition is unavailable/);
+  assert.match(unknownText, /task composition is unavailable/);
   assert.doesNotMatch(unknownText, /\(50%/);
 });
 
@@ -786,7 +875,7 @@ test('automated checks are stable, evidence-backed, private, and shared by forma
   const share = renderShare(first, 'en-US');
   for (const output of [html, text, share]) {
     assert.match(output, /History parsed without coverage warnings/);
-    assert.match(output, /One Session accounts for/);
+    assert.match(output, /One task accounts for/);
     assert.match(output, /Method:/);
     assert.doesNotMatch(output, /long_session|tool_amplification|extra_calls|model_concentration|data_quality/);
   }

@@ -83,11 +83,18 @@ function evidenceNotRead(audit: AuditResult, sessionId: string, turnIds: string[
 
 function normalizedFinding(audit: AuditResult, analysis: KeySessionAnalysis): string | null {
   if (analysis.primaryFinding === null) return null;
-  return canonicalizeNarrative(audit,
+  const normalized = canonicalizeNarrative(audit,
+    analysis.taskContext,
     analysis.primaryFinding.observation,
     analysis.primaryFinding.interpretation,
+    ...analysis.primaryFinding.alternativeExplanations,
     analysis.recommendation?.action ?? "",
+    analysis.recommendation?.rationale ?? "",
+    analysis.recommendation?.applicability ?? "",
+    analysis.recommendation?.tradeoff ?? "",
+    analysis.recommendation?.verification ?? "",
   );
+  return normalized;
 }
 
 export function resolveReportEvidence(audit: AuditResult, reference: string): ReportEvidenceMatch | null {
@@ -133,7 +140,7 @@ function escapeRegExp(value: string): string {
 }
 
 function narrativeValuePattern(value: string): string {
-  return "(?<![\\p{L}\\p{N}_])" + escapeRegExp(value) + "(?![\\p{L}\\p{N}_])";
+  return "(?<![A-Za-z0-9_])" + escapeRegExp(value) + "(?![A-Za-z0-9_])";
 }
 
 function narrativeValues(audit: AuditResult): string[] {

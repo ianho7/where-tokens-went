@@ -278,6 +278,13 @@ export interface ReportMessages {
   findingUncertainty: string;
   noStrongFinding: string;
   diagnosticSignals: string;
+  primaryAnswer: string;
+  primaryDestination: string;
+  primaryMechanism: string;
+  primaryAction: string;
+  primaryLimitation: string;
+  primaryUnknownMechanism: string;
+  primaryNoDestination: string;
   privacyNote: string;
   methodNote: string;
   usageView: string;
@@ -368,19 +375,33 @@ export interface ReportMessages {
 }
 
 function localizeWarningEnglish(warning: string): string {
+  if (warning === "Some Codex Sessions have Turn snapshots that do not reconcile to their per-response Usage; only individually reconciled Sessions are eligible for AI analysis.") {
+    return "Some Codex task records cannot currently be reconciled with per-response Token usage; only reconciled tasks are eligible for AI analysis.";
+  }
   const unsupported = /^(\d+) Codex Session(?:s)? contain(?:s)? unsupported accounting records; only a partial audit is reported\.$/.exec(warning);
-  if (unsupported) return unsupported[1] + " Codex Session" + (unsupported[1] === "1" ? "" : "s") + " contain unsupported accounting records; the audit may be partial.";
+  if (unsupported) return unsupported[1] + " Codex task" + (unsupported[1] === "1" ? "" : "s") + " contain records that could not be parsed; the audit may be partial.";
   const missingTime = /^(\d+) Codex Session(?:s)? contain(?:s)? accounting records without a usable timestamp; only time-scoped records were analysed\.$/.exec(warning);
-  if (missingTime) return missingTime[1] + " Codex Session" + (missingTime[1] === "1" ? "" : "s") + " contain records without usable timestamps; only time-scoped records were analysed.";
-  return warning;
+  if (missingTime) return missingTime[1] + " Codex task" + (missingTime[1] === "1" ? "" : "s") + " contain records without usable timestamps; only records inside the requested time range were analysed.";
+  if (warning === "A Codex rollout could not be read and was skipped.") return "A Codex history record could not be read and was skipped.";
+  if (warning === "A Claude Code transcript could not be read and was skipped.") return "A Claude Code history record could not be read and was skipped.";
+  if (/^No Codex rollout history was found/.test(warning)) return "No Codex history was found in the selected range.";
+  if (/^No Claude Code transcript history was found/.test(warning)) return "No Claude Code history was found in the selected range.";
+  return /[A-Za-z]/.test(warning) ? "A source record could not be read and was skipped." : warning;
 }
 
 function localizeWarningChinese(warning: string): string {
+  if (warning === "Some Codex Sessions have Turn snapshots that do not reconcile to their per-response Usage; only individually reconciled Sessions are eligible for AI analysis.") {
+    return "部分 Codex 任务的轮次快照与每次模型调用的 Token 记录暂时无法核对；只有已核对的任务才会进入 AI 解读。";
+  }
   const unsupported = /^(\d+) Codex Session(?:s)? contain(?:s)? unsupported accounting records; only a partial audit is reported\.$/.exec(warning);
-  if (unsupported) return unsupported[1] + " 个 Codex Session 包含本报告暂时无法解析的用量记录，报告可能不完整。";
+  if (unsupported) return unsupported[1] + " 个 Codex 任务包含暂时无法解析的 Token 记录，数据可能不完整。";
   const missingTime = /^(\d+) Codex Session(?:s)? contain(?:s)? accounting records without a usable timestamp; only time-scoped records were analysed\.$/.exec(warning);
-  if (missingTime) return missingTime[1] + " 个 Codex Session 包含无法使用的时间戳；只统计时间范围明确的记录。";
-  return warning;
+  if (missingTime) return missingTime[1] + " 个 Codex 任务缺少可用时间戳；只统计时间范围明确的记录。";
+  if (warning === "A Codex rollout could not be read and was skipped.") return "有一份 Codex 历史记录无法读取，已跳过。";
+  if (warning === "A Claude Code transcript could not be read and was skipped.") return "有一份 Claude Code 历史记录无法读取，已跳过。";
+  if (/^No Codex rollout history was found/.test(warning)) return "所选范围内没有找到 Codex 历史记录。";
+  if (/^No Claude Code transcript history was found/.test(warning)) return "所选范围内没有找到 Claude Code 历史记录。";
+  return /[A-Za-z]/.test(warning) ? "有一条数据记录无法读取，已跳过。" : warning;
 }
 
 function localizeLimitationChinese(limitation: string): string {
@@ -404,25 +425,25 @@ function localizeLimitationChinese(limitation: string): string {
   if (limitation === "calls with missing or inconsistent Token composition were excluded from cache ratios") return "Token 构成缺失或不一致的调用，不计入缓存比例";
   if (limitation === "cache Token ratios are unavailable because no selected call has compatible composition") return "没有调用提供可匹配的 Token 构成，因此无法计算缓存 Token 比例";
   if (limitation === "selected Token total was incomplete for cache composition coverage") return "所选 Token 总量不完整，因此无法计算缓存构成可分解比例";
-  if (limitation === "no ModelCall had a complete mutually exclusive Token composition for cache coverage") return "没有 ModelCall 提供完整且不重叠的 Token 构成，因此无法计算缓存构成可分解比例";
+  if (limitation === "no ModelCall had a complete mutually exclusive Token composition for cache coverage") return "没有模型调用提供完整且不重叠的 Token 构成，因此无法计算缓存构成可分解比例";
   if (limitation === "no selected Token total was available for price coverage") return "没有可用的所选 Token 总量来计算已定价用量占比";
   if (limitation === "no Token total was available for price coverage") return "没有可用的 Token 总量来计算已定价用量占比";
-  if (limitation === "the all-uncached comparison requires at least one selected ModelCall with compatible exact pricing") return "要比较不缓存情况下的成本，至少需要一个价格信息完整且匹配的所选 ModelCall";
-  if (limitation === "currency requires at least one selected ModelCall with an exact Provider/model match and compatible non-zero price dimensions") return "要计算金额，至少需要一个 Provider、模型和非零价格档位都精确匹配的所选 ModelCall";
+  if (limitation === "the all-uncached comparison requires at least one selected ModelCall with compatible exact pricing") return "要比较不缓存情况下的成本，至少需要一个价格信息完整且匹配的模型调用";
+  if (limitation === "currency requires at least one selected ModelCall with an exact Provider/model match and compatible non-zero price dimensions") return "要计算金额，至少需要一个来源、模型和非零价格档位都精确匹配的模型调用";
   if (limitation === "cache savings requires at least one priced Usage with complete compatible cost dimensions") return "要计算缓存节省，至少需要一条价格信息完整且匹配的已定价用量";
   if (limitation === "cache savings percentage requires at least one priced Usage with complete compatible cost dimensions") return "要计算缓存节省比例，至少需要一条价格信息完整且匹配的已定价用量";
   if (limitation === "cost difference requires at least one priced Usage with complete compatible cost dimensions") return "要计算成本差额，至少需要一条价格信息完整且匹配的已定价用量";
   if (limitation === "cost difference percentage requires at least one priced Usage with complete compatible cost dimensions") return "要计算成本差额比例，至少需要一条价格信息完整且匹配的已定价用量";
   if (limitation === "首次请求负担 is an observed earliest request size, not an exact removable startup tax") return "首次请求 Token 量是观测到的最早请求大小，不是可以精确剥离的启动成本";
-  if (limitation === "Sessions without a timestamped valid ModelCall are excluded from first-request coverage") return "没有有效时间戳的 Session，不计入首次请求完整度";
+  if (limitation === "Sessions without a timestamped valid ModelCall are excluded from first-request coverage") return "没有有效时间戳的任务，不计入首次请求完整度";
   if (limitation === "first-request cache composition is partial because some earliest calls are missing compatible Token fields") return "部分最早请求缺少兼容 Token 字段，因此首次请求缓存构成不完整";
-  if (limitation === "first-request coverage has no selected Session denominator") return "没有所选 Session 作为首次请求完整度的分母";
-  if (limitation === "top-level versus Subagent first-request groups require source-proven identity for every selected Session") return "要比较顶层和子 Agent 的首次请求，必须确认每个所选 Session 的身份";
-  if (limitation === "no selected Sessions were available for top-level or Subagent identity coverage") return "没有可用于确认顶层或子 Agent 身份的所选 Session";
+  if (limitation === "first-request coverage has no selected Session denominator") return "没有所选任务作为首次请求完整度的分母";
+  if (limitation === "top-level versus Subagent first-request groups require source-proven identity for every selected Session") return "要比较顶层和子任务的首次请求，必须确认每个所选任务的身份";
+  if (limitation === "no selected Sessions were available for top-level or Subagent identity coverage") return "没有可用于确认顶层或子任务身份的所选任务";
   if (limitation === "causal Skill impact requires a valid comparison or counterfactual, which local history does not provide") return "无法验证 Skill 与结果之间的因果关系：本地历史没有提供有效对照数据";
   const missingSkillAssociation = /^no source-proven ModelCall association was available for (.+)$/.exec(limitation);
-  if (missingSkillAssociation) return "没有足够证据把 ModelCall 关联到：" + missingSkillAssociation[1];
-  if (limitation === "no source-proven ModelCall association was available") return "没有足够证据把 ModelCall 关联到对应 Skill";
+  if (missingSkillAssociation) return "没有足够证据把模型调用关联到：" + missingSkillAssociation[1];
+  if (limitation === "no source-proven ModelCall association was available") return "没有足够证据把模型调用关联到对应 Skill";
   if (limitation === "no Skill evidence was available") return "没有可用的 Skill 证据";
   return "存在一项未满足的诊断条件";
 }
@@ -432,13 +453,13 @@ function localizeMethodChinese(method: string | undefined): string {
   const exact: Record<string, string> = {
     "cache-read Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals": "缓存读取 Token 总量除以分母，换算为百分比并四舍五入到两位小数",
     "cache-write Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals": "缓存写入 Token 总量除以分母，换算为百分比并四舍五入到两位小数",
-    "median of earliest valid ModelCall Token totals in selected": "取所选 Session 中每个最早有效 ModelCall 的 Token 总量中位数",
+    "median of earliest valid ModelCall Token totals in selected": "取所选任务中每个最早有效模型调用的 Token 总量中位数",
     "largest paired tool-result estimate is greater than zero": "最大的一次工具结果，后续被再次带入上下文",
-    "count of observed retry, interruption, and subagent lifecycle records is greater than zero": "观测到的重试、中断和子 Agent 启停记录数量大于零",
-    "largest complete Session share is at least 40% with at least two ModelCall records": "至少有两个 ModelCall 记录时，最大完整 Session 占比至少为 40%",
+    "count of observed retry, interruption, and subagent lifecycle records is greater than zero": "观测到的重试、中断和子任务启停记录数量大于零",
+    "largest complete Session share is at least 40% with at least two ModelCall records": "至少有两个模型调用记录时，最大完整任务占比至少为 40%",
     "largest complete model contribution share is at least 60% when more than one model is observed": "观测到多个模型时，最大完整模型贡献占比至少为 60%",
-    "coverage reports skipped records, partial Sessions, or warnings": "数据中有跳过记录、不完整 Session 或异常",
-    "coverage reports at least one record with no skipped records, partial Sessions, or warnings": "至少有一条记录，且没有跳过记录、不完整 Session 或异常",
+    "coverage reports skipped records, partial Sessions, or warnings": "数据中有跳过记录、不完整任务或异常",
+    "coverage reports at least one record with no skipped records, partial Sessions, or warnings": "至少有一条记录，且没有跳过记录、不完整任务或异常",
   };
   if (exact[method]) return exact[method];
   if (method.includes("Provider and model match against the LiteLLM model catalog")) {
@@ -452,8 +473,62 @@ function localizeMethodChinese(method: string | undefined): string {
   if (method.startsWith("cache savings divided by all-uncached API-equivalent cost")) return "估算节省金额除以不缓存情况下的 API 折算金额，换算为百分比并四舍五入到两位小数";
   if (method.startsWith("cost difference divided by all-uncached API-equivalent estimate")) return "成本差额除以不缓存情况下的 API 折算金额，换算为百分比并四舍五入到两位小数";
   if (method.startsWith("sum of compatible ")) return method.replace(/^sum of compatible (.+) Token buckets$/, "把兼容的 $1 Token 分桶相加");
-  if (method.startsWith("median of earliest valid ModelCall Token totals in ")) return method.replace(/^median of earliest valid ModelCall Token totals in (.+)$/, "取 $1 中每个最早有效 ModelCall 的 Token 总量中位数");
+  if (method.startsWith("median of earliest valid ModelCall Token totals in ")) return method.replace(/^median of earliest valid ModelCall Token totals in (.+)$/, "取 $1 中每个最早有效模型调用的 Token 总量中位数");
   return "按所选历史记录和支持字段计算";
+}
+
+function localizeLimitationEnglish(limitation: string): string {
+  const exact: Record<string, string> = {
+    "首次请求负担 is an observed earliest request size, not an exact removable startup tax": "First-request usage is an observed earliest request size, not an exact removable startup cost.",
+    "Sessions without a timestamped valid ModelCall are excluded from first-request coverage": "Task records without a timestamped valid model call are excluded from first-request coverage.",
+    "first-request coverage has no selected Session denominator": "No selected task records are available as the first-request coverage denominator.",
+    "top-level versus Subagent first-request groups require source-proven identity for every selected Session": "Comparing top-level and subagent task groups requires source-proven identity for every selected task.",
+    "no selected Sessions were available for top-level or Subagent identity coverage": "No selected task records were available for top-level or subagent identity coverage.",
+    "no ModelCall had a complete mutually exclusive Token composition for cache coverage": "No model call had a complete, non-overlapping Token composition for cache coverage.",
+    "the all-uncached comparison requires at least one selected ModelCall with compatible exact pricing": "The all-uncached comparison requires at least one selected model call with compatible exact pricing.",
+    "currency requires at least one selected ModelCall with an exact Provider/model match and compatible non-zero price dimensions": "Currency requires at least one selected model call with an exact source/model match and compatible non-zero price dimensions.",
+    "no source-proven ModelCall association was available": "There is not enough evidence to associate model calls with the Skill.",
+  };
+  if (exact[limitation]) return exact[limitation];
+  const missingSkillAssociation = /^no source-proven ModelCall association was available for (.+)$/.exec(limitation);
+  if (missingSkillAssociation) return "There is not enough evidence to associate model calls with " + missingSkillAssociation[1] + ".";
+  return limitation
+    .replace(/\bSessions\b/gu, "task records")
+    .replace(/\bSession\b/gu, "task record")
+    .replace(/\bModelCalls\b/gu, "model calls")
+    .replace(/\bModelCall\b/gu, "model call")
+    .replace(/\bTurns\b/gu, "rounds")
+    .replace(/\bTurn\b/gu, "round")
+    .replace(/\bSubagent\b/gu, "subagent");
+}
+
+function localizeMethodEnglish(method: string | undefined): string {
+  if (!method) return "unavailable";
+  const exact: Record<string, string> = {
+    "cache-read Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals": "Cache-read Token total divided by its denominator and rounded to two decimals.",
+    "cache-write Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals": "Cache-write Token total divided by its denominator and rounded to two decimals.",
+    "median of earliest valid ModelCall Token totals in selected": "Median Token total of the earliest valid model call in each selected task.",
+    "largest paired tool-result estimate is greater than zero": "The largest paired tool result is a possible carry-forward source.",
+    "count of observed retry, interruption, and subagent lifecycle records is greater than zero": "At least one retry, interruption, or subagent lifecycle record was observed.",
+    "largest complete Session share is at least 40% with at least two ModelCall records": "The largest complete task accounts for at least 40% with at least two model-call records.",
+    "largest complete model contribution share is at least 60% when more than one model is observed": "The largest complete model contribution accounts for at least 60% when more than one model is observed.",
+    "coverage reports skipped records, partial Sessions, or warnings": "Coverage reports skipped records, partial task records, or warnings.",
+    "coverage reports at least one record with no skipped records, partial Sessions, or warnings": "At least one record was observed with no skipped records, partial task records, or warnings.",
+  };
+  if (exact[method]) return exact[method];
+  if (method.includes("Provider and model match against the LiteLLM model catalog")) {
+    return method.startsWith("partial")
+      ? "API-equivalent usage is estimated only for records with an exact source/model price match; unpriced or incompatible usage is excluded."
+      : "Source and model are matched against the LiteLLM catalog; ordinary input, cache reads, cache writes, and output are priced separately.";
+  }
+  if (method.startsWith("partial all-uncached counterfactual")) return "The all-uncached estimate prices ordinary input, cache reads, and cache writes as ordinary input; output pricing is unchanged and unpriced usage is excluded.";
+  if (method.startsWith("all-uncached counterfactual")) return "The all-uncached estimate prices ordinary input, cache reads, and cache writes as ordinary input; output pricing is unchanged.";
+  if (method.startsWith("all-uncached API-equivalent estimate minus observed API-equivalent estimate")) return "All-uncached API-equivalent estimate minus observed API-equivalent estimate; a positive value indicates lower estimated cost with caching.";
+  if (method.startsWith("cache savings divided by all-uncached API-equivalent cost")) return "Estimated savings divided by the all-uncached API-equivalent estimate and rounded to two decimals.";
+  if (method.startsWith("cost difference divided by all-uncached API-equivalent estimate")) return "Cost difference divided by the all-uncached API-equivalent estimate and rounded to two decimals.";
+  if (method.startsWith("sum of compatible ")) return method.replace(/^sum of compatible (.+) Token buckets$/, "Sum of compatible $1 Token buckets.");
+  if (method.startsWith("median of earliest valid ModelCall Token totals in ")) return method.replace(/^median of earliest valid ModelCall Token totals in (.+)$/, "Median Token total of the earliest valid model call in each $1.");
+  return localizeLimitationEnglish(method);
 }
 
 const EN: ReportMessages = {
@@ -466,8 +541,8 @@ const EN: ReportMessages = {
   provenanceSeparator: "; ",
   methodPrefix: "Method: ",
   limitationPrefix: "Limitations: ",
-  auditPrefix: "Audit: ",
-  topSession: "Top Session",
+  auditPrefix: "Usage: ",
+  topSession: "Largest task",
   modelsHeading: "Models",
   projectFallback: "project",
   unknownModel: "Unknown model",
@@ -475,19 +550,19 @@ const EN: ReportMessages = {
   otherModel: "other-model",
   otherTool: "other-tool",
   pricingNote: "Amounts use only usage with an exact price match; some models remain unmatched, so the estimate may understate the cost of the full observed usage.",
-  untitledSession: "Untitled Session",
+  untitledSession: "Untitled task",
   resultSizeCharactersSuffix: " chars",
   skillPrefix: "Skill: ",
   skillEvidenceNote: "API-equivalent cost here includes only usage explicitly attributable to the Skill; local history cannot prove that a Skill caused extra cost.",
   cacheCompositionPrefix: "Cache composition: ordinary input ",
   firstRequestMethodNote: "This is the observed earliest request size; it cannot precisely decompose system, Skill, or user-input overhead.",
-  topLevelPrefix: "Top-level: ",
-  subagentPrefix: "Subagent: ",
-  identityCoveragePrefix: "Identity coverage: ",
+  topLevelPrefix: "Top-level tasks: ",
+  subagentPrefix: "Subagent tasks: ",
+  identityCoveragePrefix: "Task identity coverage: ",
   cacheEfficiencyTitle: "Cache efficiency",
   costImpactTitle: "Cost impact",
   cacheRatioMethodNotePrefix: "Cache ratios sum mutually exclusive Token buckets before division; currency is an API-equivalent estimate, not a subscription bill. Method: ",
-  firstRequestNote: "This is the observed burden in Tokens of each Session's earliest valid request, not an exact decomposable startup tax.",
+  firstRequestNote: "This is the observed burden in Tokens of each task's earliest valid request, not an exact decomposable startup tax.",
   cacheMethodPrefix: "Cache method: ",
   firstRequestMethodPrefix: "First-request method: ",
   cacheLimitationsPrefix: "Cache limitations: ",
@@ -504,8 +579,8 @@ const EN: ReportMessages = {
     trace: "04 · Trace",
     caveats: "05 · Caveats",
   },
-  scope: "Audit scope",
-  coverage: "Coverage",
+  scope: "Usage scope",
+  coverage: "Data completeness",
   currentProject: "current project",
   allProjects: "all projects",
   since: "since",
@@ -514,11 +589,11 @@ const EN: ReportMessages = {
   records: "records",
   skipped: "skipped",
   warnings: "coverage warnings",
-  partialSessions: "partial Sessions",
+  partialSessions: "partial tasks",
   totalTokens: "total tokens",
-  sessions: "Sessions",
+  sessions: "tasks",
   topLevelSessions: "top-level tasks",
-  subagentSessions: "subagent Sessions",
+  subagentSessions: "subagent tasks",
   modelCalls: "model calls",
   reportedCost: "reported cost",
   time: "Time distribution",
@@ -527,7 +602,7 @@ const EN: ReportMessages = {
   models: "Model distribution",
   tools: "Tool context impact",
   toolImpactNote: "The injected estimate is the tool-result size added to context; the carry-forward estimate is an uncapped exposure heuristic for how much it may be carried by later calls in the same active context. It is not a bill, actual new Token usage, or additive to total tokens.",
-  sessionsByUsage: "Heavy Sessions",
+  sessionsByUsage: "Largest tasks by Token use",
   limitations: "Limitations and missing data",
   provenance: "Provenance",
   privacy: "Privacy and methods",
@@ -554,8 +629,8 @@ const EN: ReportMessages = {
   reasoning: "reasoning",
   date: "date",
   model: "model",
-  session: "Session",
-  kindLongSession: "long Session",
+  session: "task",
+  kindLongSession: "long task",
   kindToolAmplification: "tool context amplification",
   kindExtraCalls: "extra calls",
   reported: "reported",
@@ -566,16 +641,23 @@ const EN: ReportMessages = {
   noTimestampData: "There are not enough usable timestamps for hourly or rolling activity.",
   noToolData: "No paired tool results are available for tool impact.",
   noQuota: "No first-party quota data is available from this Harness.",
-  checksNote: "These are automated findings; the Host Agent provides a synthesis for your question in conversation.",
-  reportSynthesisNote: "Host Agent synthesis from this sanitized Audit; Automated Checks are supporting Evidence, not separate Findings.",
-  reportFallbackNote: "Host Agent synthesis is unavailable or failed validation; the following deterministic Automated Checks are fallback content.",
-  reportFallbackDetail: "The report remains usable, but its Findings module is deterministic fallback output.",
+  checksNote: "These deterministic checks are supporting evidence; they do not replace the report's direct explanation.",
+  reportSynthesisNote: "This explanation is generated from the current sanitized usage record; deterministic checks remain supporting evidence.",
+  reportFallbackNote: "A direct explanation was unavailable or could not be verified; the following deterministic checks are shown as fallback evidence.",
+  reportFallbackDetail: "The report remains usable, but this section is limited to deterministic evidence.",
   findingEvidence: "Evidence",
   automatedCheckEvidence: "Automated Check evidence",
   findingSupport: { strong: "Strong support", moderate: "Moderate support", limited: "Limited support" },
   findingUncertainty: "Uncertainty",
   noStrongFinding: "No strong Finding is supported by this Audit",
   diagnosticSignals: "Findings",
+  primaryAnswer: "Primary answer",
+  primaryDestination: "Largest Token destination",
+  primaryMechanism: "Supported mechanism",
+  primaryAction: "Next action",
+  primaryLimitation: "Confidence limit",
+  primaryUnknownMechanism: "No specific mechanism is supported by the available task and round evidence.",
+  primaryNoDestination: "No valid Token destination is available in this report.",
   privacyNote: "The report keeps safe metadata, sizes, hashes, aggregates, and methods; it excludes prompts, source, responses, tool results, arguments, credentials, and absolute paths.",
   methodNote: "Estimated values are for reference only and do not represent an actual bill; “—” means data is unavailable.",
   usageView: "Usage overview",
@@ -603,34 +685,34 @@ const EN: ReportMessages = {
   firstRequestCoverage: "first-request coverage",
   firstRequestCompositionCoverage: "first-request composition coverage",
   coldFirstRequestRate: "cold first-request rate",
-  identityCoverage: "Session identity coverage",
+  identityCoverage: "task identity coverage",
   skillEvidence: "Skill evidence",
   skillState: "state",
-  availableSessions: "available Sessions",
+  availableSessions: "available tasks",
   invocationCount: "invocations",
-  skillSessions: "invocation Sessions",
+  skillSessions: "invocation tasks",
   observedFrom: "first observed",
   observedTo: "last observed",
   attributedTokens: "attributed tokens",
   attributedCost: "attributed API cost",
   evidenceCoverage: "Evidence coverage",
   directResourceFootprint: "direct resource evidence",
-  observedAssociation: "associated ModelCalls",
+  observedAssociation: "associated model calls",
   causalImpact: "causal impact",
   noSkillEvidence: "The selected history has no verifiable Skill listing, invocation, or resource-use evidence.",
   turn: "Rounds",
   activeTime: "round duration",
-   evidenceCompleteness: "Evidence completeness",
+  evidenceCompleteness: "Data completeness",
   turnTrajectory: "Round Token trajectory",
-  keySessionAnalysis: "Key Session Analysis",
-  taskContext: "Session summary",
+  keySessionAnalysis: "Key task analysis",
+  taskContext: "Task context",
   primaryFinding: "Core judgment",
   evidenceChain: "Evidence chain",
   improvementAction: "Improvement proposal",
   verificationMethod: "How to verify",
-  interpretation: "Host Agent interpretation",
+  interpretation: "Mechanism explanation",
   proposal: "Improvement proposal",
-  analysisUnavailable: "Key Session Analysis unavailable: ",
+  analysisUnavailable: "Key task analysis unavailable: ",
   noStrongEvidence: "No Evidence supports a strong primary problem.",
   roundCount: "rounds",
   totalDuration: "total duration",
@@ -638,13 +720,13 @@ const EN: ReportMessages = {
   processEvents: "process events",
   resultSize: "result size",
   toolCalls: "tool calls",
-  sessionToken: "Session Tokens",
+  sessionToken: "Task Tokens",
   firstUserMessage: "first real user message",
   chartHint: "Click or hover a point to inspect the complete real Prompt",
   noUserMessage: "No independent user message was recorded for this round",
   allRoundDetails: "View all",
   detailNote: "Audit appendix · collapsed by default · missing values remain —",
-  moduleDeck: "Enter a single Session from the Token ranking and follow concentration, process events, and real user messages by round.",
+  moduleDeck: "Enter one task from the Token ranking and follow concentration, process events, and real user messages by round.",
   trajectoryIntro: "Bars show Token share and the line shows round duration. Dark points mark hotspots; the same Tooltip gives evidence first, then the round's first real user message.",
   noTrajectory: "No round Evidence is available.",
   duration: { hour: "h", minute: "m", second: "s", separator: " " },
@@ -661,22 +743,22 @@ const EN: ReportMessages = {
     outcome: { warning: "Warning", notice: "Notice", pass: "Pass" },
     noFinding: "No automated finding is supported by the available evidence.",
     longSession: {
-      headline: (share) => "One Session accounts for " + share + " of observed tokens",
-      headlinePrefix: "One Session accounts for ",
+      headline: (share) => "One task accounts for " + share + " of observed tokens",
+      headlinePrefix: "One task accounts for ",
       headlineSuffix: " of observed tokens",
-      detail: (calls, tokens) => calls + " ModelCall records; " + tokens + " observed tokens.",
+      detail: (calls, tokens) => calls + " model-call records; " + tokens + " observed tokens.",
       detailPrefix: "",
-      detailBetween: " ModelCall records; ",
+      detailBetween: " model-call records; ",
       detailSuffix: " observed tokens.",
     },
     toolAmplification: {
       headline: (estimate) => "One tool result may be carried forward; exposure estimate " + estimate,
       headlinePrefix: "One tool result may be carried forward; exposure estimate ",
       headlineSuffix: "",
-      detail: (resultSize, characters, calls) => "Paired result: " + resultSize + " " + characters + "; later ModelCall records: " + calls + ".",
+      detail: (resultSize, characters, calls) => "Paired result: " + resultSize + " " + characters + "; later model-call records: " + calls + ".",
       detailPrefix: "Paired result: ",
       detailResultSeparator: " ",
-      detailBetween: "; later ModelCall records: ",
+      detailBetween: "; later model-call records: ",
       detailCallSuffix: ".",
     },
     extraCalls: {
@@ -690,23 +772,23 @@ const EN: ReportMessages = {
       headlinePrefix: "",
       headlineBetween: " accounts for ",
       headlineSuffix: " of observed tokens",
-      detail: (calls) => calls + " ModelCall records.",
+      detail: (calls) => calls + " model-call records.",
       detailPrefix: "",
-      detailSuffix: " ModelCall records.",
+      detailSuffix: " model-call records.",
     },
     pass: {
       headline: "History parsed without coverage warnings",
-      detail: (records, files) => records + " records from " + files + " files; no skipped or partial Sessions.",
+      detail: (records, files) => records + " records from " + files + " files; no skipped or partial tasks.",
       detailPrefix: "",
       detailBetween: " records from ",
-      detailSuffix: " files; no skipped or partial Sessions.",
+      detailSuffix: " files; no skipped or partial tasks.",
     },
     coverage: {
       headline: "Coverage reports skipped, partial, or warning records",
-      detail: (skipped, partial, warnings) => skipped + " skipped records; " + partial + " partial Sessions; " + warnings + " coverage warnings.",
+      detail: (skipped, partial, warnings) => skipped + " skipped records; " + partial + " partial tasks; " + warnings + " coverage warnings.",
       detailPrefix: "",
       detailSkippedSuffix: " skipped records; ",
-      detailPartialSuffix: " partial Sessions; ",
+      detailPartialSuffix: " partial tasks; ",
       detailWarningsSuffix: " coverage warnings.",
     },
   },
@@ -715,27 +797,27 @@ const EN: ReportMessages = {
     clean: "History parsed without coverage warnings.",
     observedCaveat: "Total tokens are the sum of observed, supported records; incomplete coverage may undercount actual usage.",
     withRate: {
-      text: (partial, sessions, rate) => partial + " of " + sessions + " Sessions (" + rate + ") are partial.",
+      text: (partial, sessions, rate) => partial + " of " + sessions + " tasks (" + rate + ") are partial.",
       htmlBetween: " of ",
-      htmlSessionPrefix: " Sessions (",
+      htmlSessionPrefix: " tasks (",
       htmlRateSuffix: ") are partial.",
     },
     withoutRate: {
-      text: (partial) => partial + " partial Sessions; partial Session composition is unavailable because the source cannot prove the overlap.",
-      htmlSuffix: " partial Sessions; partial Session composition is unavailable because the source cannot prove the overlap.",
+      text: (partial) => partial + " partial tasks; task composition is unavailable because the source cannot prove the overlap.",
+      htmlSuffix: " partial tasks; task composition is unavailable because the source cannot prove the overlap.",
     },
     skippedOrWarnings: "Coverage includes skipped records or warnings;",
-    allPartialSubagents: " All partial Sessions are source-proven subagent Sessions.",
+    allPartialSubagents: " All partial tasks are source-proven subagent tasks.",
     composition: {
-      text: (topLevel, subagent) => " Source-proven partial composition: " + topLevel + " top-level; " + subagent + " subagent.",
-      htmlPrefix: " Source-proven partial composition: ",
+      text: (topLevel, subagent) => " Source-proven partial task composition: " + topLevel + " top-level; " + subagent + " subagent.",
+      htmlPrefix: " Source-proven partial task composition: ",
       htmlBetween: " top-level; ",
       htmlSuffix: " subagent.",
     },
-    stats: (files, records, skipped, partial, warnings) => files + " files, " + records + " records, " + skipped + " skipped, " + partial + " partial Sessions, " + warnings + " coverage warnings.",
+    stats: (files, records, skipped, partial, warnings) => files + " files, " + records + " records, " + skipped + " skipped, " + partial + " partial tasks, " + warnings + " coverage warnings.",
   },
   keySession: {
-    noComposition: "No Host Agent composition was provided.",
+    noComposition: "No verified task explanation was provided.",
     roundLabel: (ordinal) => "Round " + ordinal,
     concentrationUnavailable: "Top 5 round share is unavailable",
     concentration: (count, percent) => "Top " + count + " rounds account for " + percent,
@@ -743,29 +825,35 @@ const EN: ReportMessages = {
     factWithoutDuration: (concentration) => concentration + ".",
     unavailableReason: (reason) => {
       if (!reason) return "No valid structured analysis was returned.";
-      if (reason.includes("duplicate Session analysis prose")) return "AI interpretation was duplicated across Sessions; the deterministic trajectory remains.";
-      return reason;
+      if (reason.includes("duplicate Session analysis prose")) return "The same explanation was duplicated across tasks; the deterministic trajectory remains.";
+      if (reason.includes("Codex Token accounting")) return "The task's Token records could not be reconciled.";
+      if (reason.includes("Audit fingerprint")) return "The explanation does not match the current usage record.";
+      if (reason.includes("Turn outside")) return "The explanation refers to a round outside this task.";
+      if (reason.includes("primaryFinding")) return "The core judgment did not pass the evidence check.";
+      if (reason.includes("recommendation")) return "The proposed action did not pass the evidence check.";
+      if (reason.includes("evidenceRead")) return "The explanation does not identify the rounds it used.";
+      return "The task explanation could not be verified.";
     },
     support: { strong: "strong", moderate: "moderate", limited: "limited" },
-    fallbackTaskContext: "Host Agent interpretation is unavailable; the deterministic trajectory remains.",
+    fallbackTaskContext: "A task explanation is unavailable; the deterministic trajectory remains.",
     deterministicTrajectoryAvailable: "The deterministic round trajectory remains available.",
     evidenceStrength: (support) => "Evidence strength · " + support,
     alternativeSeparator: " ",
-    sessionSummaryAria: "Session summary",
+    sessionSummaryAria: "Task summary",
     roundUnit: "rounds",
     openByDefault: "open by default",
     collapsed: "collapsed",
-    rank: (index, total) => "TOKEN rank " + String(index).padStart(2, "0") + " / " + String(total).padStart(2, "0") + " · Current Session",
+    rank: (index, total) => "TOKEN rank " + String(index).padStart(2, "0") + " of " + String(total).padStart(2, "0") + " · Current task",
     moduleKicker: (harness) => "Usage diagnosis · " + harness,
     privacyNote: "Local full HTML Tooltips may include the complete first user message for displayed rounds; share, JSON, and text outputs exclude Prompts.",
-    listAria: "Key Session list",
+    listAria: "Key task list",
     judgmentNote: "State the evidence-backed judgment first, then separate the improvement proposal and verification.",
     tokenShareLabel: "Top 5 round Token share",
     promptUnavailable: "The first user message content is unavailable",
     promptAvailable: (count) => "Local Tooltips include the complete first user message for " + count + " rounds.",
     promptMissing: "Missing first user messages remain explicitly unavailable.",
     roundsSummary: (count) => "View all " + count + " round details",
-    chartRounds: (count) => count + " rounds · Token share / round duration",
+    chartRounds: (count) => count + " rounds · Token share and round duration",
     legendAria: "Legend",
     hotspots: "Token hotspots",
     otherRounds: "Other rounds",
@@ -798,8 +886,8 @@ const EN: ReportMessages = {
    eventLabels: { retry: "retry", compaction: "automatic context compaction", subagent: "Subagent", interrupted: "interrupted" },
   skillStates: { available: "available", invoked: "invoked", attributed: "attributed", unavailable: "unavailable" },
   warning: localizeWarningEnglish,
-  limitation: (limitation) => limitation,
-  method: (method) => method || "unavailable",
+  limitation: localizeLimitationEnglish,
+  method: localizeMethodEnglish,
 };
 
 const ZH: ReportMessages = {
@@ -813,7 +901,7 @@ const ZH: ReportMessages = {
   methodPrefix: "方法：",
   limitationPrefix: "限制：",
   auditPrefix: "审计：",
-  topSession: "主要 Session",
+  topSession: "主要任务",
   modelsHeading: "模型分布",
   projectFallback: "project",
   unknownModel: "未知模型",
@@ -821,27 +909,27 @@ const ZH: ReportMessages = {
   otherModel: "other-model",
   otherTool: "other-tool",
   pricingNote: "金额仅按能匹配精确单价的用量估算；仍有部分模型无法匹配价格，因此金额可能低于完整用量对应成本。",
-  untitledSession: "未命名 Session",
+  untitledSession: "未命名任务",
   resultSizeCharactersSuffix: " 字符",
   skillPrefix: "Skill: ",
   skillEvidenceNote: "这里的 API 折算金额只统计能够明确关联到该 Skill 的用量；本地历史无法证明 Skill 导致额外成本。",
   cacheCompositionPrefix: "缓存构成：普通输入 ",
   firstRequestMethodNote: "这是观测到的最早请求大小，无法精确区分系统、Skill 和用户输入各自占了多少。",
-  topLevelPrefix: "顶层：",
-  subagentPrefix: "子 Agent：",
-  identityCoveragePrefix: "Session 身份可信度：",
+  topLevelPrefix: "顶层任务：",
+  subagentPrefix: "子任务：",
+  identityCoveragePrefix: "任务身份可信度：",
   cacheEfficiencyTitle: "缓存效率",
   costImpactTitle: "成本影响",
   cacheRatioMethodNotePrefix: "缓存比例的算法：先把各类 Token 分别汇总，再计算比例；金额按 API 单价折算，只作估算，不是订阅账单。方法：",
-  firstRequestNote: "这是每个 Session 最早有效请求的 Token 量，不是可以精确剥离的启动成本。",
+  firstRequestNote: "这是每个任务最早有效请求的 Token 量，不是可以精确剥离的启动成本。",
   cacheMethodPrefix: "缓存方法：",
   firstRequestMethodPrefix: "首次请求方法：",
   cacheLimitationsPrefix: "缓存限制：",
   firstRequestLimitationsPrefix: "首次请求限制：",
-  tool: "Tool",
+  tool: "工具",
   skill: "Skill",
-  key: "Key",
-  toolCategory: "Tool category",
+  key: "键",
+  toolCategory: "工具类别",
   title: "where-tokens-went 诊断报告",
   sectionMarkers: {
     overview: "01 · 概览",
@@ -850,21 +938,21 @@ const ZH: ReportMessages = {
     trace: "04 · 追踪",
     caveats: "05 · 限制",
   },
-  scope: "审计范围",
-  coverage: "覆盖情况",
+  scope: "本次统计范围",
+  coverage: "数据完整度",
   currentProject: "当前项目",
   allProjects: "所有项目",
   since: "起始时间",
-  harness: "Harness",
+  harness: "数据来源",
   files: "文件",
   records: "记录",
   skipped: "跳过",
   warnings: "覆盖异常·警告级",
-  partialSessions: "不完整 Session",
+  partialSessions: "不完整任务记录",
   totalTokens: "总 Token",
-  sessions: "Session",
+  sessions: "任务记录",
   topLevelSessions: "顶层任务",
-  subagentSessions: "子 Agent Session",
+  subagentSessions: "子任务记录",
   modelCalls: "模型调用",
   reportedCost: "记录成本",
   time: "时间分布",
@@ -873,7 +961,7 @@ const ZH: ReportMessages = {
   models: "模型分布",
   tools: "工具上下文影响",
   toolImpactNote: "注入估算表示工具结果被算入上下文的大小；后续暴露估算（无上限）表示同一段对话中，后续调用可能再次带上的上下文量。这个估算不是账单，也不是真实新增 Token，不能与总 Token 相加。",
-  sessionsByUsage: "高用量 Session",
+  sessionsByUsage: "高用量任务记录",
   limitations: "限制与缺失",
   provenance: "证据来源",
   privacy: "隐私说明与统计方法",
@@ -900,8 +988,8 @@ const ZH: ReportMessages = {
   reasoning: "推理",
   date: "日期",
   model: "模型",
-  session: "Session",
-  kindLongSession: "长 Session",
+  session: "任务记录",
+  kindLongSession: "长任务",
   kindToolAmplification: "工具结果后续暴露",
   kindExtraCalls: "额外调用",
   reported: "记录值",
@@ -912,16 +1000,23 @@ const ZH: ReportMessages = {
   noTimestampData: "可用时间戳不足，无法显示小时和最近一段时间的活动。",
   noToolData: "没有找到可配对的工具结果，无法分析工具影响。",
   noQuota: "没有该工具官方提供的额度数据。",
-  checksNote: "这些发现由规则自动生成；Host Agent 会结合你的问题和完整证据，在对话中给出综合判断。",
-  reportSynthesisNote: "以下是 Host Agent 基于本次脱敏审计的综合判断；自动检查仅作为证据候选，不单独构成发现。",
-  reportFallbackNote: "Host Agent 综合不可用或未通过校验；以下是确定性自动检查的降级内容。",
-  reportFallbackDetail: "报告其他部分仍可使用，但“发现”模块当前展示的是确定性降级结果。",
+  checksNote: "这些确定性检查只作支持证据，不替代报告的直接解释。",
+  reportSynthesisNote: "以下解释根据本次脱敏用量记录生成；确定性检查只作支持证据。",
+  reportFallbackNote: "直接解释不可用或未通过核对；以下展示确定性检查作为降级证据。",
+  reportFallbackDetail: "报告其他部分仍可使用，但这一节只保留确定性证据。",
   findingEvidence: "证据",
   automatedCheckEvidence: "自动检查证据",
   findingSupport: { strong: "强支持", moderate: "中等支持", limited: "有限支持" },
   findingUncertainty: "不确定性",
   noStrongFinding: "本次审计没有足够证据支持强发现",
-  diagnosticSignals: "发现",
+  diagnosticSignals: "补充发现",
+  primaryAnswer: "主要答案",
+  primaryDestination: "最大 Token 去向",
+  primaryMechanism: "证据支持的机制",
+  primaryAction: "下一步行动",
+  primaryLimitation: "会改变判断的数据限制",
+  primaryUnknownMechanism: "具体机制未知：现有任务和轮次证据不足，无法确认是上下文重复、工具结果、重试还是其他机制。",
+  primaryNoDestination: "本次统计没有可确认的有效 Token 去向。",
   privacyNote: "报告只保留脱敏后的元数据、大小、哈希、聚合结果和计算方法；不包含 prompt、源代码、回复、工具结果、参数、凭据或绝对路径。",
   methodNote: "估算值仅作参考，不代表实际账单；“—”表示暂时没有数据。",
   usageView: "用量概览",
@@ -949,48 +1044,48 @@ const ZH: ReportMessages = {
   firstRequestCoverage: "首次请求完整度",
   firstRequestCompositionCoverage: "首次请求 Token 构成完整度",
   coldFirstRequestRate: "首次请求未命中缓存的比例",
-  identityCoverage: "Session 身份可信度",
+  identityCoverage: "任务身份可信度",
   skillEvidence: "Skill 使用证据",
   skillState: "状态",
-  availableSessions: "可用 Session",
+  availableSessions: "可用任务",
   invocationCount: "调用次数",
-  skillSessions: "调用 Session",
+  skillSessions: "调用任务",
   observedFrom: "首次观察",
   observedTo: "最近观察",
   attributedTokens: "可追溯到该 Skill 的 Token",
   attributedCost: "可追溯到该 Skill 的 API 成本",
   evidenceCoverage: "有据可查比例",
   directResourceFootprint: "直接调用记录",
-  observedAssociation: "时间上相关（ModelCall）",
+  observedAssociation: "时间上相关（模型调用）",
   causalImpact: "有因果证明",
   noSkillEvidence: "所选历史中没有足够证据确认 Skill 列表、调用或资源使用情况。",
   turn: "轮次",
   activeTime: "本轮耗时",
-   evidenceCompleteness: "证据完整度",
+  evidenceCompleteness: "数据完整度",
   turnTrajectory: "轮次轨迹",
-  keySessionAnalysis: "关键 Session 分析",
-  taskContext: "Session 摘要",
+  keySessionAnalysis: "关键任务分析",
+  taskContext: "任务背景",
   primaryFinding: "核心判断",
   evidenceChain: "证据链",
   improvementAction: "改善提议",
   verificationMethod: "如何验证",
-  interpretation: "AI 解读",
+  interpretation: "机制解释",
   proposal: "改善提议",
-  analysisUnavailable: "关键 Session 分析不可用：",
-  noStrongEvidence: "未发现需要优先处理的问题。",
+  analysisUnavailable: "关键任务分析不可用：",
+  noStrongEvidence: "现有证据不足以支持具体机制。",
   roundCount: "轮次",
   totalDuration: "总耗时",
   roundDuration: "本轮耗时",
   processEvents: "过程事件",
   resultSize: "结果大小",
   toolCalls: "工具调用",
-  sessionToken: "Session Token",
+  sessionToken: "任务 Token",
   firstUserMessage: "第一条真实用户消息",
   chartHint: "点击或悬停数据点，查看完整真实 Prompt",
   noUserMessage: "日志未记录本轮独立的用户消息",
   allRoundDetails: "查看全部",
   detailNote: "审计附录 · 默认折叠 · 缺失值保留为 —",
-  moduleDeck: "从 Token 排名进入单个 Session，按轮次追踪消耗集中、过程事件与真实用户消息。",
+  moduleDeck: "从 Token 排名进入单个任务，按轮次追踪消耗集中、过程事件与真实用户消息。",
   trajectoryIntro: "柱形表示 Token 占比，折线表示本轮耗时。深色高点可直接点按或悬停；同一个 Tooltip 先给出证据，再显示该轮第一条真实用户消息。",
   noTrajectory: "没有可用的轮次证据。",
   duration: { hour: "小时", minute: "分钟", second: "秒", separator: "" },
@@ -1007,8 +1102,8 @@ const ZH: ReportMessages = {
     outcome: { warning: "警告", notice: "提示", pass: "通过" },
     noFinding: "没有足够的可靠证据支持自动生成发现。",
     longSession: {
-      headline: (share) => "一个 Session 占已观测 Token 的 " + share,
-      headlinePrefix: "一个 Session 占已观测 Token 的 ",
+      headline: (share) => "一个任务占已观测 Token 的 " + share,
+      headlinePrefix: "一个任务占已观测 Token 的 ",
       headlineSuffix: "",
       detail: (calls, tokens) => calls + " 次模型调用；" + tokens + " 个已观测 Token。",
       detailPrefix: "",
@@ -1042,17 +1137,17 @@ const ZH: ReportMessages = {
     },
     pass: {
       headline: "历史记录未发现覆盖异常",
-      detail: (records, files) => records + " 条记录来自 " + files + " 个文件；没有跳过或不完整 Session。",
+      detail: (records, files) => records + " 条记录来自 " + files + " 个文件；没有跳过或不完整任务。",
       detailPrefix: "",
       detailBetween: " 条记录来自 ",
-      detailSuffix: " 个文件；没有跳过或不完整 Session。",
+      detailSuffix: " 个文件；没有跳过或不完整任务。",
     },
     coverage: {
       headline: "数据中有跳过、不完整或异常记录",
-      detail: (skipped, partial, warnings) => skipped + " 条跳过记录；" + partial + " 个不完整 Session；" + warnings + " 条覆盖异常·警告级。",
+      detail: (skipped, partial, warnings) => skipped + " 条跳过记录；" + partial + " 个不完整任务；" + warnings + " 条覆盖异常·警告级。",
       detailPrefix: "",
       detailSkippedSuffix: " 条跳过记录；",
-      detailPartialSuffix: " 个不完整 Session；",
+      detailPartialSuffix: " 个不完整任务；",
       detailWarningsSuffix: " 条覆盖异常·警告级。",
     },
   },
@@ -1061,27 +1156,27 @@ const ZH: ReportMessages = {
     clean: "历史记录解析完成，未发现覆盖异常。",
     observedCaveat: "总 Token 是已观测到、且报告能解析的记录之和；数据不完整时，实际使用量可能更高。",
     withRate: {
-      text: (partial, sessions, rate) => partial + " / " + sessions + " 个 Session（" + rate + "）不完整。",
-      htmlBetween: " / ",
-      htmlSessionPrefix: " 个 Session（",
+      text: (partial, sessions, rate) => partial + " 个任务，共 " + sessions + " 个任务（" + rate + "）不完整。",
+      htmlBetween: " 个任务，共 ",
+      htmlSessionPrefix: " 个任务（",
       htmlRateSuffix: "）不完整。",
     },
     withoutRate: {
-      text: (partial) => partial + " 个 Session 数据不完整；暂时无法确认这些 Session 的来源交叉关系。",
-      htmlSuffix: " 个 Session 数据不完整；暂时无法确认这些 Session 的来源交叉关系。",
+      text: (partial) => partial + " 个任务数据不完整；暂时无法确认这些任务的来源交叉关系。",
+      htmlSuffix: " 个任务数据不完整；暂时无法确认这些任务的来源交叉关系。",
     },
     skippedOrWarnings: "数据中有跳过记录或异常；",
-    allPartialSubagents: "所有不完整 Session 都是已确认来源的子 Agent Session。",
+    allPartialSubagents: "所有不完整任务都是已确认来源的子任务。",
     composition: {
-      text: (topLevel, subagent) => " 已确认来源的不完整 Session 组成：顶层 " + topLevel + "，子 Agent " + subagent + "。",
-      htmlPrefix: " 已确认来源的不完整 Session 组成：顶层 ",
-      htmlBetween: "，子 Agent ",
+      text: (topLevel, subagent) => " 已确认来源的不完整任务组成：顶层 " + topLevel + "，子任务 " + subagent + "。",
+      htmlPrefix: " 已确认来源的不完整任务组成：顶层 ",
+      htmlBetween: "，子任务 ",
       htmlSuffix: "。",
     },
-    stats: (files, records, skipped, partial, warnings) => files + " 个文件，" + records + " 条记录，跳过 " + skipped + "，" + partial + " 个不完整 Session，" + warnings + " 条覆盖异常·警告级。",
+    stats: (files, records, skipped, partial, warnings) => files + " 个文件，" + records + " 条记录，跳过 " + skipped + "，" + partial + " 个不完整任务，" + warnings + " 条覆盖异常·警告级。",
   },
   keySession: {
-    noComposition: "未提供 Host Agent 结构化分析。",
+    noComposition: "未生成可核对的任务解读。",
     roundLabel: (ordinal) => "第 " + ordinal + " 轮",
     concentrationUnavailable: "前 5 轮合计占比不可用",
     concentration: (count, percent) => "前 " + count + " 轮合计占 " + percent,
@@ -1089,36 +1184,36 @@ const ZH: ReportMessages = {
     factWithoutDuration: (concentration) => concentration + "。",
     unavailableReason: (reason) => {
       if (!reason) return "未返回合法的结构化分析。";
-      if (reason === "未提供 Host Agent 结构化分析。") return reason;
-      if (reason.includes("duplicate Session analysis prose")) return "不同 Session 的 AI 解读重复，已保留确定性轨迹。";
-      if (reason.includes("Codex Token accounting")) return "Codex Token 口径尚未完成核对。";
-      if (reason.includes("Audit fingerprint")) return "结构化分析与当前审计不匹配。";
-      if (reason.includes("Turn outside")) return "分析引用了当前 Session 之外的轮次。";
+      if (reason === "未生成可核对的任务解读。") return reason;
+      if (reason.includes("duplicate Session analysis prose")) return "不同任务的解读重复，已保留确定性轨迹。";
+      if (reason.includes("Codex Token accounting")) return "Codex Token 记录暂时无法核对。";
+      if (reason.includes("Audit fingerprint")) return "任务解读与当前统计不匹配。";
+      if (reason.includes("Turn outside")) return "任务解读引用了当前任务之外的轮次。";
       if (reason.includes("primaryFinding")) return "核心判断没有通过内容或证据校验。";
       if (reason.includes("recommendation")) return "改善提议没有通过内容或证据校验。";
       if (reason.includes("evidenceRead")) return "分析没有说明读取的轮次范围。";
-      return "Host Agent 返回的结构化分析未通过校验。";
+      return "任务解读未通过证据核对。";
     },
     support: { strong: "强", moderate: "中", limited: "有限" },
-    fallbackTaskContext: "Host Agent 解读不可用；保留确定性轨迹。",
+    fallbackTaskContext: "任务解读不可用；保留确定性轮次轨迹。",
     deterministicTrajectoryAvailable: "确定性轮次轨迹仍保留。",
     evidenceStrength: (support) => "证据强度 · " + support,
-    alternativeSeparator: "；",
-    sessionSummaryAria: "Session 摘要",
+    alternativeSeparator: " ",
+    sessionSummaryAria: "任务摘要",
     roundUnit: "轮",
     openByDefault: "默认展开",
     collapsed: "折叠",
-    rank: (index, total) => "TOKEN 排名 " + String(index).padStart(2, "0") + " / " + String(total).padStart(2, "0") + " · 当前 Session",
+    rank: (index, total) => "TOKEN 排名 " + String(index).padStart(2, "0") + "，共 " + String(total).padStart(2, "0") + " 个 · 当前任务",
     moduleKicker: (harness) => "用量诊断 · " + harness,
     privacyNote: "本地完整 HTML 的 Tooltip 可包含展示轮次的完整首条用户消息；分享稿、JSON 和文本不含 Prompt。",
-    listAria: "关键 Session 列表",
+    listAria: "关键任务列表",
     judgmentNote: "先陈述证据支持的判断，再单独给出改善提议与验证。",
     tokenShareLabel: "前 5 轮 Token 占比",
     promptUnavailable: "首条用户消息内容不可用",
     promptAvailable: (count) => "本地 Tooltip 可查看 " + count + " 个轮次的完整首条用户消息。",
     promptMissing: "首条用户消息不可用时会保留诚实的缺失说明。",
     roundsSummary: (count) => "查看全部 " + count + " 个轮次明细",
-    chartRounds: (count) => count + " 个轮次 · Token 占比 / 本轮耗时",
+    chartRounds: (count) => count + " 个轮次 · Token 占比和本轮耗时",
     legendAria: "图例",
     hotspots: "高用量轮次",
     otherRounds: "其他轮次",
@@ -1148,7 +1243,7 @@ const ZH: ReportMessages = {
     keyShareAxis: "Token 占比",
     keyTrajectoryDescription: "每个轮次的 Token 占比和本轮耗时轨迹；Tooltip 包含完整首条用户消息。",
   },
-   eventLabels: { retry: "重试", compaction: "自动压缩上下文", subagent: "Subagent", interrupted: "中断" },
+  eventLabels: { retry: "重试", compaction: "自动压缩上下文", subagent: "子任务", interrupted: "中断" },
   skillStates: { available: "可用", invoked: "已调用", attributed: "有据可查", unavailable: "无数据" },
   warning: localizeWarningChinese,
   limitation: localizeLimitationChinese,

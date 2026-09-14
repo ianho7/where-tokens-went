@@ -51,7 +51,8 @@ function evidenceNotRead(audit, sessionId, turnIds, evidenceIds) {
 function normalizedFinding(audit, analysis) {
     if (analysis.primaryFinding === null)
         return null;
-    return canonicalizeNarrative(audit, analysis.primaryFinding.observation, analysis.primaryFinding.interpretation, analysis.recommendation?.action ?? "");
+    const normalized = canonicalizeNarrative(audit, analysis.taskContext, analysis.primaryFinding.observation, analysis.primaryFinding.interpretation, ...analysis.primaryFinding.alternativeExplanations, analysis.recommendation?.action ?? "", analysis.recommendation?.rationale ?? "", analysis.recommendation?.applicability ?? "", analysis.recommendation?.tradeoff ?? "", analysis.recommendation?.verification ?? "");
+    return normalized;
 }
 function resolveReportEvidence(audit, reference) {
     if (!nonEmpty(reference))
@@ -92,7 +93,7 @@ function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function narrativeValuePattern(value) {
-    return "(?<![\\p{L}\\p{N}_])" + escapeRegExp(value) + "(?![\\p{L}\\p{N}_])";
+    return "(?<![A-Za-z0-9_])" + escapeRegExp(value) + "(?![A-Za-z0-9_])";
 }
 function narrativeValues(audit) {
     const values = new Set();

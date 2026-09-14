@@ -136,6 +136,17 @@ function provenanceSeparator(locale: ReportLocale): string {
   return labelsFor(locale).provenanceSeparator;
 }
 
+function proseSeparator(locale: ReportLocale): string {
+  return locale === "zh-CN" ? "；" : "; ";
+}
+
+function completeSentence(value: string, locale: ReportLocale): string {
+  const text = value.trim();
+  if (!text) return "";
+  const terminal = locale === "zh-CN" ? /[。！？]$/u : /[.!?]$/u;
+  return terminal.test(text) ? text : text + (locale === "zh-CN" ? "。" : ".");
+}
+
 function evidencePlain(value: EvidenceValue, locale: ReportLocale, compact = true): string {
   if (value.value === null) return "—";
   const raw = typeof value.value === "number"
@@ -514,6 +525,62 @@ function renderReportHeader(result: AuditResult, locale: ReportLocale, compositi
     "</div></header>";
 }
 
+function primaryLimitation(result: AuditResult, locale: ReportLocale): string | null {
+  const labels = labelsFor(locale);
+  const accountingStatus = result.summary.tokenAccountingStatus?.value;
+  const keyAccountingStatus = result.summary.keySessionTokenAccountingStatus?.value;
+  if (accountingStatus === "mismatch" || keyAccountingStatus === "mismatch") {
+    return locale === "zh-CN"
+      ? "Token 记录暂时无法核对；最大去向只代表当前能够核对的记录。"
+      : "Token records cannot currently be reconciled; the largest destination covers only records that can be checked now.";
+  }
+  if (accountingStatus === "unavailable" || keyAccountingStatus === "unavailable") {
+    return locale === "zh-CN"
+      ? "缺少可核对的 Token 记录，因此最大去向的完整性无法确认。"
+      : "Reconciled Token records are unavailable, so the completeness of the largest destination cannot be confirmed.";
+  }
+  if (result.coverage.recordsSkipped > 0 || result.coverage.partialSessions > 0 || result.coverage.warnings.length > 0) {
+    return locale === "zh-CN"
+      ? "数据完整度有限：有记录被跳过或任务记录不完整，最大去向可能被低估。"
+      : "Data completeness is limited: skipped or partial task records may undercount the largest destination.";
+  }
+  if (result.summary.totalTokens.value === null) return labels.primaryNoDestination;
+  return null;
+}
+
+function primaryMechanismText(analysis: KeySessionAnalysis | undefined, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  const limitation = analysis?.limitations.find((value) => value.trim());
+  return limitation && !/Host Agent|Content Evidence|schema|validation|Evidence selection|Session-specific/i.test(limitation)
+    ? (locale === "zh-CN" ? "具体机制未知：" : "Mechanism unknown: ") + limitation
+    : labels.primaryUnknownMechanism;
+}
+
+function renderPrimaryAnswer(result: AuditResult, locale: ReportLocale, composition?: ReportComposition): string {
+  const labels = labelsFor(locale);
+  const top = result.rankings.sessions.find((entry) => numericValue(entry.value) !== null);
+  const validated = composition && composition.auditFingerprint === auditFingerprint(result)
+    ? composeKeySessionAnalyses(result, composition.keySessionAnalyses)
+    : { analyses: [], unavailable: [] };
+  const analysis = top ? validated.analyses.find((candidate) => candidate.sessionId === top.key) : undefined;
+  const primaryFinding = analysis?.primaryFinding;
+  const destination = top
+    ? "<strong class=\"primary-answer__destination-name\">" + escapeHtml(sessionTitle(top, locale)) + "</strong><span class=\"primary-answer__destination-value\">" + keyMetricHtml(top.value, locale, "primary-answer__metric") + " " + escapeHtml(labels.tokens) + "</span><span class=\"primary-answer__destination-share\">" + escapeHtml(labels.share) + labels.exactSeparator + keyPercentageHtml(top.sharePercent, locale) + "</span>"
+    : "<strong class=\"primary-answer__destination-name\">" + escapeHtml(labels.primaryNoDestination) + "</strong>";
+  const mechanism = primaryFinding
+    ? "<p class=\"primary-answer__observation\">" + escapeHtml(primaryFinding.observation) + "</p><p>" + escapeHtml(primaryFinding.interpretation) + "</p>"
+    : "<p>" + escapeHtml(primaryMechanismText(analysis, locale)) + "</p>";
+  const action = analysis?.recommendation && primaryFinding
+    ? "<article class=\"primary-answer__item primary-answer__item--action\"><h3>" + escapeHtml(labels.primaryAction) + "</h3><p class=\"primary-answer__action-title\">" + escapeHtml(analysis.recommendation.action) + "</p><p>" + escapeHtml(analysis.recommendation.rationale) + "</p><p class=\"primary-answer__verification\"><span>" + escapeHtml(labels.verificationMethod) + labels.exactSeparator + "</span>" + escapeHtml(analysis.recommendation.verification) + "</p></article>"
+    : "";
+  const limitation = primaryLimitation(result, locale);
+  const limitationHtml = limitation
+    ? "<article class=\"primary-answer__item primary-answer__item--limitation\"><h3>" + escapeHtml(labels.primaryLimitation) + "</h3><p>" + escapeHtml(limitation) + "</p></article>"
+    : "";
+  const refs = top ? "ranking:sessions:" + top.key : "summary:totalTokens";
+  return "<section class=\"primary-answer\" data-evidence-refs=\"" + escapeHtml(refs) + "\" aria-labelledby=\"primary-answer-title\"><header class=\"primary-answer__head\"><span class=\"primary-answer__kicker\">" + escapeHtml(labels.primaryAnswer) + "</span><h2 id=\"primary-answer-title\">" + escapeHtml(top ? labels.primaryDestination : labels.primaryNoDestination) + "</h2></header><div class=\"primary-answer__grid\"><article class=\"primary-answer__item primary-answer__item--destination\"><h3>" + escapeHtml(labels.primaryDestination) + "</h3><p class=\"primary-answer__destination\">" + destination + "</p></article><article class=\"primary-answer__item primary-answer__item--mechanism\"><h3>" + escapeHtml(labels.primaryMechanism) + "</h3>" + mechanism + "</article>" + action + limitationHtml + "</div></section>";
+}
+
 function renderKpis(result: AuditResult, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const sessionBreakdown = result.summary.topLevelSessionCount.value !== null && result.summary.subagentSessionCount.value !== null
@@ -615,35 +682,89 @@ function checkLine(check: AutomatedCheck, locale: ReportLocale): string {
 }
 
 function reportEvidenceValue(value: EvidenceValue, locale: ReportLocale): string {
-  return evidencePlain(value, locale, false) + " (" + provenanceLabel(value.provenance, locale) + ")";
+  const raw = value.value === "mismatch"
+    ? locale === "zh-CN" ? "Token 记录暂时无法核对" : "Token records cannot currently be reconciled"
+    : value.value === "reconciled"
+      ? locale === "zh-CN" ? "已核对" : "reconciled"
+      : value.value === "unavailable"
+        ? labelsFor(locale).unavailable
+        : evidencePlain(value, locale, false);
+  return raw + " (" + provenanceLabel(value.provenance, locale) + ")";
+}
+
+function reportEvidenceFact(value: EvidenceValue, label: string, locale: ReportLocale, kind: "metric" | "percentage" = "metric"): string {
+  const display = kind === "percentage" ? percentagePlain(value, locale) : reportEvidenceValue(value, locale);
+  return label + labelsFor(locale).exactSeparator + display;
+}
+
+function checkEvidenceLabels(checkId: string, locale: ReportLocale): Array<[string, "metric" | "percentage"]> {
+  const labels = labelsFor(locale);
+  if (checkId === "long_session") return [[labels.totalTokens, "metric"], [labels.modelCalls, "metric"], [labels.share, "percentage"]];
+  if (checkId === "tool_amplification") return [[labels.resultSize, "metric"], [labels.modelCalls, "metric"], [labels.amplified, "metric"]];
+  if (checkId === "extra_calls") return [[labels.processEvents, "metric"]];
+  if (checkId === "model_concentration") return [[labels.totalTokens, "metric"], [labels.share, "percentage"], [labels.modelCalls, "metric"]];
+  return [[labels.skipped, "metric"], [labels.partialSessions, "metric"], [labels.warnings, "metric"]];
+}
+
+function summaryEvidenceLabel(key: string, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  const known: Record<string, string> = {
+    totalTokens: labels.totalTokens,
+    sessionCount: labels.sessions,
+    topLevelSessionCount: labels.topLevelSessions,
+    subagentSessionCount: labels.subagentSessions,
+    modelCallCount: labels.modelCalls,
+    reportedCost: labels.reportedCost,
+    topSessionTokens: labels.primaryDestination,
+    topSessionSharePercent: labels.share,
+    tokenAccountingStatus: labels.primaryLimitation,
+    keySessionTokenAccountingStatus: labels.primaryLimitation,
+    responseUsageTotal: labels.modelCalls,
+    cumulativeTurnTotal: labels.totalTokens,
+  };
+  return known[key] ?? labels.findingEvidence;
 }
 
 function reportFindingEvidence(result: AuditResult, reference: string, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const match = resolveReportEvidence(result, reference);
-  if (!match) return reference;
+  if (!match) return labels.findingEvidence + labels.exactSeparator + labels.unavailable;
   if (match.kind === "check") {
     const outcome = result.checks.find((check) => check.id === match.key.split(":", 1)[0])?.outcome;
-    return labels.automatedCheckEvidence + (outcome ? " · " + outcomeLabel(outcome, locale) : "") + ": " + match.evidence.map((value) => reportEvidenceValue(value, locale)).join(" / ");
+    const checkId = match.key.split(":", 1)[0];
+    const valueLabels = checkEvidenceLabels(checkId, locale);
+    const facts = match.evidence.map((value, index) => reportEvidenceFact(value, valueLabels[index]?.[0] ?? labels.findingEvidence, locale, valueLabels[index]?.[1] ?? "metric"));
+    return labels.automatedCheckEvidence + labels.exactSeparator + (outcome ? outcomeLabel(outcome, locale) + proseSeparator(locale) : "") + facts.join(proseSeparator(locale));
   }
   if (match.kind === "ranking") {
     const row = match.dimension ? result.rankings[match.dimension].find((entry) => entry.key === match.key) : undefined;
-    const name = row?.displayName ?? row?.key ?? match.key;
-    return labels.findingEvidence + " · " + name + ": " + match.evidence.map((value) => reportEvidenceValue(value, locale)).join(" / ");
+    const name = row
+      ? match.dimension === "sessions" ? sessionTitle(row, locale)
+        : match.dimension === "models" ? modelLabel(row.key, locale)
+          : publicLabel(row.displayName ?? row.key, labels.unavailable)
+      : labels.unavailable;
+    const facts = [
+      [labels.tokens, "metric"],
+      [labels.share, "percentage"],
+      [match.dimension === "sessions" ? labels.modelCalls : labels.calls, "metric"],
+    ] as Array<[string, "metric" | "percentage"]>;
+    return labels.findingEvidence + labels.exactSeparator + name + "（" + match.evidence.map((value, index) => reportEvidenceFact(value, facts[index]?.[0] ?? labels.findingEvidence, locale, facts[index]?.[1] ?? "metric")).join(proseSeparator(locale)) + "）";
   }
   if (match.kind === "turn") {
     const turn = result.turns.find((candidate) => candidate.evidenceId === reference);
-    return labels.findingEvidence + " · " + (turn ? roundLabel(turn, locale) : match.key) + ": " + match.evidence.slice(0, 2).map((value) => reportEvidenceValue(value, locale)).join(" / ");
+    const facts: Array<[string, "metric" | "percentage"]> = [[labels.tokens, "metric"], [labels.share, "percentage"], [labels.modelCalls, "metric"]];
+    return labels.findingEvidence + labels.exactSeparator + (turn ? roundLabel(turn, locale) : labels.unavailable) + "（" + match.evidence.map((value, index) => reportEvidenceFact(value, facts[index]?.[0] ?? labels.findingEvidence, locale, facts[index]?.[1] ?? "metric")).join(proseSeparator(locale)) + "）";
   }
-  return reference + " = " + match.evidence.map((value) => reportEvidenceValue(value, locale)).join(" / ");
+  return labels.findingEvidence + labels.exactSeparator + match.evidence.map((value) => reportEvidenceFact(value, labels.findingEvidence, locale)).join(proseSeparator(locale));
 }
 
 function renderReportFinding(result: AuditResult, finding: ReportFinding, locale: ReportLocale): string {
   const labels = labelsFor(locale);
   const support = labels.findingSupport[finding.support];
-  const evidence = finding.evidenceRefs.map((reference) => reportFindingEvidence(result, reference, locale)).join(locale === "zh-CN" ? "；" : "; ");
-  const uncertainty = finding.uncertainty === null ? "" : " " + labels.findingUncertainty + ": " + finding.uncertainty + ".";
-  return "<li class=\"editorial-item\" data-evidence-refs=\"" + escapeHtml(finding.evidenceRefs.join(" ")) + "\"><div class=\"editorial-tags\" aria-label=\"" + escapeHtml(support) + "\">" + tagHtml(support) + "</div><strong class=\"editorial-title\">" + escapeHtml(finding.title) + "</strong><p class=\"editorial-detail\">" + escapeHtml(finding.analysis) + "</p><small class=\"editorial-method\">" + escapeHtml(labels.findingEvidence) + ": " + escapeHtml(evidence) + ". " + escapeHtml(labels.findingSupport[finding.support]) + uncertainty + "</small></li>";
+  const evidence = finding.evidenceRefs.map((reference) => reportFindingEvidence(result, reference, locale)).join(proseSeparator(locale));
+  const uncertainty = finding.uncertainty === null ? "" : labels.findingUncertainty + labels.exactSeparator + completeSentence(finding.uncertainty, locale);
+  const method = [labels.findingEvidence + labels.exactSeparator + evidence, labels.findingSupport[finding.support], uncertainty].filter(Boolean).join(proseSeparator(locale));
+  return "<li class=\"editorial-item\" data-evidence-refs=\"" + escapeHtml(finding.evidenceRefs.join(" ")) + "\"><div class=\"editorial-tags\" aria-label=\"" + escapeHtml(support) + "\">" + tagHtml(support) + "</div><strong class=\"editorial-title\">" + escapeHtml(finding.title) + "</strong><p class=\"editorial-detail\">" + escapeHtml(finding.analysis) + "</p><small class=\"editorial-method\">" + escapeHtml(method) + "</small></li>";
 }
 
 function renderChecks(result: AuditResult, locale: ReportLocale, note = labelsFor(locale).checksNote): string {
@@ -815,11 +936,16 @@ function renderTurnTrajectory(result: AuditResult, sessionId: string, locale: Re
   const rows = turns.map((turn) => {
     const events = processEvents(turn, locale);
     const className = hot.has(turn.turnId) ? " class=\"hot-row\"" : "";
-    const composition = [turn.tokens.inputTokens, turn.tokens.cachedInputTokens, turn.tokens.outputTokens]
-      .map((value) => keyValueText(value, locale)).join(" / ");
-    return "<tr" + className + "><th scope=\"row\" class=\"turn-number\"><span>" + escapeHtml(roundLabel(turn, locale)) + "</span></th><td>" + keyMetricHtml(turn.tokens.totalTokens, locale, "turn-token") + "</td><td>" + keyPercentageHtml(turn.sessionSharePercent, locale, "turn-share") + "</td><td class=\"composition\">" + escapeHtml(composition) + "</td><td>" + keyDurationHtml(turn.durationMs, locale, "turn-duration") + "</td><td class=\"tool-result\"><span data-sort=\"" + (numericValue(turn.toolCallCount) ?? "") + "\">" + escapeHtml(keyValueText(turn.toolCallCount, locale, false)) + " / " + escapeHtml(resultSizeText(turn, locale)) + "</span></td><td class=\"event\">" + escapeHtml(events.join(" · ") || "—") + "</td></tr>";
+    const composition = [
+      labels.input + " " + labels.tokens + labels.exactSeparator + keyValueText(turn.tokens.inputTokens, locale),
+      labels.cachedInput + " " + labels.tokens + labels.exactSeparator + keyValueText(turn.tokens.cachedInputTokens, locale),
+      labels.output + " " + labels.tokens + labels.exactSeparator + keyValueText(turn.tokens.outputTokens, locale),
+    ].join(proseSeparator(locale));
+    const toolResult = labels.toolCalls + labels.exactSeparator + keyValueText(turn.toolCallCount, locale, false) +
+      proseSeparator(locale) + labels.resultSize + labels.exactSeparator + resultSizeText(turn, locale);
+    return "<tr" + className + "><th scope=\"row\" class=\"turn-number\"><span>" + escapeHtml(roundLabel(turn, locale)) + "</span></th><td>" + keyMetricHtml(turn.tokens.totalTokens, locale, "turn-token") + "</td><td>" + keyPercentageHtml(turn.sessionSharePercent, locale, "turn-share") + "</td><td class=\"composition\">" + escapeHtml(composition) + "</td><td>" + keyDurationHtml(turn.durationMs, locale, "turn-duration") + "</td><td class=\"tool-result\"><span data-sort=\"" + (numericValue(turn.toolCallCount) ?? "") + "\">" + escapeHtml(toolResult) + "</span></td><td class=\"event\">" + escapeHtml(events.join(" · ") || "—") + "</td></tr>";
   }).join("");
-  return "<table class=\"kami-table compact sortable turn-detail-table\"><caption class=\"sr-only\">" + escapeHtml(labels.turnTrajectory) + "</caption><thead><tr><th scope=\"col\">" + escapeHtml(labels.turn) + "</th><th scope=\"col\">" + escapeHtml(labels.tokens) + "</th><th scope=\"col\">" + escapeHtml(labels.share) + "</th><th scope=\"col\">" + escapeHtml(labels.input) + " / " + escapeHtml(labels.cachedInput) + " / " + escapeHtml(labels.output) + "</th><th scope=\"col\">" + escapeHtml(labels.roundDuration) + "</th><th scope=\"col\">" + escapeHtml(labels.toolCalls) + " / " + escapeHtml(labels.resultSize) + "</th><th scope=\"col\">" + escapeHtml(labels.processEvents) + "</th></tr></thead><tbody>" + rows + "</tbody></table>";
+  return "<table class=\"kami-table compact sortable turn-detail-table\"><caption class=\"sr-only\">" + escapeHtml(labels.turnTrajectory) + "</caption><thead><tr><th scope=\"col\">" + escapeHtml(labels.turn) + "</th><th scope=\"col\">" + escapeHtml(labels.tokens) + "</th><th scope=\"col\">" + escapeHtml(labels.share) + "</th><th scope=\"col\">" + escapeHtml(labels.input) + "、" + escapeHtml(labels.cachedInput) + "、" + escapeHtml(labels.output) + "</th><th scope=\"col\">" + escapeHtml(labels.roundDuration) + "</th><th scope=\"col\">" + escapeHtml(labels.toolCalls) + "、" + escapeHtml(labels.resultSize) + "</th><th scope=\"col\">" + escapeHtml(labels.processEvents) + "</th></tr></thead><tbody>" + rows + "</tbody></table>";
 }
 
 function renderKeySessionAnalysis(result: AuditResult, locale: ReportLocale, composition?: ReportComposition, localFirstUserMessages?: FirstUserMessageRecord[]): string {
@@ -857,7 +983,7 @@ function renderKeySessionAnalysis(result: AuditResult, locale: ReportLocale, com
         ? "<p class=\"finding-lead\">" + escapeHtml(primaryFinding.observation) + "</p><p class=\"fact-line\"><strong>" + escapeHtml(fact) + "</strong></p><p class=\"quiet\">" + escapeHtml([primaryFinding.interpretation, ...primaryFinding.alternativeExplanations].filter(Boolean).join(keySessionMessages.alternativeSeparator)) + "</p>"
         : "<p class=\"finding-lead\">" + escapeHtml(labels.noStrongEvidence) + "</p><p class=\"fact-line\"><strong>" + escapeHtml(fact) + "</strong></p>") + "</article>";
     const action = analysis?.recommendation
-      ? "<article class=\"action\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.improvementAction) + "</span></div><h4>" + escapeHtml(analysis.recommendation.action) + "</h4><p class=\"action-copy\">" + escapeHtml(analysis.recommendation.rationale) + "</p><p class=\"applicability\">" + escapeHtml(analysis.recommendation.applicability) + (analysis.recommendation.tradeoff ? " · " + escapeHtml(analysis.recommendation.tradeoff) : "") + "</p><p class=\"verify\"><span class=\"analysis-label\">" + escapeHtml(labels.verificationMethod) + "</span>" + escapeHtml(analysis.recommendation.verification) + "</p></article>"
+      ? "<article class=\"action\"><div class=\"analysis-label\"><span>" + escapeHtml(labels.improvementAction) + "</span></div><h4>" + escapeHtml(analysis.recommendation.action) + "</h4><p class=\"action-copy\">" + escapeHtml(analysis.recommendation.rationale) + "</p><p class=\"applicability\">" + escapeHtml([analysis.recommendation.applicability, analysis.recommendation.tradeoff].filter(Boolean).join(locale === "zh-CN" ? " " : " · ")) + "</p><p class=\"verify\"><span class=\"analysis-label\">" + escapeHtml(labels.verificationMethod) + "</span>" + escapeHtml(analysis.recommendation.verification) + "</p></article>"
       : "";
     const taskContext = analysis?.taskContext ?? keySessionMessages.fallbackTaskContext;
     const metrics = "<div class=\"key-session-metrics\" aria-label=\"" + escapeHtml(keySessionMessages.sessionSummaryAria) + "\"><div class=\"key-session-metric\"><span class=\"key-session-metric-value\">" + escapeHtml(durationText(totalDuration, locale)) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(labels.totalDuration) + "</span></div><div class=\"key-session-metric\"><span class=\"key-session-metric-value\" data-sort=\"" + String(turns.length) + "\">" + escapeHtml(String(turns.length)) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(labels.roundCount) + "</span></div><div class=\"key-session-metric\"><span class=\"key-session-metric-value\">" + escapeHtml(concentration) + "</span><span class=\"key-session-metric-label\">" + escapeHtml(keySessionMessages.tokenShareLabel) + "</span></div></div>";
@@ -933,6 +1059,18 @@ function methodText(value: EvidenceValue, locale: ReportLocale): string {
   return labelsFor(locale).method(value.method);
 }
 
+function methodPairText(first: string, second: string, locale: ReportLocale): string {
+  const terminal = locale === "zh-CN" ? /[。！？]+$/u : /[.!?]+$/u;
+  const parts = [first, second].map((part) => part.trim().replace(terminal, "")).filter(Boolean);
+  return parts.length === 0 ? "" : parts.join(proseSeparator(locale)) + (locale === "zh-CN" ? "。" : ".");
+}
+
+function limitationListText(values: string[], locale: ReportLocale): string {
+  const terminal = locale === "zh-CN" ? /[。！？]+$/u : /[.!?]+$/u;
+  const parts = values.map((value) => labelsFor(locale).limitation(value).trim().replace(terminal, "")).filter(Boolean);
+  return parts.length === 0 ? "" : parts.join(proseSeparator(locale)) + (locale === "zh-CN" ? "。" : ".");
+}
+
 function skillStateLabel(state: AuditResult["report"]["skills"][number]["state"], locale: ReportLocale): string {
   return labelsFor(locale).skillStates[state] ?? state;
 }
@@ -953,9 +1091,9 @@ function renderCacheText(result: AuditResult, locale: ReportLocale): string[] {
     labels.cacheEconomics,
     labels.cacheReadRate + ": " + percentagePlain(cache.cacheReadRatePercent, locale) + "; " + labels.cacheWriteRate + ": " + percentagePlain(cache.cacheWriteRatePercent, locale) + "; " + labels.cacheCoverage + ": " + percentagePlain(cache.coveragePercent, locale) + ".",
     labels.observedApiCost + ": " + currencyPlain(cache.observedApiEquivalentCost, locale, false) + "; " + labels.allUncachedApiCost + ": " + currencyPlain(cache.allUncachedApiEquivalentCost, locale, false) + "; " + labels.cacheSavings + ": " + currencyPlain(cache.cacheSavings, locale, false) + " (" + percentagePlain(cache.cacheSavingsPercent, locale) + "); " + labels.priceCoverage + ": " + percentagePlain(cache.pricedUsageCoveragePercent, locale) + ".",
-    labels.methodPrefix + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale),
+    labels.methodPrefix + methodPairText(methodText(cache.cacheReadRatePercent, locale), methodText(cache.observedApiEquivalentCost, locale), locale),
   ];
-  if (cache.limitations.length > 0) lines.push(labels.limitationPrefix + cache.limitations.map((limitation) => labels.limitation(limitation)).join("; "));
+  if (cache.limitations.length > 0) lines.push(labels.limitationPrefix + limitationListText(cache.limitations, locale));
   return lines;
 }
 
@@ -967,12 +1105,12 @@ function renderFirstRequestText(result: AuditResult, locale: ReportLocale): stri
     labels.firstRequestMedian + ": " + evidencePlain(first.medianTokens, locale, false) + "; " + labels.firstRequestShare + ": " + percentagePlain(first.sharePercent, locale) + "; " + labels.firstRequestCoverage + ": " + percentagePlain(first.coveragePercent, locale) + ".",
     labels.cacheCompositionPrefix + evidencePlain(first.inputTokens, locale, false) + "; " + labels.cachedInput + " " + evidencePlain(first.cachedInputTokens, locale, false) + "; " + labels.cacheWrite + " " + evidencePlain(first.cacheWriteTokens, locale, false) + "; " + labels.output + " " + evidencePlain(first.outputTokens, locale, false) + ".",
     labels.firstRequestCompositionCoverage + ": " + percentagePlain(first.compositionCoveragePercent, locale) + "; " + labels.coldFirstRequestRate + ": " + percentagePlain(first.coldSessionRatePercent, locale) + ".",
-    labels.methodPrefix + methodText(first.medianTokens, locale) + "; " + labels.firstRequestMethodNote,
+    labels.methodPrefix + methodPairText(methodText(first.medianTokens, locale), labels.firstRequestMethodNote, locale),
   ];
   if (first.topLevel) lines.push(labels.topLevelPrefix + evidencePlain(first.topLevel.medianTokens, locale, false) + "; " + labels.firstRequestCoverage + " " + percentagePlain(first.topLevel.compositionCoveragePercent, locale) + ".");
   if (first.subagent) lines.push(labels.subagentPrefix + evidencePlain(first.subagent.medianTokens, locale, false) + "; " + labels.firstRequestCoverage + " " + percentagePlain(first.subagent.compositionCoveragePercent, locale) + ".");
   lines.push(labels.identityCoveragePrefix + percentagePlain(first.identityCoveragePercent, locale) + ".");
-  if (first.limitations.length > 0) lines.push(labels.limitationPrefix + first.limitations.map((limitation) => labels.limitation(limitation)).join("; "));
+  if (first.limitations.length > 0) lines.push(labels.limitationPrefix + limitationListText(first.limitations, locale));
   return lines;
 }
 
@@ -1007,7 +1145,7 @@ function renderCacheHtml(result: AuditResult, locale: ReportLocale): string {
   ];
   const limitations = renderCacheLimitations(cache, locale);
   const groups = "<div class=\"comparison-grid economic-groups\"><div class=\"ivory-group\"><h3>" + escapeHtml(labels.cacheEfficiencyTitle) + "</h3>" + renderMetrics(efficiencyMetrics, locale, "economic") + "</div><div class=\"ivory-group\"><h3>" + escapeHtml(labels.costImpactTitle) + "</h3>" + renderMetrics(impactMetrics, locale, "economic") + "</div></div>";
-  return "<section class=\"cache-economics\"><h2>" + escapeHtml(labels.cacheEconomics) + "</h2>" + groups + "<p class=\"coverage-note\">" + escapeHtml(labels.cacheRatioMethodNotePrefix + methodText(cache.cacheReadRatePercent, locale) + "; " + methodText(cache.observedApiEquivalentCost, locale)) + "</p>" + limitations + "</section>";
+  return "<section class=\"cache-economics\"><h2>" + escapeHtml(labels.cacheEconomics) + "</h2>" + groups + "<p class=\"coverage-note\">" + escapeHtml(labels.cacheRatioMethodNotePrefix + methodPairText(methodText(cache.cacheReadRatePercent, locale), methodText(cache.observedApiEquivalentCost, locale), locale)) + "</p>" + limitations + "</section>";
 }
 
 function renderFirstGroupHtml(group: AuditResult["report"]["firstRequestBurden"]["topLevel"], label: string, locale: ReportLocale): string {
@@ -1328,7 +1466,11 @@ function keySessionChartData(result: AuditResult, locale: ReportLocale, firstUse
           label: roundLabel(turn, locale),
           token: numericValue(turn.tokens.totalTokens),
           share: numericValue(turn.sessionSharePercent),
-          composition: [turn.tokens.inputTokens, turn.tokens.cachedInputTokens, turn.tokens.outputTokens].map((value) => keyValueText(value, locale)).join(" / "),
+          composition: [
+            labelsFor(locale).input + " " + labelsFor(locale).tokens + labelsFor(locale).exactSeparator + keyValueText(turn.tokens.inputTokens, locale),
+            labelsFor(locale).cachedInput + " " + labelsFor(locale).tokens + labelsFor(locale).exactSeparator + keyValueText(turn.tokens.cachedInputTokens, locale),
+            labelsFor(locale).output + " " + labelsFor(locale).tokens + labelsFor(locale).exactSeparator + keyValueText(turn.tokens.outputTokens, locale),
+          ].join(proseSeparator(locale)),
           duration: numericValue(turn.durationMs),
           tools: numericValue(turn.toolCallCount),
           result: resultSizeText(turn, locale),
@@ -1579,6 +1721,7 @@ html,body{overflow-x:clip}
 .key-session-tooltip-unavailable{color:var(--stone)}
 @media(max-width:880px){.key-session-heading{grid-template-columns:1fr;gap:18px}.key-session-heading .session-total{justify-self:start;text-align:left}.key-session-section-head{grid-template-columns:1fr;gap:10px}}
 @media(max-width:480px){.key-session-module-head h2{font-size:24px}.key-session-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 16px}.key-session-chart-toolbar{display:block}.key-session-legend{margin-top:8px;white-space:normal}.key-session-chart{height:360px}.key-session-appendix>summary small{display:none}}
+.primary-answer{margin:0 0 72px;padding:26px 0 30px;border-top:1px solid var(--brand);border-bottom:.5px solid var(--border);break-inside:avoid}.primary-answer__head{margin-bottom:28px}.primary-answer__kicker{display:block;margin-bottom:10px;color:var(--brand);font-family:var(--sans);font-size:12px;font-weight:500;letter-spacing:.08em}.primary-answer__head h2{margin:0;font-size:32px;line-height:1.2}.primary-answer__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 32px}.primary-answer__item{min-width:0;padding:0 0 22px}.primary-answer__item h3{margin:0 0 10px;color:var(--stone);font-family:var(--sans);font-size:12px;font-weight:500;letter-spacing:.06em}.primary-answer__item p{max-width:66ch;margin:0;color:var(--dark-warm);font-size:15px;line-height:1.55}.primary-answer__destination{display:flex;flex-wrap:wrap;align-items:baseline;gap:7px 16px}.primary-answer__destination-name{font-size:21px;font-weight:500;line-height:1.35}.primary-answer__destination-value{color:var(--brand);font-size:30px;font-weight:500;line-height:1.1;white-space:nowrap}.primary-answer__destination-value .key-value{font-size:inherit}.primary-answer__destination-share{color:var(--olive);font-size:13px;white-space:nowrap}.primary-answer__observation{margin-bottom:8px!important;color:var(--olive)!important}.primary-answer__item--mechanism{grid-column:1 / -1;padding-top:4px;border-top:.5px solid var(--border)}.primary-answer__item--action{grid-column:1 / -1;padding-top:20px;border-top:.5px solid var(--border)}.primary-answer__action-title{font-size:18px!important;font-weight:500}.primary-answer__item--action p+p{margin-top:7px}.primary-answer__verification{padding-top:10px;color:var(--stone)!important;font-size:13px!important}.primary-answer__verification span{color:var(--olive)}.primary-answer__item--limitation{grid-column:1 / -1;padding-top:18px;border-top:.5px solid var(--border)}.primary-answer__item--limitation p{color:var(--stone);font-size:13px}.primary-answer__metric{font-size:inherit}@media(max-width:880px){.primary-answer{margin-bottom:54px}.primary-answer__grid{grid-template-columns:1fr;gap:0}.primary-answer__item--mechanism,.primary-answer__item--action,.primary-answer__item--limitation{grid-column:auto}}@media(max-width:480px){.primary-answer{margin-bottom:48px;padding:22px 0 24px}.primary-answer__head{margin-bottom:22px}.primary-answer__head h2{font-size:24px}.primary-answer__grid{display:block}.primary-answer__destination-name{font-size:18px}.primary-answer__destination-value{font-size:26px}.primary-answer__item p{font-size:14px}.primary-answer__item--action,.primary-answer__item--limitation{padding-top:16px}}@media print{.primary-answer{break-inside:avoid}.primary-answer__item{break-inside:avoid}}
 details > .kami-table{margin-top:16px}
 @media(max-width:480px){.kami-table{display:block;width:max-content;min-width:100%;max-width:100%;overflow-x:auto;white-space:nowrap}.echart{height:260px}}
 @media(max-width:880px){.model-chart-grid{grid-template-columns:1fr;gap:18px}}
@@ -1596,6 +1739,7 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US", 
       escapeHtml(labels.title) + "</title>" + renderStyles() + "</head><body><main>",
     renderReportHeader(result, locale, composition),
     renderSectionMarker(labels.sectionMarkers.overview),
+    renderPrimaryAnswer(result, locale, composition),
     "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "<p class=\"report-method-note\">" + escapeHtml(labels.methodNote) + "</p></section>",
     renderKpis(result, locale),
     renderSectionMarker(labels.sectionMarkers.diagnosis),
@@ -1678,7 +1822,7 @@ export function renderText(result: AuditResult, locale: ReportLocale = "en-US", 
   if (topSession) {
     lines.push(
       labels.topSession + ": " + sessionLabel(topSession, locale) +
-      "; " + evidencePlain(topSession.value, locale, false) + "; " + labels.share + ": " +
+      proseSeparator(locale) + labels.tokens + " " + evidencePlain(topSession.value, locale, false) + proseSeparator(locale) + labels.share + labels.exactSeparator +
       percentageText(topSession.sharePercent, locale) + ".",
     );
   }
@@ -1753,10 +1897,10 @@ export function renderShare(result: AuditResult, locale: ReportLocale = "en-US")
     lines.push("| " + labels.skill + " | " + labels.invocationCount + " | " + labels.skillSessions + " | " + labels.attributedTokens + " | " + labels.attributedCost + " |", "| --- | ---: | ---: | ---: | ---: |");
     for (const skill of result.report.skills) lines.push("| " + skillLabel(skill.name, locale) + " | " + evidencePlain(skill.invocationCount, locale, false) + " | " + evidencePlain(skill.sessionCount, locale, false) + " | " + evidencePlain(skill.attributedTokens, locale, false) + " | " + currencyPlain(skill.attributedApiEquivalentCost, locale, false) + " |");
   }
-  lines.push(labels.cacheMethodPrefix + methodText(result.report.cacheEconomics.cacheReadRatePercent, locale) + "; " + methodText(result.report.cacheEconomics.observedApiEquivalentCost, locale));
+  lines.push(labels.cacheMethodPrefix + methodPairText(methodText(result.report.cacheEconomics.cacheReadRatePercent, locale), methodText(result.report.cacheEconomics.observedApiEquivalentCost, locale), locale));
   lines.push(labels.firstRequestMethodPrefix + methodText(result.report.firstRequestBurden.medianTokens, locale));
-  if (result.report.cacheEconomics.limitations.length > 0) lines.push(labels.cacheLimitationsPrefix + result.report.cacheEconomics.limitations.map((limitation) => labels.limitation(limitation)).join("; "));
-  if (result.report.firstRequestBurden.limitations.length > 0) lines.push(labels.firstRequestLimitationsPrefix + result.report.firstRequestBurden.limitations.map((limitation) => labels.limitation(limitation)).join("; "));
+  if (result.report.cacheEconomics.limitations.length > 0) lines.push(labels.cacheLimitationsPrefix + limitationListText(result.report.cacheEconomics.limitations, locale));
+  if (result.report.firstRequestBurden.limitations.length > 0) lines.push(labels.firstRequestLimitationsPrefix + limitationListText(result.report.firstRequestBurden.limitations, locale));
   lines.push("", "## " + labels.diagnosticSignals);
   for (const check of result.checks) lines.push("- " + checkLine(check, locale));
   lines.push("", labels.privacyNote);
