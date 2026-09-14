@@ -320,9 +320,174 @@ test('Key Session composition rejects exact duplicate narrative across Sessions'
     };
   };
   const composition = composeKeySessionAnalyses(audit, [analysisFor('key-s1'), analysisFor('key-s2')]);
+  assert.equal(composition.analyses.length, 0);
+  assert.equal(composition.unavailable.length, 2);
+  assert.ok(composition.unavailable.every((message) => /duplicate Session analysis prose/.test(message)));
+});
+
+test('Key Session composition rejects a rank-and-number template for three different tasks', () => {
+  const audit = keySessionResult();
+  const fingerprint = auditFingerprint(audit);
+  const tasks = [
+    ['key-s1', '为配置解析器补充错误处理', 1, 800],
+    ['key-s2', '修复报告渲染布局', 2, 500],
+    ['key-s3', '检查回归测试覆盖', 3, 300],
+  ];
+  const analyses = tasks.map(([sessionId, task, rank, tokens]) => {
+    const turn = audit.turns.find((candidate) => candidate.sessionId === sessionId && candidate.turnId.endsWith('-r2'));
+    const evidenceId = turn.evidenceId;
+    return {
+      sessionId,
+      auditFingerprint: fingerprint,
+      taskContext: `Session 正在${task}。`,
+      primaryFinding: {
+        observation: `第 ${rank} 高用量 Session 在 ${turn.turnId} 读取 ${evidenceId} 后产生 ${tokens} Tokens。`,
+        interpretation: `第 ${rank} 高用量 Session 的上下文在 ${turn.turnId} 后扩大，可能影响后续请求。`,
+        evidenceIds: [evidenceId],
+        support: 'moderate',
+        alternativeExplanations: ['任务本身可能需要较长上下文。'],
+      },
+      recommendation: {
+        action: `在 ${sessionId} 的 ${turn.turnId} 后拆分上下文。`,
+        rationale: '这会检验上下文边界是否造成后续请求负担。',
+        applicability: '适用于下一次相同工作边界。',
+        tradeoff: null,
+        verification: '比较下一次同类 Session 的后续请求 Token 量。',
+        targetEvidenceIds: [evidenceId],
+      },
+      evidenceRead: { turnIds: [turn.turnId], selectionReason: '选择最大轮次', unreadScope: '其余轮次' },
+      limitations: ['当前证据不能证明因果关系。'],
+    };
+  });
+
+  const composition = composeKeySessionAnalyses(audit, analyses);
+  assert.equal(composition.analyses.length, 0);
+  assert.equal(composition.unavailable.length, 3);
+  for (const sessionId of ['key-s1', 'key-s2', 'key-s3']) {
+    assert.match(composition.unavailable.find((message) => message.startsWith(sessionId + ':')) ?? '', /Session-specific Evidence|duplicate/);
+  }
+});
+
+test('Key Session composition keeps independently grounded mechanisms', () => {
+  const audit = keySessionResult();
+  const fingerprint = auditFingerprint(audit);
+  const analysisFor = (sessionId, observation, interpretation, action) => {
+    const turn = audit.turns.find((candidate) => candidate.sessionId === sessionId && candidate.turnId.endsWith('-r2'));
+    return {
+      sessionId,
+      auditFingerprint: fingerprint,
+      taskContext: sessionId === 'key-s1' ? '整理文档并准备实现。' : '修复报告渲染。',
+      primaryFinding: {
+        observation,
+        interpretation,
+        evidenceIds: [turn.evidenceId],
+        support: 'strong',
+        alternativeExplanations: [],
+      },
+      recommendation: {
+        action,
+        rationale: '动作直接针对该 Session 的已观察机制。',
+        applicability: '适用于同类工作边界。',
+        tradeoff: null,
+        verification: '比较下一次同类 Session 的对应 Token 形态。',
+        targetEvidenceIds: [turn.evidenceId],
+      },
+      evidenceRead: { turnIds: [turn.turnId], selectionReason: '选择已读取的关键轮次', unreadScope: '其余轮次' },
+      limitations: [],
+    };
+  };
+  const composition = composeKeySessionAnalyses(audit, [
+    analysisFor('key-s1', '第二轮紧邻一次自动压缩事件。', '压缩后重新建立上下文，解释了后续输入重新增长。', '在压缩后的下一轮拆分文档任务。'),
+    analysisFor('key-s2', '第二轮包含一个较大的工具结果。', '该结果可能被后续请求再次暴露，形成工具结果放大。', '缩小报告渲染读取范围并验证后续输入。'),
+  ]);
+  assert.equal(composition.analyses.length, 2);
+  assert.equal(composition.unavailable.length, 0);
+});
+
+test('Report synthesis rejects parameterized Findings and Overview restatements', () => {
+  const audit = keySessionResult();
+  const fingerprint = auditFingerprint(audit);
+  const makeFinding = (sessionId, rank, tokens) => {
+    const turn = audit.turns.find((candidate) => candidate.sessionId === sessionId && candidate.turnId.endsWith('-r2'));
+    return {
+      title: `第 ${rank} 高用量 Session ${sessionId} 消耗 ${tokens} Tokens`,
+      analysis: `第 ${rank} 高用量 Session 在 ${turn.turnId} 的 Evidence ${turn.evidenceId} 中记录 ${tokens} Tokens。`,
+      evidenceRefs: [turn.evidenceId],
+      support: 'moderate',
+      uncertainty: null,
+    };
+  };
+  const templateValidation = validateReportSynthesis(audit, {
+    auditFingerprint: fingerprint,
+    overview: { summary: '当前审计覆盖三个 Token-ranked Session。', evidenceRefs: ['summary:totalTokens'] },
+    findings: [makeFinding('key-s1', 1, 800), makeFinding('key-s2', 2, 500), makeFinding('key-s3', 3, 300)],
+    noStrongFindingReason: null,
+  });
+  assert.equal(templateValidation.valid, false);
+  assert.match(templateValidation.errors.join(' '), /parameterized|interchangeable|duplicate/i);
+
+  const restatementFinding = makeFinding('key-s1', 1, 800);
+  const restatementValidation = validateReportSynthesis(audit, {
+    auditFingerprint: fingerprint,
+    overview: {
+      summary: '第 2 高用量 Session 在 key-s2-r2 的 Evidence ' + audit.turns.find((turn) => turn.sessionId === 'key-s2' && turn.turnId.endsWith('-r2')).evidenceId + ' 中记录 500 Tokens。',
+      evidenceRefs: ['ranking:sessions:key-s2'],
+    },
+    findings: [restatementFinding],
+    noStrongFindingReason: null,
+  });
+  assert.equal(restatementValidation.valid, false);
+  assert.match(restatementValidation.errors.join(' '), /Overview.*(?:restatement|Finding)|interchangeable/i);
+});
+
+test('Key Session composition keeps explicit null analyses when Content Evidence is insufficient', () => {
+  const audit = keySessionResult();
+  const fingerprint = auditFingerprint(audit);
+  const turn = audit.turns.find((candidate) => candidate.sessionId === 'key-s1' && candidate.turnId.endsWith('-r2'));
+  const analysis = {
+    sessionId: 'key-s1',
+    auditFingerprint: fingerprint,
+    taskContext: '无法从当前内容证据确认该 Session 的具体任务。',
+    primaryFinding: null,
+    recommendation: null,
+    evidenceRead: { turnIds: [turn.turnId], selectionReason: '选择 Token 最高轮次', unreadScope: '其余内容未读取' },
+    limitations: ['Content Evidence 为空，不能确认 Session-specific 机制。'],
+  };
+  const composition = composeKeySessionAnalyses(audit, [analysis], [{
+    scope: { harness: 'codex', cwd: '<current-project>', allProjects: false, since: audit.scope.since },
+    sessionId: 'key-s1',
+    turnIds: [turn.turnId],
+    selectionReason: '选择 Token 最高轮次',
+    unreadScope: '其余内容未读取',
+    items: [],
+    warnings: ['Content Evidence unavailable'],
+  }]);
   assert.equal(composition.analyses.length, 1);
-  assert.equal(composition.unavailable.length, 1);
-  assert.match(composition.unavailable[0], /duplicate Session analysis prose/);
+  assert.equal(composition.analyses[0].primaryFinding, null);
+  assert.equal(composition.analyses[0].recommendation, null);
+  assert.equal(composition.unavailable.length, 0);
+
+  const unsupportedFinding = {
+    ...analysis,
+    primaryFinding: {
+      observation: '内容证据不足时不应生成通用判断。',
+      interpretation: '当前没有足够内容确认机制。',
+      evidenceIds: [turn.evidenceId],
+      support: 'limited',
+      alternativeExplanations: [],
+    },
+    recommendation: {
+      action: '检查当前 Session。',
+      rationale: '验证是否存在具体机制。',
+      applicability: '仅用于有内容证据时。',
+      tradeoff: null,
+      verification: '比较下一次 Session。',
+      targetEvidenceIds: [turn.evidenceId],
+    },
+  };
+  const unsupportedComposition = composeKeySessionAnalyses(audit, [unsupportedFinding], []);
+  assert.equal(unsupportedComposition.analyses.length, 0);
+  assert.match(unsupportedComposition.unavailable[0], /Content Evidence is insufficient/);
 });
 
 test('Kami restyle preserves the normalized bilingual content contract', () => {

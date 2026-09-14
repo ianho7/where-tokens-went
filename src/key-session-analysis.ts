@@ -81,13 +81,13 @@ function evidenceNotRead(audit: AuditResult, sessionId: string, turnIds: string[
   return evidenceIds.filter((evidenceId) => !readEvidence.has(evidenceId));
 }
 
-function normalizedFinding(analysis: KeySessionAnalysis): string | null {
+function normalizedFinding(audit: AuditResult, analysis: KeySessionAnalysis): string | null {
   if (analysis.primaryFinding === null) return null;
-  return [
+  return canonicalizeNarrative(audit,
     analysis.primaryFinding.observation,
     analysis.primaryFinding.interpretation,
     analysis.recommendation?.action ?? "",
-  ].map((value) => value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase()).join("\n");
+  );
 }
 
 export function resolveReportEvidence(audit: AuditResult, reference: string): ReportEvidenceMatch | null {
@@ -126,6 +126,67 @@ export function resolveReportEvidence(audit: AuditResult, reference: string): Re
 
 function hasOwn(object: object, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function narrativeValuePattern(value: string): string {
+  return "(?<![\\p{L}\\p{N}_])" + escapeRegExp(value) + "(?![\\p{L}\\p{N}_])";
+}
+
+function narrativeValues(audit: AuditResult): string[] {
+  const values = new Set<string>();
+  const add = (value: unknown): void => {
+    if (typeof value !== "string" || !value.trim()) return;
+    values.add(value.normalize("NFKC").toLowerCase());
+  };
+
+  add(audit.scope.cwd);
+  add(audit.scope.harness);
+  for (const entries of Object.values(audit.rankings)) {
+    for (const entry of entries) {
+      add(entry.key);
+      add(entry.displayName);
+    }
+  }
+  for (const turn of audit.turns ?? []) {
+    add(turn.sessionId);
+    add(turn.turnId);
+    add(turn.evidenceId);
+  }
+  for (const candidate of audit.turnCandidates ?? []) {
+    add(candidate.id);
+    add(candidate.sessionId);
+    for (const evidenceId of candidate.evidenceIds) add(evidenceId);
+  }
+  for (const entry of audit.keySessionTokenAccounting ?? []) add(entry.sessionId);
+  for (const key of Object.keys(audit.summary ?? {})) add(key);
+  for (const check of audit.checks ?? []) add(check.id);
+  for (const tool of audit.report?.tools ?? []) add(tool.key);
+  for (const skill of audit.report?.skills ?? []) add(skill.name);
+
+  return [...values].sort((left, right) => right.length - left.length);
+}
+
+function canonicalizeNarrative(audit: AuditResult, ...parts: string[]): string {
+  let text = parts.filter(nonEmpty).join("\n").normalize("NFKC").toLowerCase();
+  const knownValues = narrativeValues(audit);
+  if (knownValues.length > 0) {
+    text = text.replace(new RegExp(knownValues.map(narrativeValuePattern).join("|"), "gu"), "value");
+  }
+
+  return text
+    .replace(/第\s*(?:\d+|[一二三四五六七八九十百]+)(?:\s*(?:高用量|大|位|个))?/gu, "rank")
+    .replace(/前\s*(?:\d+|[一二三四五六七八九十百]+)(?:\s*(?:个|轮|项))?/gu, "rank")
+    .replace(/\b(?:top|rank(?:ed|ing)?)\s*(?:\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/giu, "rank")
+    .replace(/\b\d+(?:st|nd|rd|th)\b/giu, "rank")
+    .replace(/\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/giu, "rank")
+    .replace(/\d+(?:[.,]\d+)*(?:\s*(?:%|％|percent|percentage|tokens?|token|turns?|turn|calls?|call|ms|milliseconds?|s|sec|seconds?|m|min|minutes?|h|hours?|秒|分钟|小时|轮|次|个))?/giu, "number")
+    .replace(/[\p{P}\p{S}]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function isSupport(value: unknown): value is ReportSynthesis["findings"][number]["support"] {
@@ -183,6 +244,27 @@ export function validateReportSynthesis(audit: AuditResult, synthesis: unknown):
     if (candidate.findings.length === 0 && candidate.noStrongFindingReason === null) errors.push("noStrongFindingReason is required when there are no Findings.");
     if (candidate.findings.length > 0 && candidate.noStrongFindingReason !== null) errors.push("Findings and noStrongFindingReason cannot both be present.");
   }
+  if (errors.length === 0 && candidate.overview && typeof candidate.overview === "object" && !Array.isArray(candidate.overview) && Array.isArray(candidate.findings)) {
+    const overview = candidate.overview as ReportSynthesis["overview"];
+    const findings = candidate.findings as ReportSynthesis["findings"];
+    const groups = new Map<string, number[]>();
+    for (const [index, finding] of findings.entries()) {
+      const signature = canonicalizeNarrative(audit, finding.title, finding.analysis);
+      groups.set(signature, [...(groups.get(signature) ?? []), index]);
+    }
+    for (const group of groups.values()) {
+      if (group.length > 1) errors.push("Findings " + group.join(", ") + " form an interchangeable parameterized narrative group; regenerate distinct Findings.");
+    }
+    const overviewSignature = canonicalizeNarrative(audit, overview.summary);
+    for (const [index, finding] of findings.entries()) {
+      const findingNarratives = new Set([
+        canonicalizeNarrative(audit, finding.title),
+        canonicalizeNarrative(audit, finding.analysis),
+        canonicalizeNarrative(audit, finding.title, finding.analysis),
+      ]);
+      if (findingNarratives.has(overviewSignature)) errors.push("Overview is an interchangeable restatement of Finding " + index + ".");
+    }
+  }
   const uniqueErrors = [...new Set(errors)];
   return { valid: uniqueErrors.length === 0, errors: uniqueErrors, synthesis: uniqueErrors.length === 0 ? candidate as ReportSynthesis : null };
 }
@@ -191,6 +273,20 @@ function containsRawEvidence(analysis: KeySessionAnalysis, packets: ContentEvide
   if (!packets) return false;
   const text = [analysis.taskContext, analysis.primaryFinding?.observation, analysis.primaryFinding?.interpretation, analysis.recommendation?.action, analysis.recommendation?.rationale].filter(nonEmpty).join("\n");
   return packets.some((packet) => packet.items.some((item) => item.content.length >= 40 && text.includes(item.content.replace(/…$/, ""))));
+}
+
+function contentEvidenceInsufficient(audit: AuditResult, analysis: KeySessionAnalysis, packets: ContentEvidencePacket[]): boolean {
+  const turnIds = analysis.evidenceRead?.turnIds;
+  if (!strings(turnIds)) return true;
+  const packet = packets.find((candidate) => candidate.sessionId === analysis.sessionId &&
+    candidate.scope.harness === audit.scope.harness &&
+    candidate.scope.allProjects === audit.scope.allProjects &&
+    candidate.scope.since === audit.scope.since &&
+    candidate.turnIds.length === turnIds.length &&
+    candidate.turnIds.every((turnId, index) => turnId === turnIds[index]) &&
+    candidate.selectionReason === analysis.evidenceRead.selectionReason &&
+    candidate.unreadScope === analysis.evidenceRead.unreadScope);
+  return !packet || packet.items.length === 0 || !packet.items.some((item) => nonEmpty(item.content));
 }
 
 export function validateKeySessionAnalysis(
@@ -233,6 +329,9 @@ export function validateKeySessionAnalysis(
       errors.push(...evidenceNotRead(audit, analysis.sessionId, analysis.evidenceRead.turnIds, recommendation.targetEvidenceIds).map((id) => "recommendation Evidence was not read in evidenceRead: " + id));
     }
   }
+  if (analysis.primaryFinding !== null && packets !== undefined && contentEvidenceInsufficient(audit, analysis, packets)) {
+    errors.push("Content Evidence is insufficient for a primaryFinding; primaryFinding and recommendation must be null.");
+  }
   if (containsRawEvidence(analysis, packets)) errors.push("analysis repeats raw historical content instead of a paraphrase.");
   return { valid: errors.length === 0, errors: [...new Set(errors)], analysis: errors.length === 0 ? analysis : null };
 }
@@ -240,31 +339,43 @@ export function validateKeySessionAnalysis(
 export function composeKeySessionAnalyses(
   audit: AuditResult,
   analyses: KeySessionAnalysis[],
-  packets: ContentEvidencePacket[] = [],
+  packets?: ContentEvidencePacket[],
 ): KeySessionComposition {
   const fingerprint = auditFingerprint(audit);
-  const valid: KeySessionAnalysis[] = [];
+  const validCandidates: Array<{ sessionId: string; analysis: KeySessionAnalysis; signature: string | null }> = [];
   const unavailable: string[] = [];
-  for (const candidate of (analyses ?? []).slice(0, 3) as unknown[]) {
+  const candidates = (analyses ?? []).slice(0, 3) as unknown[];
+  for (const candidate of candidates) {
     const sessionId = candidate && typeof candidate === "object" && !Array.isArray(candidate) && typeof (candidate as { sessionId?: unknown }).sessionId === "string"
       ? (candidate as { sessionId: string }).sessionId
       : "unknown";
     try {
       const analysis = candidate as KeySessionAnalysis;
-      const result = validateKeySessionAnalysis(audit, analysis, packets.filter((packet) => packet.sessionId === sessionId));
+      const result = validateKeySessionAnalysis(audit, analysis, packets?.filter((packet) => packet.sessionId === sessionId));
       if (result.valid && result.analysis) {
-        const finding = normalizedFinding(result.analysis);
-        // ponytail: exact normalized prose only; add semantic similarity only if this misses real duplicates.
-        const duplicate = finding !== null && valid.some((accepted) => normalizedFinding(accepted) === finding);
-        if (duplicate) unavailable.push(sessionId + ": duplicate Session analysis prose; regenerate with Session-specific Evidence.");
-        else valid.push(result.analysis);
+        validCandidates.push({ sessionId, analysis: result.analysis, signature: normalizedFinding(audit, result.analysis) });
       }
       else unavailable.push(sessionId + ": " + result.errors.join(" "));
     } catch {
       unavailable.push(sessionId + ": malformed Key Session Analysis.");
     }
   }
-  if (analyses.length === 0) unavailable.push("Host Agent did not provide Key Session Analysis.");
+  const groups = new Map<string, typeof validCandidates>();
+  for (const candidate of validCandidates) {
+    if (candidate.signature === null) continue;
+    groups.set(candidate.signature, [...(groups.get(candidate.signature) ?? []), candidate]);
+  }
+  const duplicateCandidates = new Set<typeof validCandidates[number]>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    for (const candidate of group) duplicateCandidates.add(candidate);
+  }
+  const valid: KeySessionAnalysis[] = [];
+  for (const candidate of validCandidates) {
+    if (duplicateCandidates.has(candidate)) unavailable.push(candidate.sessionId + ": duplicate Session analysis prose; regenerate with Session-specific Evidence.");
+    else valid.push(candidate.analysis);
+  }
+  if (candidates.length === 0) unavailable.push("Host Agent did not provide Key Session Analysis.");
   return { auditFingerprint: fingerprint, analyses: valid, unavailable };
 }
 
