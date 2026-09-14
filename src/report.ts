@@ -12,6 +12,8 @@ import type {
   FirstUserMessageRecord,
   ReportFinding,
   ReportComposition,
+  ReportOverview,
+  ReportSynthesis,
   ToolAnalysisEntry,
   TurnAnalysisEntry,
   WeekComparison,
@@ -409,8 +411,6 @@ function reportEndDate(result: AuditResult, locale: ReportLocale): string {
 interface ProjectMetadata {
   repositoryName: string | null;
   name: string | null;
-  description: string;
-  hasBin: boolean;
 }
 
 function readRepositoryName(cwd: string): string | null {
@@ -426,24 +426,21 @@ function readRepositoryName(cwd: string): string | null {
 }
 
 function readProjectMetadata(cwd: string | null): ProjectMetadata {
-  if (!cwd) return { repositoryName: null, name: null, description: "", hasBin: false };
+  if (!cwd) return { repositoryName: null, name: null };
   const repositoryName = readRepositoryName(cwd);
   try {
-    const packageJson = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as { name?: unknown; description?: unknown; bin?: unknown };
+    const packageJson = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as { name?: unknown };
     return {
       repositoryName,
       name: typeof packageJson.name === "string" ? packageJson.name.replace(/^@[^/]+\//, "") : null,
-      description: typeof packageJson.description === "string" ? packageJson.description : "",
-      hasBin: packageJson.bin !== undefined,
     };
   } catch {
     try {
       const pyproject = readFileSync(join(cwd, "pyproject.toml"), "utf8");
       const name = /^\s*name\s*=\s*["']([^"']+)["']/m.exec(pyproject)?.[1] ?? null;
-      const description = /^\s*description\s*=\s*["']([^"']+)["']/m.exec(pyproject)?.[1] ?? "";
-      return { repositoryName, name, description, hasBin: false };
+      return { repositoryName, name };
     } catch {
-      return { repositoryName, name: null, description: "", hasBin: false };
+      return { repositoryName, name: null };
     }
   }
 }
@@ -463,47 +460,34 @@ function projectName(result: AuditResult, metadata: ProjectMetadata, locale: Rep
   return basename && !/^<[^>]+>$/.test(basename) ? basename : (result.scope.allProjects ? labelsFor(locale).allProjects : labelsFor(locale).projectFallback);
 }
 
-function projectProperty(result: AuditResult, metadata: ProjectMetadata, locale: ReportLocale): string {
-  const labels = labelsFor(locale);
-  const explicit = (result as AuditResult & { projectName?: unknown }).projectName;
-  const text = (metadata.name + " " + (typeof explicit === "string" ? explicit : "") + " " + metadata.description).toLowerCase();
-  if (/agent|harness|token|audit|llm|model/.test(text)) return labels.header.properties.aiAgent;
-  if (metadata.hasBin || /cli|command[- ]line|terminal/.test(text)) return labels.header.properties.cli;
-  if (/web|frontend|react|vue|next\.js|vite/.test(text)) return labels.header.properties.web;
-  if (/data|analytics|分析|统计/.test(text)) return labels.header.properties.data;
-  if (/server|backend|api|service/.test(text)) return labels.header.properties.server;
-  return labels.header.properties.developer;
-}
-
-function headerDiagnosticSummary(result: AuditResult, locale: ReportLocale): string {
-  const summary = labelsFor(locale).header.summary;
-  const cacheRead = result.report.cacheEconomics.cacheReadRatePercent.value;
-  const repeatedContext = typeof result.report.totalToolAmplifiedTokens.value === "number" && result.report.totalToolAmplifiedTokens.value > 0;
-  const incomplete = result.coverage.partialSessions > 0 || result.coverage.recordsSkipped > 0 || result.coverage.warnings.length > 0;
-  const concentrated = result.checks.some((check) => check.id === "model_concentration" && check.outcome !== "pass");
-  const longSession = result.checks.some((check) => check.id === "long_session" && check.outcome !== "pass");
-  if (typeof cacheRead === "number" && cacheRead >= 80 && repeatedContext) return summary.repeatedToolExposure;
-  if (typeof cacheRead === "number" && cacheRead >= 80 && incomplete) return summary.incompleteWithCache;
-  if (concentrated) return summary.concentratedModel;
-  if (longSession) return summary.longSession;
-  if (typeof cacheRead === "number" && cacheRead < 20) return summary.lowCache;
-  if (!incomplete) return summary.stable;
-  return summary.limited;
-}
-
 function renderHeaderMetric(label: string, value: EvidenceValue, locale: ReportLocale, kind: MetricKind = "metric"): string {
   return "<div class=\"report-header__metric\"><strong class=\"report-header__metric-value\">" +
     metricValueHtml(value, locale, kind) + "</strong><span class=\"report-header__metric-label\">" +
     escapeHtml(label) + "</span></div>";
 }
 
-function renderReportHeader(result: AuditResult, locale: ReportLocale): string {
+function validatedReportSynthesis(result: AuditResult, composition?: ReportComposition): ReportSynthesis | null {
+  if (!composition || composition.auditFingerprint !== auditFingerprint(result)) return null;
+  const validation = validateReportSynthesis(result, composition.reportSynthesis);
+  return validation.valid ? validation.synthesis : null;
+}
+
+function renderReportOverviewEvidence(result: AuditResult, overview: ReportOverview, locale: ReportLocale): string {
+  const labels = labelsFor(locale);
+  return "<div class=\"report-overview-evidence\" data-evidence-refs=\"" + escapeHtml(overview.evidenceRefs.join(" ")) + "\" aria-label=\"" + escapeHtml(labels.header.overviewEvidence) + "\"><span class=\"report-overview-evidence__label\">" + escapeHtml(labels.header.overviewEvidence) + "</span>" + overview.evidenceRefs.map((reference) =>
+    "<span class=\"report-overview-evidence__item\" data-evidence-ref=\"" + escapeHtml(reference) + "\">" + escapeHtml(reportFindingEvidence(result, reference, locale)) + "</span>",
+  ).join("") + "</div>";
+}
+
+function renderReportHeader(result: AuditResult, locale: ReportLocale, composition?: ReportComposition): string {
   const labels = labelsFor(locale);
   const metadata = readProjectMetadata(result.scope.cwd);
   const subject = result.scope.allProjects ? labels.allProjects : projectName(result, metadata, locale);
   const eyebrow = labels.header.eyebrow(reportDateRange(result, locale));
-  const property = projectProperty(result, metadata, locale);
-  const summary = headerDiagnosticSummary(result, locale);
+  const synthesis = validatedReportSynthesis(result, composition);
+  const overview = synthesis?.overview;
+  const overviewSummary = overview?.summary ?? labels.header.overviewUnavailable;
+  const overviewEvidence = overview ? renderReportOverviewEvidence(result, overview, locale) : "";
   const apiCost = result.report.apiEquivalentCost.total;
   const apiCostText = typeof apiCost.value === "number"
     ? escapeHtml(labels.header.apiEquivalent) + " " + metricValueHtml(apiCost, locale, "currency")
@@ -512,7 +496,7 @@ function renderReportHeader(result: AuditResult, locale: ReportLocale): string {
     "<div class=\"report-header__main\"><div class=\"report-header__identity\">" +
     "<div class=\"report-eyebrow\">" + escapeHtml(eyebrow) + "</div>" +
     "<h1><span class=\"report-header__project\">" + escapeHtml(subject) + "</span><span class=\"report-header__suffix\">" + escapeHtml(labels.header.suffix) + "</span></h1>" +
-    "<p class=\"report-deck\">" + escapeHtml(property + " · " + summary) + "</p></div>" +
+    "<p class=\"report-deck\">" + escapeHtml(overviewSummary) + "</p>" + overviewEvidence + "</div>" +
     "<div class=\"report-header__primary\"><strong class=\"report-header__value\">" +
     metricValueHtml(result.summary.totalTokens, locale, "metric") + "</strong>" +
     "<span class=\"report-header__primary-label\">" + apiCostText + "</span>" +
@@ -671,14 +655,10 @@ function renderChecks(result: AuditResult, locale: ReportLocale, note = labelsFo
 
 function renderFindings(result: AuditResult, locale: ReportLocale, composition?: ReportComposition): string {
   const labels = labelsFor(locale);
-  const expectedFingerprint = auditFingerprint(result);
-  const validation = composition && composition.auditFingerprint === expectedFingerprint
-    ? validateReportSynthesis(result, composition.reportSynthesis)
-    : { valid: false, errors: ["Report composition is stale or unavailable."], synthesis: null };
-  if (!validation.valid || !validation.synthesis) {
+  const synthesis = validatedReportSynthesis(result, composition);
+  if (!synthesis) {
     return renderChecks(result, locale, labels.reportFallbackNote + " " + labels.reportFallbackDetail);
   }
-  const synthesis = validation.synthesis;
   const note = "<p class=\"coverage-note\">" + escapeHtml(labels.reportSynthesisNote) + "</p>";
   if (synthesis.findings.length === 0) {
     return "<section><h2>" + escapeHtml(labels.diagnosticSignals) + "</h2>" + note + emptyState(labels, labels.noStrongFinding + (locale === "zh-CN" ? "：" : ": ") + synthesis.noStrongFindingReason) + "</section>";
@@ -712,13 +692,6 @@ function sessionActiveTime(result: AuditResult, sessionId: string): EvidenceValu
   if (durations.length > 0) return reportDerivedEvidence(durations.reduce((sum, value) => sum + value, 0), "sum of source-reported Turn durations in the Session");
   const spans = turns.map((turn) => turn.observedSpanMs.value).filter((value): value is number => typeof value === "number");
   return spans.length > 0 ? reportDerivedEvidence(spans.reduce((sum, value) => sum + value, 0), "sum of observed Turn spans; exact active time was unavailable") : { value: null, provenance: "unavailable", method: "Session has no complete Turn duration or observed span" };
-}
-
-function sessionDriver(result: AuditResult, sessionId: string, locale: ReportLocale): string {
-  const candidate = (result.turnCandidates ?? []).find((item) => item.sessionId === sessionId);
-  if (!candidate) return "—";
-  const labels = labelsFor(locale).driverLabels;
-  return labels[candidate.kind] ?? candidate.kind;
 }
 
 function sessionCompleteness(result: AuditResult, sessionId: string): EvidenceValue {
@@ -898,9 +871,9 @@ function renderExplainableSessions(result: AuditResult, locale: ReportLocale): s
   const labels = labelsFor(locale);
   const rows = result.rankings.sessions.slice(0, 10);
   if (rows.length === 0) return emptyState(labels);
-  return "<table class=\"kami-table sortable explainable-sessions\"><thead><tr><th>" + escapeHtml(labels.session) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.turn) + "</th><th>" + escapeHtml(labels.totalDuration) + "</th><th>" + escapeHtml(labels.driver) + "</th><th>" + escapeHtml(labels.evidenceCompleteness) + "</th></tr></thead><tbody>" + rows.map((row) => {
+  return "<table class=\"kami-table sortable explainable-sessions\"><thead><tr><th>" + escapeHtml(labels.session) + "</th><th>" + escapeHtml(labels.tokens) + "</th><th>" + escapeHtml(labels.share) + "</th><th>" + escapeHtml(labels.turn) + "</th><th>" + escapeHtml(labels.totalDuration) + "</th><th>" + escapeHtml(labels.evidenceCompleteness) + "</th></tr></thead><tbody>" + rows.map((row) => {
     const turnCount = reportDerivedEvidence(sessionTurns(result, row.key).length, "count of Turn records in the Session");
-    return "<tr><th scope=\"row\">" + escapeHtml(sessionLabel(row, locale)) + "</th><td>" + tokenCell(row.value, locale) + "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(turnCount, locale) + "</td><td>" + tokenCell(sessionActiveTime(result, row.key), locale) + "</td><td>" + escapeHtml(sessionDriver(result, row.key, locale)) + "</td><td>" + percentageHtml(sessionCompleteness(result, row.key), locale) + "</td></tr>";
+    return "<tr><th scope=\"row\">" + escapeHtml(sessionLabel(row, locale)) + "</th><td>" + tokenCell(row.value, locale) + "</td><td>" + percentageHtml(row.sharePercent, locale) + "</td><td>" + tokenCell(turnCount, locale) + "</td><td>" + tokenCell(sessionActiveTime(result, row.key), locale) + "</td><td>" + percentageHtml(sessionCompleteness(result, row.key), locale) + "</td></tr>";
   }).join("") + "</tbody></table>";
 }
 
@@ -1432,7 +1405,7 @@ details{margin-top:24px;padding-top:4px}summary{cursor:pointer;list-style:none;c
 .report-header h1{display:flex;align-items:baseline;flex-wrap:nowrap;gap:10px;margin:0 0 14px;line-height:1.08;letter-spacing:0;white-space:nowrap;min-width:0}
 .report-header__project{font-size:clamp(44px,5vw,64px);font-weight:500;color:var(--near-black);white-space:nowrap;letter-spacing:-.03em}
 .report-header__suffix{font-size:20px;font-weight:400;color:var(--stone);white-space:nowrap;flex:0 0 auto;margin-left:0}
-.report-deck{max-width:820px;font-size:18px;line-height:1.5;color:var(--olive);margin:0;white-space:normal;letter-spacing:.3px}
+ .report-deck{max-width:820px;font-size:18px;line-height:1.5;color:var(--olive);margin:0;white-space:normal;letter-spacing:.3px}.report-overview-evidence{display:flex;flex-wrap:wrap;gap:5px 14px;margin-top:12px;color:var(--stone);font-size:12px;line-height:1.45}.report-overview-evidence__label{color:var(--brand);font-weight:500}.report-overview-evidence__item{overflow-wrap:anywhere}
 .report-header__primary{display:grid;grid-template-columns:minmax(0,1fr);justify-items:end;align-content:end;gap:6px;justify-self:end;align-self:end;margin-top:32px;padding-top:0;text-align:right}
 .report-header__value{font-size:36px;line-height:1.05;white-space:normal}
 .report-header__primary-label,.report-header__primary-date{display:block;white-space:nowrap}
@@ -1566,7 +1539,7 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US", 
   const parts = [
     "<!doctype html><html lang=\"" + labels.htmlLang + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
       escapeHtml(labels.title) + "</title>" + renderStyles() + "</head><body><main>",
-    renderReportHeader(result, locale),
+    renderReportHeader(result, locale, composition),
     "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "<p class=\"report-method-note\">" + escapeHtml(labels.methodNote) + "</p></section>",
     renderKpis(result, locale),
     renderFindings(result, locale, composition),

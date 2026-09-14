@@ -89,6 +89,23 @@ function validateReportSynthesis(audit, synthesis) {
     const expectedFingerprint = auditFingerprint(audit);
     if (candidate.auditFingerprint !== expectedFingerprint)
         errors.push("Audit fingerprint is stale or belongs to another Audit.");
+    if (!candidate.overview || typeof candidate.overview !== "object" || Array.isArray(candidate.overview)) {
+        errors.push("overview must be an object.");
+    }
+    else {
+        const overview = candidate.overview;
+        if (!nonEmpty(overview.summary))
+            errors.push("overview.summary must be a non-empty string.");
+        if (!Array.isArray(overview.evidenceRefs) || overview.evidenceRefs.length < 1 || overview.evidenceRefs.length > 3 || !overview.evidenceRefs.every(nonEmpty)) {
+            errors.push("overview.evidenceRefs must contain one to three non-empty Evidence references.");
+        }
+        else {
+            for (const reference of overview.evidenceRefs) {
+                if (!resolveReportEvidence(audit, reference))
+                    errors.push("Overview cites unknown or cross-Audit Evidence: " + reference);
+            }
+        }
+    }
     if (!Array.isArray(candidate.findings)) {
         errors.push("findings must be a list.");
     }

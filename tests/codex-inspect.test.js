@@ -78,10 +78,10 @@ test('CLI uses LiteLLM pricing by default and accepts the explicit pricing flag'
 
 test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', async () => {
   const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'SKILL.md'), 'utf8');
-  assert.match(skill, /complete only after both steps occur in the same conversation turn/i);
-  assert.match(skill, /generate and open the deterministic local HTML, then give one explicit Host Agent Finding/i);
-  assert.match(skill, /The HTML is deterministic evidence and diagnostic signals, not the Finding itself/i);
-  assert.match(skill, /Do not end the turn after returning a report path or opening the HTML/i);
+  assert.match(skill, /report-synthesis\.md.*in full/i);
+  assert.match(skill, /ReportSynthesis.*overview.*Findings/i);
+  assert.match(skill, /Open only that final HTML/i);
+  assert.match(skill, /same conversation turn produces and opens the final local HTML containing a validated Audit Overview and report-level Findings/i);
   assert.match(skill, /do not return a diagnosis without the requested report/i);
 });
 
@@ -91,9 +91,10 @@ test('Claude Code Skill preserves the same atomic report and evidence contract',
     assert.match(skill, new RegExp('--harness ' + harness));
     assert.match(skill, /Current Project versus Global Audit/);
     assert.match(skill, /Finding, Evidence, mechanism, action when justified, and material uncertainty/);
-    assert.match(skill, /complete only after both steps occur in the same conversation turn/i);
-    assert.match(skill, /one explicit Host Agent Finding/i);
-    assert.match(skill, /Do not end the turn after returning a report path or opening the HTML/i);
+    assert.match(skill, /report-synthesis\.md.*in full/i);
+    assert.match(skill, /validated .*reportSynthesis.*null/);
+    assert.match(skill, /Open only that final HTML/i);
+    assert.match(skill, /same conversation turn produces and opens the final local HTML containing a validated Audit Overview and report-level Findings/i);
     assert.match(skill, /rather than manufacture a verdict/i);
   }
 });
@@ -116,8 +117,8 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
       assert.match(skill, /--cwd <absolute-current-project-path>/);
       assert.match(skill, /--since <duration>/);
       assert.match(skill, /--format json/);
-      assert.match(skill, /Natural language is the primary interface/);
-      assert.match(skill, /same bundled inspect command/);
+      assert.match(skill, /equivalent natural-language request/);
+      assert.match(skill, /bundled .*inspect.*command/);
       assert.match(skill, /An arbitrary question is interpreted by the Host Agent/);
       await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'where-tokens-went.js'));
       await require('node:fs/promises').access(path.join(root, ...relative, 'scripts', 'runtime', 'cli.js'));
@@ -166,10 +167,14 @@ test('normal Skill acquisition does not create preliminary HTML and both package
     assert.deepEqual((await readdir(root)).filter((file) => file.endsWith('.html')), []);
     assert.equal(audit.turns.length, 1);
 
-    const fingerprint = auditFingerprint(audit);
-    const synthesis = {
-      auditFingerprint: fingerprint,
-      findings: [{
+      const fingerprint = auditFingerprint(audit);
+      const synthesis = {
+        auditFingerprint: fingerprint,
+        overview: {
+          summary: '当前审计呈现出一个 Session 占主导、同时存在多个模型调用的用量形态。',
+          evidenceRefs: ['summary:totalTokens', 'ranking:sessions:composition-session'],
+        },
+        findings: [{
         title: 'AI 综合发现来自当前审计',
         analysis: 'Host Agent 综合当前审计证据后识别出需要优先确认的跨指标关系。',
         evidenceRefs: ['summary:totalTokens'],

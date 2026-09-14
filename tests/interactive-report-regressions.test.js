@@ -75,6 +75,10 @@ function reportSynthesisFor(audit, overrides = {}) {
   const fingerprint = auditFingerprint(audit);
   return {
     auditFingerprint: fingerprint,
+    overview: {
+      summary: 'The audit is concentrated in a small number of Sessions while activity spans two models.',
+      evidenceRefs: ['summary:totalTokens', 'ranking:sessions:large'],
+    },
     findings: [{
       title: '跨指标关系比单项规则更值得先看',
       analysis: 'Session 集中度与工具结果后续暴露同时出现，优先验证上下文边界是否反复携带结果。',
@@ -135,7 +139,12 @@ test('validated report synthesis replaces fixed checks in the original Findings 
   const synthesis = reportSynthesisFor(audit);
   assert.equal(validateReportSynthesis(audit, synthesis).valid, true);
   const html = renderHtml(audit, 'en-US', reportCompositionFor(audit, synthesis));
+  const header = html.match(/<header class="report-header">[\s\S]*?<\/header>/)?.[0] ?? '';
   const findings = html.match(/<section class="supporting-findings">[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.match(header, /The audit is concentrated in a small number of Sessions while activity spans two models\./);
+  assert.match(header, /data-evidence-ref="summary:totalTokens"/);
+  assert.match(header, /data-evidence-ref="ranking:sessions:large"/);
+  assert.doesNotMatch(header, /AI agent analytics tool|CLI tool|High cache hits|main cost|stable diagnostic/);
   assert.equal((html.match(/<h2>Findings<\/h2>/g) ?? []).length, 1);
   assert.equal((html.match(/<section class="supporting-findings"/g) ?? []).length, 1);
   assert.match(findings, /跨指标关系比单项规则更值得先看/);
@@ -151,7 +160,10 @@ test('invalid report synthesis falls back to Automated Checks in the same Findin
   const invalid = reportSynthesisFor(audit, { auditFingerprint: 'stale-audit', findings: [{ ...reportSynthesisFor(audit).findings[0], evidenceRefs: ['summary:not-present'] }] });
   assert.equal(validateReportSynthesis(audit, invalid).valid, false);
   const html = renderHtml(audit, 'en-US', reportCompositionFor(audit, invalid));
+  const header = html.match(/<header class="report-header">[\s\S]*?<\/header>/)?.[0] ?? '';
   const findings = html.match(/<section class="supporting-findings">[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.match(header, /AI overview unavailable/);
+  assert.doesNotMatch(header, /AI agent analytics tool|CLI tool|High cache hits|main cost|stable diagnostic/);
   assert.match(findings, /Host Agent synthesis is unavailable/);
   assert.match(findings, /deterministic Automated Checks are fallback content/);
   assert.match(findings, /One Session accounts for/);
@@ -174,6 +186,11 @@ test('report synthesis enforces the current audit fingerprint, Evidence referenc
   const base = reportSynthesisFor(audit);
   for (const candidate of [
     { ...base, auditFingerprint: 'other-audit' },
+    { ...base, overview: undefined },
+    { ...base, overview: { ...base.overview, summary: '' } },
+    { ...base, overview: { ...base.overview, evidenceRefs: [] } },
+    { ...base, overview: { ...base.overview, evidenceRefs: [...base.overview.evidenceRefs, 'summary:sessionCount', 'summary:modelCallCount'] } },
+    { ...base, overview: { ...base.overview, evidenceRefs: ['summary:missing'] } },
     { ...base, findings: [{ ...base.findings[0], evidenceRefs: ['summary:missing'] }] },
     { ...base, findings: Array.from({ length: 6 }, (_, index) => ({ ...base.findings[0], title: 'Finding ' + index })) },
     { ...base, findings: [], noStrongFindingReason: null },
@@ -256,6 +273,9 @@ test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sor
   assert.match(html, /\.turn-detail-table tr\.hot-row\{background:transparent\}/);
   assert.doesNotMatch(html.match(/\.turn-detail-table tr\.hot-row\{[^}]*\}/)?.[0] ?? '', /gradient|box-shadow|border/);
   assert.match(keySection, /<noscript>/);
+  const sessionRanking = html.match(/<table class="kami-table sortable explainable-sessions">[\s\S]*?<\/table>/)?.[0] ?? '';
+  assert.doesNotMatch(sessionRanking, /main driver|主要驱动/);
+  assert.equal((sessionRanking.match(/<th>/g) ?? []).length, 6);
   for (const forbidden of ['记录值', '计算值', '估算值', '有 Token 轮次', 'Turn', '活跃耗时', 'Lifecycle', 'compaction', 'TTFT']) {
     assert.doesNotMatch(visible, new RegExp(forbidden, 'i'));
   }

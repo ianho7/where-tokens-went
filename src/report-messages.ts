@@ -95,23 +95,8 @@ interface HeaderMessages {
   asOf: (date: string) => string;
   apiEquivalent: string;
   keyMetrics: string;
-  properties: {
-    aiAgent: string;
-    cli: string;
-    web: string;
-    data: string;
-    server: string;
-    developer: string;
-  };
-  summary: {
-    repeatedToolExposure: string;
-    incompleteWithCache: string;
-    concentratedModel: string;
-    longSession: string;
-    lowCache: string;
-    stable: string;
-    limited: string;
-  };
+  overviewUnavailable: string;
+  overviewEvidence: string;
 }
 
 interface KeySessionMessages {
@@ -324,7 +309,6 @@ export interface ReportMessages {
   noSkillEvidence: string;
   turn: string;
   activeTime: string;
-  driver: string;
   evidenceCompleteness: string;
   turnTrajectory: string;
   keySessionAnalysis: string;
@@ -363,7 +347,6 @@ export interface ReportMessages {
   coverageMessages: CoverageMessages;
   keySession: KeySessionMessages;
   charts: ChartMessages;
-  driverLabels: Record<string, string>;
   eventLabels: Record<string, string>;
   skillStates: Record<string, string>;
   warning: (warning: string) => string;
@@ -617,8 +600,7 @@ const EN: ReportMessages = {
   noSkillEvidence: "The selected history has no verifiable Skill listing, invocation, or resource-use evidence.",
   turn: "Rounds",
   activeTime: "round duration",
-  driver: "main driver",
-  evidenceCompleteness: "Evidence completeness",
+   evidenceCompleteness: "Evidence completeness",
   turnTrajectory: "Round Token trajectory",
   keySessionAnalysis: "Key Session Analysis",
   taskContext: "Session summary",
@@ -646,30 +628,15 @@ const EN: ReportMessages = {
   trajectoryIntro: "Bars show Token share and the line shows round duration. Dark points mark hotspots; the same Tooltip gives evidence first, then the round's first real user message.",
   noTrajectory: "No round Evidence is available.",
   duration: { hour: "h", minute: "m", second: "s", separator: " " },
-  header: {
-    eyebrow: (dateRange) => dateRange + " PROJECT DIAGNOSTIC",
-    suffix: "diagnostic report",
-    asOf: (date) => "As of " + date,
-    apiEquivalent: "API equivalent",
-    keyMetrics: "Report key metrics",
-    properties: {
-      aiAgent: "AI agent analytics tool",
-      cli: "CLI tool",
-      web: "Web application",
-      data: "data analytics tool",
-      server: "server application",
-      developer: "developer tool",
-    },
-    summary: {
-      repeatedToolExposure: "High cache hits are still dragged down by repeated tool-result exposure",
-      incompleteWithCache: "Cache hits are strong, but the observed data remains incomplete",
-      concentratedModel: "Token use is concentrated in one model, with limited diversification",
-      longSession: "A few long Sessions account for much of the Token use",
-      lowCache: "Cache hits are limited, leaving input context as the main cost",
-      stable: "Current usage is broadly stable, with no dominant diagnostic signal",
-      limited: "Observed usage is too limited for a stable diagnostic conclusion",
-    },
-  },
+   header: {
+     eyebrow: (dateRange) => dateRange + " PROJECT DIAGNOSTIC",
+     suffix: "diagnostic report",
+     asOf: (date) => "As of " + date,
+     apiEquivalent: "API equivalent",
+     keyMetrics: "Report key metrics",
+     overviewUnavailable: "AI overview unavailable",
+     overviewEvidence: "Overview Evidence",
+   },
   checks: {
     outcome: { warning: "Warning", notice: "Notice", pass: "Pass" },
     noFinding: "No automated finding is supported by the available evidence.",
@@ -798,15 +765,7 @@ const EN: ReportMessages = {
     keyShareAxis: "Token share",
     keyTrajectoryDescription: "Token share and round duration by round; the Tooltip includes the complete first user message.",
   },
-  driverLabels: {
-    turn_concentration: "round concentration",
-    input_growth: "input growth",
-    tool_result_adjacency: "tool-result adjacency",
-    compaction_change: "compaction boundary",
-    waiting_hotspot: "waiting hotspot",
-    failed_path: "failed path",
-  },
-  eventLabels: { retry: "retry", compaction: "automatic context compaction", subagent: "Subagent", interrupted: "interrupted" },
+   eventLabels: { retry: "retry", compaction: "automatic context compaction", subagent: "Subagent", interrupted: "interrupted" },
   skillStates: { available: "available", invoked: "invoked", attributed: "attributed", unavailable: "unavailable" },
   warning: localizeWarningEnglish,
   limitation: (limitation) => limitation,
@@ -970,8 +929,7 @@ const ZH: ReportMessages = {
   noSkillEvidence: "所选历史中没有足够证据确认 Skill 列表、调用或资源使用情况。",
   turn: "轮次",
   activeTime: "本轮耗时",
-  driver: "主要驱动",
-  evidenceCompleteness: "证据完整度",
+   evidenceCompleteness: "证据完整度",
   turnTrajectory: "轮次轨迹",
   keySessionAnalysis: "关键 Session 分析",
   taskContext: "Session 摘要",
@@ -999,30 +957,15 @@ const ZH: ReportMessages = {
   trajectoryIntro: "柱形表示 Token 占比，折线表示本轮耗时。深色高点可直接点按或悬停；同一个 Tooltip 先给出证据，再显示该轮第一条真实用户消息。",
   noTrajectory: "没有可用的轮次证据。",
   duration: { hour: "小时", minute: "分钟", second: "秒", separator: "" },
-  header: {
-    eyebrow: (dateRange) => dateRange + " 项目诊断",
-    suffix: "诊断报告",
-    asOf: (date) => date + " 截止",
-    apiEquivalent: "API 折算",
-    keyMetrics: "报告关键指标",
-    properties: {
-      aiAgent: "AI Agent 分析工具",
-      cli: "CLI 工具",
-      web: "Web 应用",
-      data: "数据分析工具",
-      server: "服务端应用",
-      developer: "开发者工具",
-    },
-    summary: {
-      repeatedToolExposure: "高缓存命中仍被工具结果重复暴露拖累",
-      incompleteWithCache: "缓存命中率高，但数据完整度仍有限",
-      concentratedModel: "Token 集中于单一模型，使用结构仍偏集中",
-      longSession: "少数长 Session 占用较多 Token",
-      lowCache: "缓存命中偏低，输入上下文仍是主要成本",
-      stable: "当前用量结构平稳，暂未发现突出的诊断信号",
-      limited: "当前采集到的用量不足以形成稳定诊断结论",
-    },
-  },
+   header: {
+     eyebrow: (dateRange) => dateRange + " 项目诊断",
+     suffix: "诊断报告",
+     asOf: (date) => date + " 截止",
+     apiEquivalent: "API 折算",
+     keyMetrics: "报告关键指标",
+     overviewUnavailable: "AI 概览不可用",
+     overviewEvidence: "概览证据",
+   },
   checks: {
     outcome: { warning: "警告", notice: "提示", pass: "通过" },
     noFinding: "没有足够的可靠证据支持自动生成发现。",
@@ -1161,15 +1104,7 @@ const ZH: ReportMessages = {
     keyShareAxis: "Token 占比",
     keyTrajectoryDescription: "每个轮次的 Token 占比和本轮耗时轨迹；Tooltip 包含完整首条用户消息。",
   },
-  driverLabels: {
-    turn_concentration: "轮次集中",
-    input_growth: "输入增长",
-    tool_result_adjacency: "大工具结果邻接",
-    compaction_change: "压缩边界",
-    waiting_hotspot: "等待热点",
-    failed_path: "失败路径",
-  },
-  eventLabels: { retry: "重试", compaction: "自动压缩上下文", subagent: "Subagent", interrupted: "中断" },
+   eventLabels: { retry: "重试", compaction: "自动压缩上下文", subagent: "Subagent", interrupted: "中断" },
   skillStates: { available: "可用", invoked: "已调用", attributed: "有据可查", unavailable: "无数据" },
   warning: localizeWarningChinese,
   limitation: localizeLimitationChinese,

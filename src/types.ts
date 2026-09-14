@@ -441,8 +441,14 @@ export interface ReportFinding {
   uncertainty: string | null;
 }
 
+export interface ReportOverview {
+  summary: string;
+  evidenceRefs: string[];
+}
+
 export interface ReportSynthesis {
   auditFingerprint: string;
+  overview: ReportOverview;
   findings: ReportFinding[];
   noStrongFindingReason: string | null;
 }
