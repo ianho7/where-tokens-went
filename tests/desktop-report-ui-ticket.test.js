@@ -2,11 +2,8 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
 const { renderHtml } = require('../dist/src/report.js');
+const { extractReportStyles } = require('../scripts/report-style-helpers.js');
 const { makeResult } = require('./fixtures/kami-report-fixture.js');
-
-function styles(html) {
-  return html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
-}
 
 function desktopRepair(css) {
   return css.slice(css.lastIndexOf('/* Kami desktop report repair */'));
@@ -14,7 +11,7 @@ function desktopRepair(css) {
 
 test('desktop Primary Answer uses a reading-first stack with semantic spacing', () => {
   const html = renderHtml(makeResult(), 'zh-CN');
-  const css = styles(html);
+  const css = extractReportStyles(html);
   const repair = desktopRepair(css);
   const primaryStart = html.indexOf('<section class="primary-answer"');
   const primaryEnd = html.indexOf('</section>', primaryStart);
@@ -45,7 +42,7 @@ test('desktop metric occupancy and bar charts follow the Kami visual contract', 
   result.summary.subagentSessionCount = { value: 1, provenance: 'derived' };
   result.report.tools[0].key = 'a-very-long-tool-name-that-needs-truncation';
   const html = renderHtml(result, 'zh-CN');
-  const css = styles(html);
+  const css = extractReportStyles(html);
 
   assert.match(html, /class="metrics metrics--summary metrics--count-2"/);
   assert.match(html, /class="metrics metrics--coverage metrics--count-5"/);

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 const fs = require('node:fs');
+const { extractReportStyles } = require('./report-style-helpers.js');
 
 function extractReportParts(html) {
-  const style = html.match(/<style>([\s\S]*?)<\/style>/i)?.[1] ?? '';
+  const style = extractReportStyles(html);
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/gi)].map((match) => match[1]);
   return { style, boot: scripts.at(-1) ?? '' };
 }

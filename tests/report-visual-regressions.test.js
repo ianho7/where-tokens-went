@@ -2,19 +2,16 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
 const { renderHtml } = require('../dist/src/report.js');
+const { extractReportStyles } = require('../scripts/report-style-helpers.js');
 const { makeResult } = require('./fixtures/kami-report-fixture.js');
 
 function report(locale = 'zh-CN') {
   return renderHtml(makeResult(), locale);
 }
 
-function styles(html) {
-  return html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
-}
-
 test('primary answer has a distinct visual level from the chapter marker', () => {
   const html = report();
-  const css = styles(html);
+  const css = extractReportStyles(html);
   const marker = '<div class="section-num">01 · 概览</div>';
   const primaryStart = html.indexOf('<section class="primary-answer"');
   const primaryEnd = html.indexOf('</section>', primaryStart);
@@ -34,7 +31,7 @@ test('primary answer has a distinct visual level from the chapter marker', () =>
 });
 
 test('quiet labels and evidence rows stay quiet instead of becoming competing chrome', () => {
-  const css = styles(report());
+  const css = extractReportStyles(report());
 
   assert.match(css, /\.tag--quiet\{background:transparent;color:var\(--stone\);padding:0/);
   assert.doesNotMatch(css, /\.fact-line\{[^}]*border-left/);
@@ -43,7 +40,7 @@ test('quiet labels and evidence rows stay quiet instead of becoming competing ch
 });
 
 test('small screens and print keep the report readable without decorative leftovers', () => {
-  const css = styles(report());
+  const css = extractReportStyles(report());
 
   assert.match(css, /@media\(max-width:480px\)[\s\S]*?\.report-header__metric\{flex-direction:column/);
   assert.match(css, /@media\(max-width:480px\)[\s\S]*?\.report-header__metric-label\{white-space:normal/);

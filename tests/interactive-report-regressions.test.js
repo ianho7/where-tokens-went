@@ -7,6 +7,7 @@ const { renderHtml, renderText } = require('../dist/src/report.js');
 const { auditFingerprint, validateReportSynthesis, composeKeySessionAnalyses } = require('../dist/src/key-session-analysis.js');
 const { snapshotHtml } = require('../scripts/kami-report-content-snapshot.js');
 const { scoreHtml } = require('../scripts/score-kami-report.js');
+const { extractReportStyles } = require('../scripts/report-style-helpers.js');
 const contentBaseline = require('./fixtures/kami-report-content-baseline.json');
 
 function evidenceRead(isError = null) {
@@ -356,6 +357,7 @@ test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sor
   const sectionStart = html.indexOf('<section class="key-session-analysis-section">');
   const sectionEnd = html.indexOf('<section><h2>限制与缺失</h2>', sectionStart);
   const keySection = html.slice(sectionStart, sectionEnd > sectionStart ? sectionEnd : undefined);
+  const css = extractReportStyles(html);
   const visible = keySection.replace(/<[^>]+>/g, '');
   assert.match(keySection, /<h2>关键任务分析<\/h2>/);
   assert.match(keySection, /<h3 class="session-title">阅读文档并准备 to-spec<\/h3>/);
@@ -363,15 +365,15 @@ test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sor
   assert.equal((keySection.match(/<details class="key-session-entry/g) ?? []).length, 3);
   assert.equal((keySection.match(/<details class="key-session-entry[^>]* open>/g) ?? []).length, 1);
   assert.match(keySection, /key-session-entry key-session-entry--primary" open/);
-  assert.match(html, /\.key-session-module-head h2\{[^}]*font-size:32px/);
-  assert.match(html, /\.key-session-heading \.session-title\{[^}]*font-size:18px/);
-  assert.match(html, /\.key-session-module-head\{[^}]*border-bottom:\.5px solid var\(--border\)/);
-  assert.match(html, /\.key-session-list\{margin-top:26px\}/);
-  assert.doesNotMatch(html, /\.key-session-list\{[^}]*border-top/);
-  assert.match(html, /\.key-session-judgment \.judgment\{border-top:\.5px solid var\(--border\)/);
+  assert.match(css, /\.key-session-module-head h2\{[^}]*font-size:32px/);
+  assert.match(css, /\.key-session-heading \.session-title\{[^}]*font-size:18px/);
+  assert.match(css, /\.key-session-module-head\{[^}]*border-bottom:\.5px solid var\(--border\)/);
+  assert.match(css, /\.key-session-list\{margin-top:26px\}/);
+  assert.doesNotMatch(css, /\.key-session-list\{[^}]*border-top/);
+  assert.match(css, /\.key-session-judgment \.judgment\{border-top:\.5px solid var\(--border\)/);
   assert.match(keySection, /<figure class="key-session-chart-frame ivory-group chart-ivory"/);
-  assert.match(html, /\.key-session-chart-frame\{margin:0\}/);
-  assert.doesNotMatch(html, /\.key-session-(?:judgment \.judgment|chart-frame)\{[^}]*var\(--near-black\)/);
+  assert.match(css, /\.key-session-chart-frame\{margin:0\}/);
+  assert.doesNotMatch(css, /\.key-session-(?:judgment \.judgment|chart-frame)\{[^}]*var\(--near-black\)/);
   assert.match(html, /前 2 轮合计占 100\.00%/);
   assert.match(visible, /核心判断[\s\S]*改善提议[\s\S]*如何验证/);
   const finding = keySection.match(/<article class="finding">[\s\S]*?<\/article>/)?.[0] ?? '';
@@ -392,8 +394,8 @@ test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sor
   assert.match(keySection, /data-sort="200"/);
   assert.match(html, /Number\(a\.key\)/);
   assert.match(html, /aria-sort/);
-  assert.match(html, /\.turn-detail-table tr\.hot-row\{background:transparent\}/);
-  assert.doesNotMatch(html.match(/\.turn-detail-table tr\.hot-row\{[^}]*\}/)?.[0] ?? '', /gradient|box-shadow|border/);
+  assert.match(css, /\.turn-detail-table tr\.hot-row\{background:transparent\}/);
+  assert.doesNotMatch(css.match(/\.turn-detail-table tr\.hot-row\{[^}]*\}/)?.[0] ?? '', /gradient|box-shadow|border/);
   assert.match(keySection, /<noscript>/);
   const sessionRanking = html.match(/<table class="kami-table sortable explainable-sessions">[\s\S]*?<\/table>/)?.[0] ?? '';
   assert.doesNotMatch(sessionRanking, /main driver|主要驱动/);
@@ -718,15 +720,16 @@ test('model distribution keeps the bar-only layout for larger model sets', () =>
 
 test('Kami shell embeds the authorized W04/W05 font contract', () => {
   const html = renderHtml(result(), 'zh-CN');
+  const css = extractReportStyles(html);
   const head = html.slice(0, html.indexOf('</head>'));
   assert.match(head, /authorized TsangerJinKai02-W04/);
   assert.match(head, /authorized TsangerJinKai02-W05/);
   assert.match(head, /data:font\/ttf;base64,/);
   assert.doesNotMatch(head, /src:url\(["']assets\/fonts|https?:\/\//i);
-  assert.match(html, /main\{padding:88px 64px 120px\}/);
-  assert.match(html, /\.report-header__project\{font-size:clamp\(44px,5vw,64px\);font-weight:500/);
-  assert.match(html, /\.report-deck\{max-width:820px;font-size:18px/);
-  assert.match(html, /@media\(max-width:480px\).*\.report-header__project\{font-size:clamp\(26px,8\.5vw,46px\)/s);
+  assert.match(css, /main\{padding:88px 64px 120px\}/);
+  assert.match(css, /\.report-header__project\{font-size:clamp\(44px,5vw,64px\);font-weight:500/);
+  assert.match(css, /\.report-deck\{max-width:820px;font-size:18px/);
+  assert.match(css, /@media\(max-width:480px\).*\.report-header__project\{font-size:clamp\(26px,8\.5vw,46px\)/s);
 });
 
 test('analysis returns deterministic automated checks', () => {
@@ -903,12 +906,13 @@ test('daily token trend uses the Kami contrast ladder and redundant line encodin
 });
 test('Kami data surfaces preserve tables, local scrolling, print output, and no-JS details', () => {
   const html = renderHtml(result(), 'zh-CN');
+  const css = extractReportStyles(html);
   assert.match(html, /<table class="kami-table sortable"><thead>/);
-  assert.match(html, /@media\(scripting:none\)\{details > :not\(summary\)\{display:block\}\}/);
-  assert.match(html, /@media print\{\.echart\{display:none\}details > :not\(summary\)\{display:block\}/);
-  assert.match(html, /html,body\{overflow-x:clip\}/);
-  assert.match(html, /\.kami-table\{display:block;width:max-content;min-width:100%;max-width:100%;overflow-x:auto;white-space:nowrap\}/);
-  assert.match(html, /\.kami-table th,\.kami-table td\{padding-top:10px;padding-bottom:10px\}/);
+  assert.match(css, /@media\(scripting:none\)\{details > :not\(summary\)\{display:block\}\}/);
+  assert.match(css, /@media print\{\.echart\{display:none\}details > :not\(summary\)\{display:block\}/);
+  assert.match(css, /html,body\{overflow-x:clip\}/);
+  assert.match(css, /\.kami-table\{display:block;width:max-content;min-width:100%;max-width:100%;overflow-x:auto;white-space:nowrap\}/);
+  assert.match(css, /\.kami-table th,\.kami-table td\{padding-top:10px;padding-bottom:10px\}/);
   assert.match(html, /textStyle:\{fontFamily:serifFont/);
   assert.doesNotMatch(html, /brandLight: "#2d5a8a"/);
 });

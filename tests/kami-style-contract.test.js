@@ -7,6 +7,7 @@ const { test } = require('node:test');
 const { analyseAudit } = require('../dist/src/analysis.js');
 const { renderHtml } = require('../dist/src/report.js');
 const { scoreHtml } = require('../scripts/score-kami-report.js');
+const { extractReportStyles } = require('../scripts/report-style-helpers.js');
 
 test('the bundled ECharts runtime registers the pie series used by model share', () => {
   const entry = readFileSync(path.join(__dirname, '..', 'src', 'echarts-entry.ts'), 'utf8');
@@ -30,7 +31,7 @@ function fixture() {
 
 test('standalone report exposes the Kami visual contract', () => {
   const html = renderHtml(fixture(), 'zh-CN');
-  const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
+  const css = extractReportStyles(html);
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
   const boot = scripts.at(-1) ?? '';
   const head = html.match(/<head>([\s\S]*?)<\/head>/i)?.[1] ?? '';
@@ -77,7 +78,7 @@ test('standalone report exposes the Kami visual contract', () => {
 
 test('standalone report keeps interactive chart reading units in ivory containers', () => {
   const html = renderHtml(fixture(), 'zh-CN');
-  const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
+  const css = extractReportStyles(html);
   const tokenCard = html.match(/<div class="ivory-group chart-ivory"><div id="token-trend"[\s\S]*?<\/div><p class="chart-summary">[\s\S]*?<\/p><\/div>/)?.[0] ?? '';
   const hourlyCard = html.match(/<div class="ivory-group chart-ivory"><div id="hourly-heatmap"[\s\S]*?<\/div><p id="hourly-heatmap-description" class="chart-summary">[\s\S]*?<\/p><\/div>/)?.[0] ?? '';
   const modelCard = html.match(/<div class="ivory-group chart-ivory"><div class="model-chart-grid">[\s\S]*?<\/div><\/div>/)?.[0] ?? '';
@@ -125,7 +126,7 @@ test('standalone report adds five stable localized chapter markers without chang
 
   for (const [locale, contract] of Object.entries(expected)) {
     const html = renderHtml(fixture(), locale);
-    const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
+    const css = extractReportStyles(html);
     const markers = [...html.matchAll(/<div class="section-num">([^<]+)<\/div>/g)].map((match) => match[1]);
     const headings = [...html.matchAll(/<h2>([^<]+)<\/h2>/g)].map((match) => match[1]);
 
@@ -170,7 +171,7 @@ test('standalone report adds five stable localized chapter markers without chang
 
 test('report header keeps the primary metric beside the identity and removes the lower divider', () => {
   const html = renderHtml(fixture(), 'zh-CN');
-  const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
+  const css = extractReportStyles(html);
   assert.match(css, /\.report-header__main\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(260px,\.46fr\);gap:32px;align-items:end\}/);
   assert.match(css, /\.report-header__primary\{display:grid;grid-template-columns:minmax\(0,1fr\);justify-items:end;align-content:end;gap:6px/);
   assert.match(css, /\.report-header__primary-label,\.report-header__primary-date\{display:block;white-space:nowrap}/);
@@ -180,7 +181,7 @@ test('report header keeps the primary metric beside the identity and removes the
 
 test('report title stays intact while adapting its size and wrap boundary', () => {
   const html = renderHtml(fixture(), 'zh-CN');
-  const css = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
+  const css = extractReportStyles(html);
   assert.match(css, /\.report-header h1\{display:flex;align-items:baseline;flex-wrap:nowrap;gap:10px/);
   assert.match(css, /\.report-header__project\{font-size:clamp\(44px,5vw,64px\);[^}]*white-space:nowrap/);
   assert.match(css, /\.report-header__suffix\{font-size:20px[^}]*white-space:nowrap/);
