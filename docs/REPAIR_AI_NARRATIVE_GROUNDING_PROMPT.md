@@ -47,7 +47,7 @@ Do not recreate or fork these decisions:
 - `prompts/key-session-analysis.md` is the authoritative generation Prompt for the complete Token-ranked `KeySessionAnalysis[]`.
 - `prompts/report-synthesis.md` contains a portability test for parameterized report Findings.
 - `scripts/package-skills.js` packages both Prompts into both Harness Skills.
-- both Harness Skills require reading both bundled Prompts in full.
+- the shared Harness Skill requires reading both bundled Prompts in full.
 - `AGENTS.md`, `docs/MVP.md`, `docs/DESIGN.md`, and `docs/adr/0001-key-session-analysis-in-report.md` record this contract.
 
 First verify these statements in the worktree. Preserve them; fix discrepancies instead of creating parallel documents.
@@ -134,7 +134,7 @@ The authoritative Prompts improve generation, but malformed AI output can still 
 
 - Goal: prevent either Harness from silently losing the authoritative Prompt.
 - Files: `tests/codex-inspect.test.js`; generated Skill reference copies only through the packaging script.
-- Tasks: extend the existing packaging test to compare both source Prompts byte-for-byte with both bundled copies and assert that both Skills require reading each Prompt in full.
+- Tasks: extend the existing packaging test to compare both source Prompts byte-for-byte with the shared bundled copies and assert that the shared Skill requires reading each Prompt in full.
 - Expected result: one focused packaging test proves Codex and Claude carry the same sources of truth.
 
 ### Phase 4: Review documentation consistency

@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "where-tokens-went-codex",
+      "name": "where-tokens-went",
       "source": {
         "source": "local",
-        "path": "./skills/where-tokens-went-codex"
+        "path": "./skills/where-tokens-went"
       },
       "policy": {
         "installation": "AVAILABLE",

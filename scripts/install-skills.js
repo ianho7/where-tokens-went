@@ -6,8 +6,8 @@ const path = require('node:path');
 const repoRoot = path.resolve(__dirname, '..');
 const targetRoot = path.resolve(process.argv[2] || repoRoot);
 const installs = [
-  ['where-tokens-went-codex', ['.agents', 'skills']],
-  ['where-tokens-went-claude', ['.claude', 'skills']],
+  ['where-tokens-went', ['.agents', 'skills']],
+  ['where-tokens-went', ['.claude', 'skills']],
 ];
 
 for (const [name, parent] of installs) {

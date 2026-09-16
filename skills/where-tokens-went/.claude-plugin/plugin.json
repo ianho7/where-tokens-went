@@ -1,0 +1,8 @@
+{
+  "name": "where-tokens-went",
+  "version": "0.1.0",
+  "description": "Explain Codex or Claude Code usage from local history with a bundled deterministic tool.",
+  "author": {
+    "name": "where-tokens-went"
+  }
+}

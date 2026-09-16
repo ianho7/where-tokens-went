@@ -6,6 +6,9 @@ dist/
 
 # Generated project-native Skill copies; canonical sources live under skills/.
 .agents/skills/where-tokens-went-deepseek/
+.agents/skills/where-tokens-went/
+.claude/skills/where-tokens-went/
+# Legacy generated copies from the suffixed Skill layout.
 .agents/skills/where-tokens-went-codex/
 .claude/skills/where-tokens-went-claude/
 .pi/skills/where-tokens-went-pi/

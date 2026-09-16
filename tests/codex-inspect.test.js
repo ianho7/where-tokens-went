@@ -15,8 +15,9 @@ const { readClaude } = require('../dist/src/claude-reader.js');
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
-const bundledCodexPath = path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js');
-const bundledClaudePath = path.resolve(__dirname, '..', 'skills', 'where-tokens-went-claude', 'scripts', 'where-tokens-went.js');
+const bundledSkillRoot = path.resolve(__dirname, '..', 'skills', 'where-tokens-went');
+const bundledCodexPath = path.join(bundledSkillRoot, 'scripts', 'where-tokens-went.js');
+const bundledClaudePath = path.join(bundledSkillRoot, 'scripts', 'where-tokens-went.js');
 const { parseArgs } = require('../dist/src/cli.js');
 
 test('report project name prefers remote, package, directory, then fallback', async () => {
@@ -92,8 +93,19 @@ test('CLI uses LiteLLM pricing by default and accepts the explicit pricing flag'
   assert.throws(() => parseArgs(['inspect', '--harness', 'codex', '--cwd', 'D:\\project', '--pricing', 'local']), /must be litellm/);
 });
 
-test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', async () => {
-  const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-codex', 'SKILL.md'), 'utf8');
+test('Codex and Claude Code publish the same where-tokens-went Skill name', async () => {
+  const codexManifest = JSON.parse(await readFile(path.join(bundledSkillRoot, '.codex-plugin', 'plugin.json'), 'utf8'));
+  const claudeManifest = JSON.parse(await readFile(path.join(bundledSkillRoot, '.claude-plugin', 'plugin.json'), 'utf8'));
+  const codexMarketplace = JSON.parse(await readFile(path.resolve(__dirname, '..', '.agents', 'plugins', 'marketplace.json'), 'utf8'));
+  const claudeMarketplace = JSON.parse(await readFile(path.resolve(__dirname, '..', '.claude-plugin', 'marketplace.json'), 'utf8'));
+  assert.equal(codexManifest.name, 'where-tokens-went');
+  assert.equal(claudeManifest.name, 'where-tokens-went');
+  assert.equal(codexMarketplace.plugins[0].name, 'where-tokens-went');
+  assert.equal(claudeMarketplace.plugins[0].name, 'where-tokens-went');
+});
+
+test('where-tokens-went Skill makes report delivery an atomic HTML-and-diagnosis workflow', async () => {
+  const skill = await readFile(path.join(bundledSkillRoot, 'SKILL.md'), 'utf8');
   assert.match(skill, /report-synthesis\.md.*in full/i);
   assert.match(skill, /key-session-analysis\.md` in full/i);
   assert.match(skill, /ReportSynthesis.*overview.*Findings/i);
@@ -104,10 +116,10 @@ test('Codex Skill makes report delivery an atomic HTML-and-diagnosis workflow', 
   assert.match(skill, /Regenerate an affected invalid entry once/i);
 });
 
-test('Claude Code Skill preserves the same atomic report and evidence contract', async () => {
-  for (const [name, harness] of [['claude', 'claude']]) {
-    const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-' + name, 'SKILL.md'), 'utf8');
-    assert.match(skill, new RegExp('--harness ' + harness));
+test('where-tokens-went works from both supported Harnesses', async () => {
+  const skill = await readFile(path.join(bundledSkillRoot, 'SKILL.md'), 'utf8');
+  for (const harness of ['codex', 'claude']) {
+    assert.match(skill, new RegExp('`' + harness + '`'));
     assert.match(skill, /Current Project versus Global Audit/);
     assert.match(skill, /Finding, Evidence, mechanism, action when justified, and material uncertainty/);
     assert.match(skill, /report-synthesis\.md.*in full/i);
@@ -125,17 +137,17 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-skills-'));
   const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
   const expected = [
-    ['codex', '.agents', 'skills', 'where-tokens-went-codex'],
-    ['claude', '.claude', 'skills', 'where-tokens-went-claude'],
+    ['codex', '.agents', 'skills', 'where-tokens-went'],
+    ['claude', '.claude', 'skills', 'where-tokens-went'],
   ];
   try {
     await execFileAsync(process.execPath, [installer, root]);
     for (const [harness, ...relative] of expected) {
       const skillPath = path.join(root, ...relative, 'SKILL.md');
       const skill = await require('node:fs/promises').readFile(skillPath, 'utf8');
-      const source = await require('node:fs/promises').readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-' + harness, 'SKILL.md'), 'utf8');
+      const source = await require('node:fs/promises').readFile(path.join(bundledSkillRoot, 'SKILL.md'), 'utf8');
       assert.equal(skill, source);
-      assert.match(skill, new RegExp(`--harness ${harness}`));
+      assert.match(skill, new RegExp('`' + harness + '`'));
       assert.match(skill, /--cwd <absolute-current-project-path>/);
       assert.match(skill, /--since <duration>/);
       assert.match(skill, /--format json/);
@@ -150,24 +162,22 @@ test('native Skill installation exposes one fixed Harness entry per platform', a
   }
 });
 
-test('packaging copies both authoritative report Prompts into both Skills', async () => {
+test('packaging copies both authoritative report Prompts into the shared Skill', async () => {
   const repoRoot = path.resolve(__dirname, '..');
   const prompts = ['report-synthesis.md', 'key-session-analysis.md'];
-  for (const harness of ['codex', 'claude']) {
-    const skillRoot = path.join(repoRoot, 'skills', 'where-tokens-went-' + harness);
-    const skill = await readFile(path.join(skillRoot, 'SKILL.md'), 'utf8');
-    for (const prompt of prompts) {
-      const source = await readFile(path.join(repoRoot, 'prompts', prompt), 'utf8');
-      const bundledPrompt = await readFile(path.join(skillRoot, 'references', prompt), 'utf8');
-      assert.equal(bundledPrompt, source, `${harness} ${prompt}`);
-      assert.match(skill, new RegExp('references/' + prompt.replace('.', '\\.') + '` in full', 'i'));
-    }
-    assert.match(skill, /compose-report --locale <locale> --html <final-report-path>/);
-    assert.match(skill, /validated `reportSynthesis` or `null`/);
+  const skillRoot = path.join(repoRoot, 'skills', 'where-tokens-went');
+  const skill = await readFile(path.join(skillRoot, 'SKILL.md'), 'utf8');
+  for (const prompt of prompts) {
+    const source = await readFile(path.join(repoRoot, 'prompts', prompt), 'utf8');
+    const bundledPrompt = await readFile(path.join(skillRoot, 'references', prompt), 'utf8');
+    assert.equal(bundledPrompt, source, prompt);
+    assert.match(skill, new RegExp('references/' + prompt.replace('.', '\\.') + '` in full', 'i'));
   }
+  assert.match(skill, /compose-report --locale <locale> --html <final-report-path>/);
+  assert.match(skill, /validated `reportSynthesis` or `null`/);
 });
 
-test('normal Skill acquisition does not create preliminary HTML and both packaged Skills compose the final AI report', async () => {
+test('normal Skill acquisition does not create preliminary HTML and the packaged Skill composes the final AI report', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-report-composition-'));
   const project = path.join(root, 'project');
   const codexHome = path.join(root, 'codex-home');
@@ -257,8 +267,8 @@ test('each copied Skill runs its bundled deterministic tool without the source c
   const project = path.join(root, 'project');
   const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
   const installed = {
-    codex: path.join(root, '.agents', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js'),
-    claude: path.join(root, '.claude', 'skills', 'where-tokens-went-claude', 'scripts', 'where-tokens-went.js'),
+    codex: path.join(root, '.agents', 'skills', 'where-tokens-went', 'scripts', 'where-tokens-went.js'),
+    claude: path.join(root, '.claude', 'skills', 'where-tokens-went', 'scripts', 'where-tokens-went.js'),
   };
   const envByHarness = {
     codex: { CODEX_HOME: path.join(root, 'missing-codex') },
@@ -310,8 +320,8 @@ test('packaged Codex and Claude runtimes preserve new evidence facts outside the
   try {
     await execFileAsync(process.execPath, [installer, root]);
     const installed = {
-      codex: path.join(root, '.agents', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js'),
-      claude: path.join(root, '.claude', 'skills', 'where-tokens-went-claude', 'scripts', 'where-tokens-went.js'),
+      codex: path.join(root, '.agents', 'skills', 'where-tokens-went', 'scripts', 'where-tokens-went.js'),
+      claude: path.join(root, '.claude', 'skills', 'where-tokens-went', 'scripts', 'where-tokens-went.js'),
     };
     const cases = [
       ['codex', { CODEX_HOME: codexHome }],
@@ -351,10 +361,8 @@ test('CLI rejects suspended Pi and DeepSeek Harness values', async () => {
 });
 
 test('suspended Harnesses are absent from the packaged source and installed layout', async () => {
-  for (const skill of ['where-tokens-went-claude', 'where-tokens-went-codex']) {
-    for (const file of ['pi-reader.js', 'deepseek-reader.js', 'fzstd.js', 'fzstd.LICENSE']) {
-      await assert.rejects(access(path.resolve(__dirname, '..', 'skills', skill, 'scripts', 'runtime', file)));
-    }
+  for (const file of ['pi-reader.js', 'deepseek-reader.js', 'fzstd.js', 'fzstd.LICENSE']) {
+    await assert.rejects(access(path.join(bundledSkillRoot, 'scripts', 'runtime', file)));
   }
   await assert.rejects(access(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-pi')));
   await assert.rejects(access(path.resolve(__dirname, '..', 'skills', 'where-tokens-went-deepseek')));
@@ -1184,7 +1192,7 @@ test('Tare report views stay localized, provenance-safe, and shareable', async (
     const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
     await execFileAsync(process.execPath, [installer, installedRoot]);
     const installedHtmlPath = path.join(root, 'installed-tare-report.html');
-    const installedCodexPath = path.join(installedRoot, '.agents', 'skills', 'where-tokens-went-codex', 'scripts', 'where-tokens-went.js');
+    const installedCodexPath = path.join(installedRoot, '.agents', 'skills', 'where-tokens-went', 'scripts', 'where-tokens-went.js');
     const { stdout: installedJsonText } = await execFileAsync(process.execPath, [
       installedCodexPath,
       'inspect', '--harness', 'codex', '--cwd', project, '--since', '7d',

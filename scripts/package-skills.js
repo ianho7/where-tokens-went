@@ -8,10 +8,7 @@ const compiledRoot = path.join(repoRoot, 'dist', 'src');
 const echartsAssets = path.join(repoRoot, 'dist', 'assets');
 const reportSynthesisPrompt = path.join(repoRoot, 'prompts', 'report-synthesis.md');
 const keySessionAnalysisPrompt = path.join(repoRoot, 'prompts', 'key-session-analysis.md');
-const skillNames = [
-  'where-tokens-went-codex',
-  'where-tokens-went-claude',
-];
+const skillNames = ['where-tokens-went'];
 
 function copyIfChanged(source, destination) {
   if (fs.existsSync(destination) && fs.readFileSync(source).equals(fs.readFileSync(destination))) return;

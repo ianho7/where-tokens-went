@@ -123,7 +123,7 @@
 
 ## 五、两个 Harness Skill 的限制清单
 
-`skills/where-tokens-went-codex/SKILL.md` 与 `skills/where-tokens-went-claude/SKILL.md` 结构基本相同，Codex Skill 额外包含任务级 Token 对账规则。两份 Skill 都不是独立事实源；Prompt 副本由 `scripts/package-skills.js` 从 `prompts/` 复制生成。
+`skills/where-tokens-went/SKILL.md` 是 Codex 与 Claude Code 共用的 Harness-native Skill，按当前 Host 选择 Harness；Codex 额外包含任务级 Token 对账规则。Skill 不是独立事实源；Prompt 副本由 `scripts/package-skills.js` 从 `prompts/` 复制生成。
 
 | Skill 规则 | 影响 | 判定 |
 | --- | --- | --- |
@@ -238,7 +238,7 @@
 
 ### 打包：`scripts/package-skills.js`
 
-- `prompts/report-synthesis.md` 与 `prompts/key-session-analysis.md` 是唯一源文件；脚本把它们复制到两个 Skill 的 `references/`，并复制编译后的 runtime。
+- `prompts/report-synthesis.md` 与 `prompts/key-session-analysis.md` 是唯一源文件；脚本把它们复制到共用 Skill 的 `references/`，并复制编译后的 runtime。
 - 生成的 references/runtime 不是第二套手工逻辑；修改 Prompt 后必须重新打包，不能只改某个 Harness 副本。
 - 打包脚本会清理并重建 generated runtime；当前调查不修改它以外的依赖或服务。
 

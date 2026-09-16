@@ -4,7 +4,7 @@
 
 ## 名称与迁移状态
 
-`where-tokens-went` 是项目正式对外名称，也已经同步作为 CLI 命令、两个 Skill/plugin 的安装标识和目录命名空间。旧版 agent-audit 命令和 agent-audit-* Skill 标识不再是当前发布入口；已有旧版安装需要按新名称重新安装。
+`where-tokens-went` 是项目正式对外名称，也已经同步作为 CLI 命令、Codex 与 Claude Code 的共用 Skill/plugin 安装标识和目录命名空间。旧版 agent-audit 命令和 agent-audit-* Skill 标识不再是当前发布入口；已有旧版安装需要按新名称重新安装。
 
 ## Aha moment
 
@@ -32,32 +32,32 @@
 
 ### GitHub / skills.sh
 
-仓库按 `skills/<skill-name>/SKILL.md` 约定暴露两个 Skill。选择与当前 Harness 对应的目录即可；也可以把两个目录作为一个 Skill pack 安装。
+仓库按 `skills/<skill-name>/SKILL.md` 约定暴露一个跨 Harness 共用的 Skill；Codex 与 Claude Code 从各自的目录安装后，调用名均为 `$where-tokens-went`。
 
 ```bash
 # 使用 skills.sh CLI 安装指定 Harness 的 Skill（将 owner/repo 替换为实际仓库）
-npx skills add <owner>/<repo> --skill where-tokens-went-codex --agent codex --yes
-npx skills add <owner>/<repo> --skill where-tokens-went-claude --agent claude-code --yes
+npx skills add <owner>/<repo> --skill where-tokens-went --agent codex --yes
+npx skills add <owner>/<repo> --skill where-tokens-went --agent claude-code --yes
 
 # 使用 GitHub CLI 安装指定 Harness 的 Skill
-gh skill install <owner>/<repo> where-tokens-went-codex --agent codex
-gh skill install <owner>/<repo> where-tokens-went-claude --agent claude-code
+gh skill install <owner>/<repo> where-tokens-went --agent codex
+gh skill install <owner>/<repo> where-tokens-went --agent claude-code
 ```
 
 安装前请检查 Skill 目录中的脚本和来源；默认只读取本机历史，不上传数据。需要固定版本时，使用 Git tag 或 commit。
 
 ### Claude Code 市场
 
-仓库包含 `.claude-plugin/marketplace.json`，在 Claude Code 中添加仓库后安装 `where-tokens-went-claude`：
+仓库包含 `.claude-plugin/marketplace.json`，在 Claude Code 中添加仓库后安装 `where-tokens-went`：
 
 ```text
 /plugin marketplace add <owner>/<repo>
-/plugin install where-tokens-went-claude@where-tokens-went
+/plugin install where-tokens-went@where-tokens-went
 ```
 
 ### Codex 插件市场
 
-Codex Skill 目录包含 `.codex-plugin/plugin.json`，仓库同时提供 repo-local marketplace 元数据。将该仓库作为本地 marketplace 添加后，安装 `where-tokens-went-codex`；具体命令以当前 Codex CLI 的插件命令为准。
+Codex Skill 目录包含 `.codex-plugin/plugin.json`，仓库同时提供 repo-local marketplace 元数据。将该仓库作为本地 marketplace 添加后，安装 `where-tokens-went`；具体命令以当前 Codex CLI 的插件命令为准。
 
 ### 从源码开发安装
 
@@ -73,7 +73,7 @@ npm run install-local
 `install-local` 会完成三件事：
 
 1. 编译 TypeScript CLI；
-2. 将同版本运行产物打包到两个 Skill 目录；
+2. 将同版本运行产物打包到共用的 Skill 目录；
 3. 通过 `npm link` 暴露全局 `where-tokens-went` 命令（仅供直接 CLI 调试），并将完整 Skill 目录安装到对应 Host 的原生目录。
 
 源码变更后重新生成 Skill 产物：
@@ -84,8 +84,8 @@ npm run package-skills
 
 | Harness | Skill 安装位置 |
 | --- | --- |
-| Codex | `.agents/skills/where-tokens-went-codex/`（含 `SKILL.md` 和 `scripts/`） |
-| Claude Code | `.claude/skills/where-tokens-went-claude/`（含 `SKILL.md` 和 `scripts/`） |
+| Codex | `.agents/skills/where-tokens-went/`（含 `SKILL.md` 和 `scripts/`） |
+| Claude Code | `.claude/skills/where-tokens-went/`（含 `SKILL.md` 和 `scripts/`） |
 
 如果要把已打包的 Skill 安装到另一个项目，请仍在本仓库根目录执行：
 

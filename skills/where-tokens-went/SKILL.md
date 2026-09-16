@@ -1,29 +1,33 @@
 ---
-name: where-tokens-went-claude
-description: Explain recent Claude Code usage from local transcript history using the where-tokens-went deterministic tool.
+name: where-tokens-went
+description: Explain recent Codex or Claude Code usage from local history using the where-tokens-went deterministic tool.
 ---
 
-# where-tokens-went for Claude Code
+# where-tokens-went
 
-Use this Skill when the user asks where Claude Code usage went, why usage rose, which Session or project was largest, or what action could reduce repeated context usage.
+Use this Skill when the user asks where their Codex or Claude Code usage went, why usage rose, which Session or project was largest, or what action could reduce repeated context usage.
 
-The invoking Harness is fixed to Claude Code. Do not inspect any other Harness in response to a Claude Code request.
+The invoking Harness is the current Host: use `codex` when running inside Codex and `claude` when running inside Claude Code. Do not inspect the other Harness in response to a request.
 
 ## Invocation
 
-Translate the user's requested scope into explicit internal Audit arguments. Resolve the directory containing this `SKILL.md` as `<skill-directory>` and run the bundled `scripts/where-tokens-went.js` with Node only to acquire deterministic data; do not call a global `where-tokens-went` command and do not treat this internal step as the completed request:
+Translate the user's requested scope into explicit internal Audit arguments. Resolve the directory containing this `SKILL.md` as `<skill-directory>` and run the bundled `scripts/where-tokens-went.js` with Node only to acquire deterministic data; do not call a global `where-tokens-went` command and do not treat this internal step as the completed request. Use Current Project by default; when the user asks for a Global Audit, widen only the project selector with `--all-projects`:
 
 ```text
-node <skill-directory>/scripts/where-tokens-went.js inspect --harness claude --cwd <absolute-current-project-path> --since <duration> --format json --pricing litellm
+node <skill-directory>/scripts/where-tokens-went.js inspect --harness <codex-or-claude> --cwd <absolute-current-project-path> --since <duration> --format json --pricing litellm
 ```
 
-Use `7d` when no period is requested. The Global Audit form is supported by the local tool for this Harness; use `--all-projects` only when the user explicitly asks for all projects.
+```text
+node <skill-directory>/scripts/where-tokens-went.js inspect --harness <codex-or-claude> --all-projects --since <duration> --format json --pricing litellm
+```
 
-The local tool is authoritative. Do not recalculate totals, infer missing values as zero, or expose raw transcript content. With `--pricing litellm`, it makes read-only catalog requests containing only the expected Provider and model identifiers; when some Usage is priced, the report shows an estimated partial amount with priced-Usage coverage and excludes the remainder. Only a selection with no priced Usage leaves currency unavailable while the rest of the audit remains usable.
+Use `7d` when no period is requested. Global Audit still remains inside the invoking Harness; never substitute another Harness.
+
+The local tool is authoritative. Do not recalculate totals, infer missing values as zero, or expose raw history content. With `--pricing litellm`, it makes read-only catalog requests containing only the expected Provider and model identifiers; when some Usage is priced, the report shows an estimated partial amount with priced-Usage coverage and excludes the remainder. Only a selection with no priced Usage leaves currency unavailable while the rest of the audit remains usable.
 
 The JSON result also contains shared cache economics when composition and the selected price source permit it: mutually exclusive Token buckets, cache-read/cache-write rates, composition and price coverage, observed API-equivalent cost, an all-uncached counterfactual, and savings. Currency is always an `estimated` API-equivalent reference, not a subscription bill. The tool requires exact Provider/model identity and every non-zero price dimension; LiteLLM catalog values carry their retrieval source, and unpriced Usage is excluded rather than converted to zero.
 
-It contains `firstRequestBurden`, the earliest valid deduplicated ModelCall per selected Session. Present it as observed first-request burden, with coverage and cache composition; never call it an exact startup tax. It contains Skill evidence only when the local transcript proves a listing, versioned attribution, explicit invocation, or verifiable Skill resource/script relation. Preserve `available`, `invoked`, `attributed`, and `unavailable`; a listing does not prove invocation, and causal impact remains unavailable without a counterfactual.
+It contains `firstRequestBurden`, the earliest valid deduplicated ModelCall per selected Session. Present it as observed first-request burden, with coverage and cache composition; never call it an exact startup tax. It contains Skill evidence only when the local rollout proves a listing, explicit invocation, or verifiable Skill resource/script relation. Preserve `available`, `invoked`, `attributed`, and `unavailable`; a listing does not prove invocation, and causal impact remains unavailable without a counterfactual.
 
 ## HTML report visual contract
 
@@ -35,7 +39,7 @@ Line charts must combine color with solid/dashed/dotted line types and distinct 
 
 ## Intent routing
 
-The public product entry is `$where-tokens-went` in the Claude Code conversation; an equivalent natural-language request invokes the same Skill workflow. Interpret the request into fixed Harness, Audit Scope, period, locale, view, and output arguments, then use the bundled deterministic runtime internally. The shell command is not the user-facing workflow. Logical shortcuts are optional aliases, not a second implementation:
+The public product entry is `$where-tokens-went` in both Codex and Claude Code conversations; an equivalent natural-language request invokes the same Skill workflow. Interpret the request into fixed Harness, Audit Scope, period, locale, view, and output arguments, then use the bundled deterministic runtime internally. The shell command is not the user-facing workflow. Logical shortcuts are optional aliases, not a second implementation:
 
 - Full diagnosis or `$where-tokens-went`: current project and 7d by default, view full, and a local self-contained HTML report.
 - usage: view usage for an at-a-glance panel.
@@ -64,7 +68,7 @@ The packaged Prompts are the only authorities for Host Agent report prose: `refe
    `node <skill-directory>/scripts/where-tokens-went.js compose-report --locale <locale> --html <final-report-path>`
    Send one JSON envelope through stdin containing `auditFingerprint`, the complete sanitized `audit`, the validated `reportSynthesis` or `null`, the validated `keySessionAnalyses`, a local-only `projectName` resolved in this order—remote repository name, package/project name, directory basename, then `project`—and the local `firstUserMessages` projection when needed by the full trajectory. Keep `projectName` outside `audit` and AI prose. The entry validates the fingerprint, Overview and Finding Evidence references, and Key Session Scope again, then writes the one final HTML; it does not reread or restat history. Open only that final HTML. The header renders the Overview without fixed project-type or threshold diagnoses, and the Session ranking table contains no deterministic “main driver.” If synthesis is unavailable or invalid, retain the header with a neutral unavailable state and make the same Findings module clearly identify the Automated Check fallback and its degradation reason; do not add a second Findings or Automated Checks panel.
 
-Claude Code Turn timing and compaction remain capability-dependent. Keep missing fields unavailable and do not upgrade observed transcript spans into exact API latency.
+For Codex, a non-null Key Session conclusion is accepted only when that selected task's `keySessionTokenAccounting` status is `reconciled`. A global `tokenAccountingStatus: mismatch` does not block independently reconciled tasks. A selected task with `mismatch` or `unavailable` accounting remains eligible for a grounded task context and explicit null analysis, but not a guessed mechanism or action; do not discard all selected analyses because one task is not reconciled. Claude Code Turn timing and compaction remain capability-dependent; keep missing fields unavailable and do not upgrade observed transcript spans into exact API latency.
 
 ## Host Agent diagnosis
 

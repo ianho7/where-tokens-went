@@ -5,9 +5,9 @@
   },
   "plugins": [
     {
-      "name": "where-tokens-went-claude",
-      "source": "./skills/where-tokens-went-claude",
-      "description": "Explain Claude Code usage from local history with a bundled deterministic tool.",
+      "name": "where-tokens-went",
+      "source": "./skills/where-tokens-went",
+      "description": "Explain Codex or Claude Code usage from local history with a bundled deterministic tool.",
       "version": "0.1.0",
       "author": {
         "name": "where-tokens-went"
