@@ -1110,6 +1110,7 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
             cwd: scope.allProjects ? null : "<current-project>",
             allProjects: scope.allProjects,
             since: scope.since.toISOString(),
+            ...(scope.until ? { until: scope.until.toISOString() } : {}),
         },
         coverage: read.coverage,
         summary,

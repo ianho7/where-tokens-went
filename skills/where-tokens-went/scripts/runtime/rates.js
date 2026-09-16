@@ -4,6 +4,7 @@ exports.UNAVAILABLE_PRICING = exports.LITELLM_MODEL_CATALOG_URL = void 0;
 exports.pricingProviderForHarness = pricingProviderForHarness;
 exports.rateForInput = rateForInput;
 exports.resolveApiPricing = resolveApiPricing;
+const node_perf_hooks_1 = require("node:perf_hooks");
 exports.LITELLM_MODEL_CATALOG_URL = "https://api.litellm.ai/model_catalog";
 function pricingProviderForHarness(harness) {
     return harness === "codex" ? "openai" : "anthropic";
@@ -150,35 +151,66 @@ async function defaultPriceFetcher(url, init) {
     const response = await globalThis.fetch(url, init);
     return { ok: response.ok, status: response.status, json: () => response.json() };
 }
-async function fetchJson(fetcher, url) {
+async function fetchJson(fetcher, url, request, timing) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4_000);
+    const startedAt = new Date().toISOString();
+    const startedMono = node_perf_hooks_1.performance.now();
+    let status = null;
+    let outcome = "network-failure";
+    let responseBytes = null;
     try {
         const response = await fetcher(url, { method: "GET", signal: controller.signal });
-        if (!response.ok)
+        status = response.status;
+        if (!response.ok) {
+            outcome = "http-failure";
             return { value: null, status: response.status, failed: false };
+        }
         try {
-            return { value: await response.json(), status: response.status, failed: false };
+            const value = await response.json();
+            try {
+                responseBytes = Buffer.byteLength(JSON.stringify(value), "utf8");
+            }
+            catch {
+                responseBytes = null;
+            }
+            outcome = "success";
+            return { value, status: response.status, failed: false };
         }
         catch {
+            outcome = "invalid-json";
             return { value: null, status: response.status, failed: true };
         }
     }
-    catch {
+    catch (error) {
+        outcome = error && typeof error === "object" && "name" in error && error.name === "AbortError"
+            ? "timeout"
+            : "network-failure";
         return { value: null, status: null, failed: true };
     }
     finally {
         clearTimeout(timeout);
+        if (timing) {
+            await Promise.resolve(timing({
+                ...request,
+                startedAt,
+                endedAt: new Date().toISOString(),
+                durationMs: Math.round(Math.max(0, node_perf_hooks_1.performance.now() - startedMono) * 100) / 100,
+                status,
+                outcome,
+                responseBytes,
+            })).catch(() => undefined);
+        }
     }
 }
-async function lookupLiteLlmRate(provider, model, fetcher, baseUrl) {
+async function lookupLiteLlmRate(provider, model, fetcher, baseUrl, timing) {
     const root = baseUrl.replace(/\/+$/, "");
-    const direct = await fetchJson(fetcher, root + "/" + encodeURIComponent(model));
+    const direct = await fetchJson(fetcher, root + "/" + encodeURIComponent(model), { provider, model, kind: "direct" }, timing);
     let entry = exactEntry(direct.value, provider, model);
     let failed = direct.failed;
     if (!entry) {
         const query = new URLSearchParams({ provider, model, page_size: "100" });
-        const search = await fetchJson(fetcher, root + "?" + query.toString());
+        const search = await fetchJson(fetcher, root + "?" + query.toString(), { provider, model, kind: "search" }, timing);
         failed = failed || search.failed;
         entry = exactEntry(search.value, provider, model);
     }
@@ -198,7 +230,7 @@ function rateForInput(rate, inputTokens) {
         outputPerMillion: tier.outputPerMillion ?? rate.outputPerMillion,
     };
 }
-async function resolveApiPricing(calls, harness, mode = "litellm", fetcher = defaultPriceFetcher, baseUrl = exports.LITELLM_MODEL_CATALOG_URL) {
+async function resolveApiPricing(calls, harness, mode = "litellm", fetcher = defaultPriceFetcher, baseUrl = exports.LITELLM_MODEL_CATALOG_URL, timing) {
     const pairs = [...new Map(calls
             .filter((call) => (!call.provider || call.provider === pricingProviderForHarness(harness)) && call.model)
             .map((call) => {
@@ -209,7 +241,7 @@ async function resolveApiPricing(calls, harness, mode = "litellm", fetcher = def
     const limitations = [];
     const retrievedAt = pairs.length > 0 ? new Date().toISOString() : null;
     for (const pair of pairs) {
-        const result = await lookupLiteLlmRate(pair.provider, pair.model, fetcher, baseUrl);
+        const result = await lookupLiteLlmRate(pair.provider, pair.model, fetcher, baseUrl, timing);
         if (result.rate) {
             dynamicRates.push(result.rate);
         }

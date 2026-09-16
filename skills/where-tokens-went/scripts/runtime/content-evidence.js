@@ -59,6 +59,11 @@ function timestamp(record, payload) {
     const parsed = Date.parse(value);
     return Number.isNaN(parsed) ? null : parsed;
 }
+function inScope(time, scope) {
+    if (time === null || time < scope.since.getTime())
+        return false;
+    return scope.until === undefined || time < scope.until.getTime();
+}
 function normaliseCwd(value) {
     const resolved = path.resolve(value);
     return process.platform === "win32" ? resolved.toLowerCase() : resolved;
@@ -141,7 +146,13 @@ function withinSelection(item, selection) {
 }
 function packet(scope, selection, items, warnings) {
     return {
-        scope: { harness: scope.harness, cwd: scope.allProjects ? null : "<current-project>", allProjects: scope.allProjects, since: scope.since.toISOString() },
+        scope: {
+            harness: scope.harness,
+            cwd: scope.allProjects ? null : "<current-project>",
+            allProjects: scope.allProjects,
+            since: scope.since.toISOString(),
+            ...(scope.until ? { until: scope.until.toISOString() } : {}),
+        },
         sessionId: selection.sessionId,
         turnIds: [...selection.turnIds],
         selectionReason: selection.selectionReason,
@@ -161,6 +172,10 @@ function validateRequest(request) {
         throw new Error("Content Evidence project scope does not match the originating Audit Scope.");
     if (Date.parse(audit.scope.since) !== scope.since.getTime())
         throw new Error("Content Evidence time range does not match the originating Audit Scope.");
+    if (audit.scope.until !== undefined || scope.until !== undefined) {
+        if (audit.scope.until === undefined || scope.until?.getTime() !== Date.parse(audit.scope.until))
+            throw new Error("Content Evidence upper time boundary does not match the originating Audit Scope.");
+    }
     const allowed = selectedSessionIds(audit);
     const auditedTurns = new Map();
     for (const turn of audit.turns ?? [])
@@ -229,7 +244,7 @@ async function readCodexEvidence(request) {
                 continue;
             }
             const eventTime = timestamp(record, payload);
-            if (eventTime === null || eventTime < request.scope.since.getTime())
+            if (!inScope(eventTime, request.scope))
                 continue;
             const ids = stableIds(record, payload);
             if (!withinSelection(ids, selection))
@@ -288,7 +303,7 @@ async function readClaudeEvidence(request) {
                 continue;
             }
             const eventTime = timestamp(record, payload);
-            if (eventTime === null || eventTime < request.scope.since.getTime())
+            if (!inScope(eventTime, request.scope))
                 continue;
             const ids = stableIds(record, payload);
             if (!withinSelection(ids, selection) && !(selection.turnIds.length === 1 && !selection.callIds?.length && (stringValue(record.type) === "user" || stringValue(payload.role) === "user" || stringValue(record.type) === "assistant" || stringValue(payload.role) === "assistant")))

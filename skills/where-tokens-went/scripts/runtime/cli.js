@@ -39,20 +39,27 @@ exports.main = main;
 const fs = __importStar(require("node:fs/promises"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
+const node_crypto_1 = require("node:crypto");
 const analysis_1 = require("./analysis");
 const claude_reader_1 = require("./claude-reader");
 const codex_reader_1 = require("./codex-reader");
+const content_evidence_1 = require("./content-evidence");
 const key_session_analysis_1 = require("./key-session-analysis");
 const rates_1 = require("./rates");
+const report_run_1 = require("./report-run");
 const report_1 = require("./report");
 function usage() {
     return [
         "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
         "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
         "       where-tokens-went compose-report --locale zh-CN|en-US --font <font-file> [--font-family <name>] --html <final-path> < composition JSON envelope",
+        "       where-tokens-went report-run prepare --harness <claude|codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
+        "       where-tokens-went report-run evidence --run-dir <directory> < evidence selection JSON",
+        "       where-tokens-went report-run compose --run-dir <directory> --html <final-path> [--font <font-file>] [--font-family <name>] < AI output JSON",
+        "       where-tokens-went report-run event|status|finalize --run-dir <directory> ...",
     ].join("\n");
 }
-function parseDuration(value) {
+function parseDuration(value, now = Date.now()) {
     const match = /^(\d+)([hdwm])$/i.exec(value.trim());
     if (!match)
         throw new Error(`Invalid --since duration: ${value}. Use values such as 7d, 24h, or 2w.`);
@@ -65,7 +72,7 @@ function parseDuration(value) {
             : unit === "w"
                 ? amount * 7 * 24 * 60 * 60 * 1000
                 : amount * 30 * 24 * 60 * 60 * 1000;
-    return new Date(Date.now() - milliseconds);
+    return new Date(now - milliseconds);
 }
 function requireValue(args, index, flag) {
     const value = args[index + 1];
@@ -73,13 +80,13 @@ function requireValue(args, index, flag) {
         throw new Error(`${flag} requires a value.\n${usage()}`);
     return value;
 }
-function parseArgs(args) {
+function parseArgs(args, now = Date.now()) {
     if (args[0] !== "inspect")
         throw new Error(`Use inspect or compose-report.\n${usage()}`);
     let harness = null;
     let cwd = null;
     let allProjects = false;
-    let since = parseDuration("7d");
+    let since = parseDuration("7d", now);
     let sinceExplicit = false;
     let format = "json";
     let locale = "en-US";
@@ -108,7 +115,7 @@ function parseArgs(args) {
             allProjects = true;
         }
         else if (flag === "--since") {
-            since = parseDuration(requireValue(args, index, flag));
+            since = parseDuration(requireValue(args, index, flag), now);
             sinceExplicit = true;
             index += 1;
         }
@@ -298,6 +305,490 @@ async function readStdin() {
     }
     return Buffer.concat(chunks).toString("utf8");
 }
+function extractRunDirectory(args) {
+    let runDir = null;
+    const rest = [];
+    for (let index = 0; index < args.length; index += 1) {
+        if (args[index] === "--run-dir") {
+            if (runDir !== null)
+                throw new Error("--run-dir may only be provided once.");
+            runDir = requireValue(args, index, "--run-dir");
+            index += 1;
+        }
+        else {
+            rest.push(args[index]);
+        }
+    }
+    return { runDir, rest };
+}
+function requireRunDirectory(runDir) {
+    if (!runDir)
+        throw new Error(`--run-dir is required.\n${usage()}`);
+    return path.resolve(runDir);
+}
+function runSummary(run) {
+    return {
+        runId: run.manifest.runId,
+        runDir: run.runDir,
+        manifestPath: run.manifestFile,
+        tracePath: run.traceFile,
+        status: run.manifest.status,
+        scope: run.manifest.scope,
+        auditFingerprint: run.manifest.auditFingerprint,
+        topSessions: run.manifest.topSessions,
+        artifacts: run.manifest.artifacts,
+        stageStatus: run.manifest.stageStatus,
+        traceCompleteness: run.manifest.traceCompleteness,
+        traceErrorCode: run.manifest.traceErrorCode,
+        totalDurationMs: run.manifest.totalDurationMs,
+        promptHashes: run.manifest.promptHashes,
+        runtimeHash: run.manifest.runtimeHash,
+        warnings: run.manifest.warnings,
+    };
+}
+function outputRunSummary(run, extra = {}) {
+    process.stdout.write(JSON.stringify({ ...runSummary(run), ...extra }) + "\n");
+}
+function scopeFromManifest(manifest) {
+    const since = new Date(manifest.scope.since);
+    const until = new Date(manifest.scope.until);
+    if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime()))
+        throw new Error("Report Run manifest has an invalid frozen time range.");
+    return {
+        cwd: manifest.scope.cwd,
+        allProjects: manifest.scope.allProjects,
+        since,
+        until,
+    };
+}
+async function readCanonicalAudit(run) {
+    const value = await (0, report_run_1.readRunArtifact)(run.runDir, "audit");
+    if (!isRecord(value))
+        throw new Error("Report Run Audit artifact is malformed.");
+    const audit = value;
+    if (!isRecord(audit.scope) || !isRecord(audit.coverage) || !isRecord(audit.rankings))
+        throw new Error("Report Run Audit artifact is malformed.");
+    if (audit.scope.harness !== run.manifest.scope.harness || audit.scope.allProjects !== run.manifest.scope.allProjects) {
+        throw new Error("Report Run Audit Scope does not match the manifest.");
+    }
+    if (audit.scope.since !== run.manifest.scope.since || audit.scope.until !== run.manifest.scope.until) {
+        throw new Error("Report Run Audit time range does not match the manifest.");
+    }
+    const fingerprint = (0, key_session_analysis_1.auditFingerprint)(audit);
+    if (run.manifest.auditFingerprint !== fingerprint)
+        throw new Error("Report Run Audit fingerprint does not match the manifest.");
+    return audit;
+}
+function positiveLimit(value, flag, fallback) {
+    if (value === undefined)
+        return fallback;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 100_000)
+        throw new Error(`${flag} must be an integer between 1 and 100000.`);
+    return value;
+}
+function parseEvidenceInput(input) {
+    if (!input.trim())
+        throw new Error("report-run evidence requires one JSON selection object on stdin.");
+    const parsed = JSON.parse(input);
+    const source = Array.isArray(parsed) ? { selections: parsed } : parsed;
+    if (!isRecord(source) || !Array.isArray(source.selections))
+        throw new Error("report-run evidence requires a selections array.");
+    const selections = source.selections;
+    if (!selections.every((selection) => isRecord(selection) && typeof selection.sessionId === "string" && Array.isArray(selection.turnIds) && selection.turnIds.every((turnId) => typeof turnId === "string") && typeof selection.selectionReason === "string" && typeof selection.unreadScope === "string")) {
+        throw new Error("Each evidence selection requires sessionId, turnIds, selectionReason, and unreadScope.");
+    }
+    return {
+        selections: selections,
+        maxItemsPerSession: source.maxItemsPerSession === undefined ? undefined : positiveLimit(source.maxItemsPerSession, "maxItemsPerSession", 24),
+        maxCharsPerItem: source.maxCharsPerItem === undefined ? undefined : positiveLimit(source.maxCharsPerItem, "maxCharsPerItem", 1200),
+    };
+}
+function evidenceArtifactMatches(value, run, input) {
+    if (!isRecord(value) || value.version !== 1 || value.runId !== run.manifest.runId || value.auditFingerprint !== run.manifest.auditFingerprint || JSON.stringify(value.scope) !== JSON.stringify(run.manifest.scope) || !Array.isArray(value.packets) || !Array.isArray(value.selections))
+        return false;
+    const maxItems = input.maxItemsPerSession ?? 24;
+    const maxChars = input.maxCharsPerItem ?? 1200;
+    return value.maxItemsPerSession === maxItems && value.maxCharsPerItem === maxChars && JSON.stringify(value.selections) === JSON.stringify(input.selections);
+}
+function packetSummary(packets) {
+    return packets.map((packet) => ({
+        sessionId: packet.sessionId,
+        turnCount: packet.turnIds.length,
+        itemCount: packet.items.length,
+        truncatedItemCount: packet.items.filter((item) => item.truncated).length,
+        unreadScope: packet.unreadScope,
+        warningCount: packet.warnings.length,
+    }));
+}
+async function writeAtomicLocal(filePath, contents) {
+    const absolute = path.resolve(filePath);
+    const temporary = absolute + ".tmp-" + process.pid + "-" + (0, node_crypto_1.randomUUID)();
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    await fs.writeFile(temporary, contents, "utf8");
+    try {
+        await fs.rename(temporary, absolute);
+    }
+    catch {
+        await fs.writeFile(absolute, contents, "utf8");
+        await fs.unlink(temporary).catch(() => undefined);
+    }
+    return absolute;
+}
+async function markPreparedRunFailed(run) {
+    try {
+        await (0, report_run_1.finalizeReportRun)(run, "failed");
+    }
+    catch {
+        await (0, report_run_1.setReportRunStatus)(run, "failed").catch(() => undefined);
+    }
+}
+async function recordPricingTiming(run, event) {
+    await (0, report_run_1.recordCompletedRunSpan)(run, {
+        phase: "price-request",
+        operation: "litellm-" + event.kind,
+        source: "network",
+        startedAt: event.startedAt,
+        endedAt: event.endedAt,
+        durationMs: event.durationMs,
+        status: event.outcome === "success" ? "completed" : "failed",
+        metadata: {
+            provider: event.provider,
+            model: event.model,
+            requestKind: event.kind,
+            httpStatus: event.status,
+            responseBytes: event.responseBytes,
+            outcome: event.outcome,
+        },
+    });
+}
+async function reportRunPrepareMain(args) {
+    const { runDir, rest } = extractRunDirectory(args);
+    const frozenNow = Date.now();
+    const options = parseArgs(["inspect", ...rest], frozenNow);
+    if (options.view !== "full")
+        throw new Error("report-run prepare only supports the full report workflow.");
+    if (options.htmlPath || options.sharePath)
+        throw new Error("report-run prepare does not write HTML or share output.");
+    const scope = {
+        harness: options.harness,
+        cwd: options.cwd,
+        allProjects: options.allProjects,
+        since: options.since,
+        until: new Date(frozenNow),
+        locale: options.locale,
+    };
+    let run = null;
+    try {
+        run = await (0, report_run_1.createReportRun)(scope, runDir ?? undefined);
+        await (0, report_run_1.withRunSpan)(run, { phase: "scope-freeze", operation: "freeze-report-scope", source: "runner" }, async () => undefined);
+        const contract = await (0, report_run_1.withRunSpan)(run, { phase: "prompt-read", operation: "resolve-report-contract", source: "filesystem" }, async () => {
+            const metadata = await (0, report_run_1.resolveRunContractMetadata)();
+            if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis)
+                throw new Error("Authoritative Report Prompts are unavailable for this run.");
+            return metadata;
+        });
+        await (0, report_run_1.setRunPromptHashes)(run, contract.promptHashes, contract.runtimeHash);
+        const before = await (0, report_run_1.withRunSpan)(run, { phase: "source-inventory", operation: "inventory-history-before", source: "filesystem" }, () => (0, report_run_1.captureSourceInventory)(scope.harness));
+        const read = await (0, report_run_1.withRunSpan)(run, { phase: "history-read", operation: "read-historical-records", source: "filesystem" }, () => readHarness(scope.harness, scope));
+        const pricing = await (0, report_run_1.withRunSpan)(run, { phase: "price-resolution", operation: "resolve-api-pricing", source: "runner" }, () => (0, rates_1.resolveApiPricing)(read.modelCalls, scope.harness, options.pricing, undefined, undefined, (event) => recordPricingTiming(run, event)));
+        const audit = await (0, report_run_1.withRunSpan)(run, { phase: "deterministic-analysis", operation: "analyse-audit", source: "runner" }, async () => (0, analysis_1.analyseAudit)(scope, read, scope.harness, pricing));
+        const after = await (0, report_run_1.withRunSpan)(run, { phase: "source-inventory", operation: "inventory-history-after", source: "filesystem", attempt: 2 }, () => (0, report_run_1.captureSourceInventory)(scope.harness));
+        await (0, report_run_1.setRunSourceInventory)(run, before, after);
+        if (run.manifest.sourceInventory?.mutated === true && !audit.coverage.warnings.includes("History source files changed while the Audit was being read.")) {
+            audit.coverage.warnings.push("History source files changed while the Audit was being read.");
+        }
+        await (0, report_run_1.writeRunArtifact)(run, "audit", audit);
+        await (0, report_run_1.writeRunArtifact)(run, "firstUserMessages", read.firstUserMessages ?? []);
+        await (0, report_run_1.setRunTopSessions)(run, audit.rankings.sessions);
+        await (0, report_run_1.setRunAuditFingerprint)(run, (0, key_session_analysis_1.auditFingerprint)(audit));
+        await (0, report_run_1.setReportRunStatus)(run, "prepared");
+        outputRunSummary(run, { next: ["evidence", "report-synthesis", "key-session-analysis", "compose", "finalize"] });
+        return 0;
+    }
+    catch (error) {
+        if (run)
+            await markPreparedRunFailed(run);
+        throw error;
+    }
+}
+async function reportRunEvidenceMain(args) {
+    const { runDir, rest } = extractRunDirectory(args);
+    if (rest.length > 0)
+        throw new Error(`Unknown report-run evidence argument: ${rest[0]}.\n${usage()}`);
+    const run = await (0, report_run_1.openReportRun)(requireRunDirectory(runDir));
+    const audit = await readCanonicalAudit(run);
+    const input = await (0, report_run_1.withRunSpan)(run, { phase: "content-selection", operation: "parse-evidence-selection", source: "runner" }, async () => parseEvidenceInput(await readStdin()));
+    const maxItemsPerSession = input.maxItemsPerSession ?? 24;
+    const maxCharsPerItem = input.maxCharsPerItem ?? 1200;
+    const existing = run.manifest.artifacts.evidence ? await (0, report_run_1.readRunArtifact)(run.runDir, "evidence") : null;
+    if (existing !== null) {
+        if (!evidenceArtifactMatches(existing, run, input))
+            throw new Error("Report Run already contains Evidence for a different selection or limit; start a new run for a different request.");
+        const cached = existing;
+        await (0, report_run_1.recordCompletedRunSpan)(run, {
+            phase: "content-read",
+            operation: "reuse-content-evidence",
+            source: "filesystem",
+            startedAt: new Date().toISOString(),
+            endedAt: new Date().toISOString(),
+            durationMs: 0,
+            status: "reused",
+            metadata: { itemCount: cached.packets.reduce((sum, packet) => sum + packet.items.length, 0) },
+        });
+        await (0, report_run_1.setReportRunStatus)(run, "evidence-ready");
+        outputRunSummary(run, { evidence: packetSummary(cached.packets), reused: true });
+        return 0;
+    }
+    const scope = scopeFromManifest(run.manifest);
+    const evidenceRequest = {
+        scope: { ...scope, harness: run.manifest.scope.harness },
+        audit,
+        selections: input.selections,
+        maxItemsPerSession,
+        maxCharsPerItem,
+    };
+    const packets = await (0, report_run_1.withRunSpan)(run, { phase: "content-read", operation: "read-content-evidence", source: "filesystem" }, async () => {
+        const value = await (0, content_evidence_1.readContentEvidence)(evidenceRequest);
+        const artifact = {
+            version: 1,
+            runId: run.manifest.runId,
+            auditFingerprint: run.manifest.auditFingerprint,
+            scope: run.manifest.scope,
+            selections: input.selections,
+            maxItemsPerSession,
+            maxCharsPerItem,
+            packets: value,
+        };
+        await (0, report_run_1.writeRunArtifact)(run, "evidence", artifact);
+        return value;
+    });
+    await (0, report_run_1.setReportRunStatus)(run, "evidence-ready");
+    outputRunSummary(run, { evidence: packetSummary(packets), reused: false });
+    return 0;
+}
+function parseRunComposeArgs(args) {
+    const extracted = extractRunDirectory(args);
+    return { ...parseComposeArgs(extracted.rest), runDir: requireRunDirectory(extracted.runDir) };
+}
+function validExternalSource(value) {
+    return value === "runner" || value === "skill" || value === "host-agent" || value === "network" || value === "filesystem" || value === "ui";
+}
+function validTerminalStatus(value) {
+    return value === "completed" || value === "failed" || value === "fallback" || value === "queued" || value === "reused" || value === "skipped" || value === "unavailable" || value === "interrupted";
+}
+async function reportRunComposeMain(args) {
+    const options = parseRunComposeArgs(args);
+    const run = await (0, report_run_1.openReportRun)(options.runDir);
+    if (options.locale !== run.manifest.scope.locale)
+        throw new Error("Report Run locale does not match the compose request.");
+    const audit = await readCanonicalAudit(run);
+    const runFingerprint = run.manifest.auditFingerprint;
+    if (!runFingerprint)
+        throw new Error("Report Run Audit fingerprint is unavailable.");
+    await (0, report_run_1.setReportRunStatus)(run, "composing");
+    let synthesisCandidate = null;
+    let analyses = [];
+    let validatedSynthesis = null;
+    let packets;
+    try {
+        const currentContract = await (0, report_run_1.withRunSpan)(run, { phase: "prompt-read", operation: "verify-report-contract", source: "filesystem" }, async () => {
+            const metadata = await (0, report_run_1.resolveRunContractMetadata)();
+            if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis || !metadata.runtimeHash)
+                throw new Error("Authoritative Report Prompts or runtime contract is unavailable.");
+            return metadata;
+        });
+        const currentPromptHashes = {
+            reportSynthesis: currentContract.promptHashes.reportSynthesis,
+            keySessionAnalysis: currentContract.promptHashes.keySessionAnalysis,
+        };
+        const currentRuntimeHash = currentContract.runtimeHash;
+        if (run.manifest.artifacts.evidence) {
+            const value = await (0, report_run_1.readRunArtifact)(run.runDir, "evidence");
+            if (!isRecord(value) || value.version !== 1 || value.runId !== run.manifest.runId || value.auditFingerprint !== run.manifest.auditFingerprint || JSON.stringify(value.scope) !== JSON.stringify(run.manifest.scope) || !Array.isArray(value.packets))
+                throw new Error("Report Run Evidence artifact is stale or malformed.");
+            packets = value.packets;
+        }
+        await (0, report_run_1.withRunSpan)(run, { phase: "validation", operation: "validate-ai-output", source: "runner" }, async () => {
+            const input = await readStdin();
+            if (!input.trim())
+                throw new Error("report-run compose requires one AI output JSON envelope on stdin.");
+            const parsed = JSON.parse(input);
+            if (!isRecord(parsed))
+                throw new Error("report-run compose requires a JSON object.");
+            if (parsed.runId !== run.manifest.runId || parsed.auditFingerprint !== run.manifest.auditFingerprint)
+                throw new Error("AI output runId or Audit fingerprint does not match the Report Run.");
+            if ("audit" in parsed)
+                throw new Error("AI output must not carry a second AuditResult; use the canonical Report Run artifact.");
+            if (!isRecord(parsed.promptHashes) || parsed.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || parsed.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || parsed.runtimeHash !== currentContract.runtimeHash)
+                throw new Error("AI output Prompt or runtime contract does not match the current Report Run.");
+            if (run.manifest.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || run.manifest.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || run.manifest.runtimeHash !== currentContract.runtimeHash) {
+                run.manifest.warnings.push("The Report Prompt or runtime changed; previous AI outputs were invalidated without rescanning the Audit.");
+                await (0, report_run_1.setRunPromptHashes)(run, currentContract.promptHashes, currentContract.runtimeHash);
+            }
+            synthesisCandidate = parsed.reportSynthesis === null || parsed.reportSynthesis === undefined ? null : parsed.reportSynthesis;
+            const suppliedAnalyses = Array.isArray(parsed.keySessionAnalyses) ? parsed.keySessionAnalyses : [];
+            analyses = suppliedAnalyses.slice(0, 3);
+            if (suppliedAnalyses.length > 3)
+                run.manifest.warnings.push("More than three Key Session Analyses were supplied; only the Token-ranked Top 3 are eligible.");
+            if (analyses.length > 0 && packets === undefined)
+                throw new Error("Key Session Analysis requires the run-scoped Evidence artifact.");
+            const synthesisValidation = (0, key_session_analysis_1.validateReportSynthesis)(audit, synthesisCandidate);
+            validatedSynthesis = synthesisValidation.valid ? synthesisValidation.synthesis : null;
+            if (!synthesisValidation.valid)
+                run.manifest.warnings.push("Report Synthesis was unavailable or failed validation; deterministic fallback is used.");
+            const keyValidation = analyses.map((candidate) => {
+                if (!isRecord(candidate))
+                    return { valid: false };
+                try {
+                    return (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, candidate, packets?.filter((packet) => packet.sessionId === candidate.sessionId));
+                }
+                catch {
+                    return { valid: false };
+                }
+            });
+            const validKeyCount = keyValidation.filter((result) => result.valid).length;
+            const invalidKeyCount = keyValidation.length - validKeyCount;
+            if (invalidKeyCount > 0)
+                run.manifest.warnings.push(`${invalidKeyCount} Key Session Analysis entr${invalidKeyCount === 1 ? "y" : "ies"} failed validation and will be omitted.`);
+            await (0, report_run_1.writeRunArtifact)(run, "reportSynthesis", {
+                version: 1,
+                runId: run.manifest.runId,
+                auditFingerprint: runFingerprint,
+                promptHashes: currentPromptHashes,
+                runtimeHash: currentRuntimeHash,
+                attempt: run.manifest.stageStatus["report-synthesis"]?.attempt ?? null,
+                status: synthesisValidation.valid ? "completed" : "fallback",
+                value: synthesisCandidate,
+                valid: synthesisValidation.valid,
+            });
+            await (0, report_run_1.writeRunArtifact)(run, "keySessionAnalyses", {
+                version: 1,
+                runId: run.manifest.runId,
+                auditFingerprint: runFingerprint,
+                promptHashes: currentPromptHashes,
+                runtimeHash: currentRuntimeHash,
+                attempt: run.manifest.stageStatus["key-session-analysis"]?.attempt ?? null,
+                status: analyses.length === 0 ? "skipped" : invalidKeyCount > 0 ? "fallback" : "completed",
+                value: analyses,
+                validCount: validKeyCount,
+                invalidCount: invalidKeyCount,
+            });
+        });
+        const composition = await (0, report_run_1.withRunSpan)(run, { phase: "compose", operation: "compose-report", source: "runner" }, async () => (0, key_session_analysis_1.reportComposition)(audit, analyses, validatedSynthesis, packets));
+        await (0, report_run_1.writeRunArtifact)(run, "composition", {
+            runId: run.manifest.runId,
+            auditFingerprint: run.manifest.auditFingerprint,
+            reportSynthesis: composition.reportSynthesis,
+            keySessionAnalyses: composition.keySessionAnalyses,
+        });
+        const firstUserMessages = run.manifest.artifacts.firstUserMessages
+            ? await (0, report_run_1.readRunArtifact)(run.runDir, "firstUserMessages")
+            : [];
+        const projectName = run.manifest.scope.cwd ? (0, report_1.resolveReportProjectName)(run.manifest.scope.cwd) ?? undefined : undefined;
+        const renderComposition = projectName ? { ...composition, projectName } : composition;
+        const fontConfig = reportFontConfig(options.fontPath, options.fontFamily);
+        const rendered = await (0, report_run_1.withRunSpan)(run, { phase: "render", operation: "render-html", source: "runner" }, async () => (0, report_1.renderHtml)(audit, options.locale, renderComposition, firstUserMessages, fontConfig));
+        const subsetted = await (0, report_run_1.withRunSpan)(run, { phase: "font-subset", operation: "subset-report-fonts", source: "runner" }, async () => (0, report_1.subsetReportFonts)(rendered));
+        const output = await (0, report_run_1.withRunSpan)(run, { phase: "html-write", operation: "write-final-html", source: "filesystem" }, async () => {
+            await (0, report_run_1.writeRunTextArtifact)(run, "html", subsetted);
+            return writeAtomicLocal(options.htmlPath, subsetted);
+        });
+        outputRunSummary(run, {
+            reportStatus: composition.reportSynthesis ? "ai-enhanced" : "fallback",
+            fallback: composition.reportSynthesis === null,
+            htmlPath: output,
+            next: ["record codex-open", "finalize"],
+        });
+        return 0;
+    }
+    catch (error) {
+        await (0, report_run_1.setReportRunStatus)(run, "failed").catch(() => undefined);
+        throw error;
+    }
+}
+async function reportRunEventMain(args) {
+    const { runDir, rest } = extractRunDirectory(args);
+    if (rest.length > 0)
+        throw new Error(`Unknown report-run event argument: ${rest[0]}.\n${usage()}`);
+    const input = await readStdin();
+    if (!input.trim())
+        throw new Error("report-run event requires one JSON event object on stdin.");
+    const parsed = JSON.parse(input);
+    if (!isRecord(parsed) || (parsed.event !== "start" && parsed.event !== "end") || typeof parsed.phase !== "string" || typeof parsed.operation !== "string" || !validExternalSource(parsed.source))
+        throw new Error("report-run event requires event, phase, operation, and a supported source.");
+    if (!/^[A-Za-z0-9_.:-]{1,128}$/.test(parsed.phase) || !/^[A-Za-z0-9_.:-]{1,128}$/.test(parsed.operation))
+        throw new Error("report-run event phase and operation must be short safe labels.");
+    const spanId = typeof parsed.spanId === "string" && parsed.spanId ? parsed.spanId : (0, node_crypto_1.randomUUID)();
+    if (!/^[A-Za-z0-9_.:-]{1,128}$/.test(spanId))
+        throw new Error("report-run event spanId must be a short safe label.");
+    const startedAt = typeof parsed.startedAt === "string" ? parsed.startedAt : new Date().toISOString();
+    if (startedAt.length > 64 || /[\r\n]/.test(startedAt))
+        throw new Error("report-run event startedAt is invalid.");
+    const event = {
+        event: parsed.event,
+        spanId,
+        phase: parsed.phase,
+        operation: parsed.operation,
+        source: parsed.source,
+        startedAt,
+        ...(typeof parsed.endedAt === "string" ? { endedAt: parsed.endedAt } : {}),
+        ...(typeof parsed.durationMs === "number" ? { durationMs: parsed.durationMs } : {}),
+        ...(typeof parsed.parentSpanId === "string" || parsed.parentSpanId === null ? { parentSpanId: parsed.parentSpanId } : {}),
+        ...(typeof parsed.attempt === "number" ? { attempt: parsed.attempt } : {}),
+        ...(validTerminalStatus(parsed.status) ? { status: parsed.status } : {}),
+        ...(typeof parsed.errorCode === "string" ? { errorCode: parsed.errorCode } : {}),
+        ...(isRecord(parsed.metadata) ? { metadata: parsed.metadata } : {}),
+    };
+    if (event.event === "end" && !event.endedAt)
+        event.endedAt = new Date().toISOString();
+    if (event.endedAt && (event.endedAt.length > 64 || /[\r\n]/.test(event.endedAt)))
+        throw new Error("report-run event endedAt is invalid.");
+    const resolvedRunDir = requireRunDirectory(runDir);
+    const manifest = await (0, report_run_1.recordRunSpan)(resolvedRunDir, event);
+    process.stdout.write(JSON.stringify({ runId: manifest.runId, runDir: resolvedRunDir, status: manifest.status, phase: event.phase, traceCompleteness: manifest.traceCompleteness }) + "\n");
+    return 0;
+}
+async function reportRunStatusMain(args) {
+    const { runDir, rest } = extractRunDirectory(args);
+    if (rest.length > 0)
+        throw new Error(`Unknown report-run status argument: ${rest[0]}.\n${usage()}`);
+    const run = await (0, report_run_1.openReportRun)(requireRunDirectory(runDir));
+    outputRunSummary(run);
+    return 0;
+}
+async function reportRunFinalizeMain(args) {
+    const { runDir, rest } = extractRunDirectory(args);
+    let requested = "completed";
+    for (let index = 0; index < rest.length; index += 1) {
+        if (rest[index] !== "--status")
+            throw new Error(`Unknown report-run finalize argument: ${rest[index]}.\n${usage()}`);
+        const value = requireValue(rest, index, "--status");
+        index += 1;
+        if (value !== "completed" && value !== "failed" && value !== "incomplete")
+            throw new Error("--status must be completed, failed, or incomplete.");
+        requested = value;
+    }
+    const run = await (0, report_run_1.openReportRun)(requireRunDirectory(runDir));
+    await (0, report_run_1.finalizeReportRun)(run, requested);
+    outputRunSummary(run);
+    return requested === "completed" && run.manifest.status !== "completed" ? 2 : 0;
+}
+async function reportRunMain(args) {
+    const command = args[0];
+    if (command === "prepare")
+        return reportRunPrepareMain(args.slice(1));
+    if (command === "evidence")
+        return reportRunEvidenceMain(args.slice(1));
+    if (command === "compose")
+        return reportRunComposeMain(args.slice(1));
+    if (command === "event")
+        return reportRunEventMain(args.slice(1));
+    if (command === "status")
+        return reportRunStatusMain(args.slice(1));
+    if (command === "finalize")
+        return reportRunFinalizeMain(args.slice(1));
+    throw new Error(`Use report-run prepare, evidence, compose, event, status, or finalize.\n${usage()}`);
+}
 async function composeReportMain(args) {
     const options = parseComposeArgs(args);
     const input = await readStdin();
@@ -324,6 +815,8 @@ async function composeReportMain(args) {
 }
 async function main(args = process.argv.slice(2)) {
     try {
+        if (args[0] === "report-run")
+            return await reportRunMain(args.slice(1));
         if (args[0] === "compose-report")
             return await composeReportMain(args.slice(1));
         const options = parseArgs(args);

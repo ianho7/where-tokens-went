@@ -259,6 +259,7 @@ function contentEvidenceInsufficient(audit, analysis, packets) {
         candidate.scope.harness === audit.scope.harness &&
         candidate.scope.allProjects === audit.scope.allProjects &&
         candidate.scope.since === audit.scope.since &&
+        candidate.scope.until === audit.scope.until &&
         candidate.turnIds.length === turnIds.length &&
         candidate.turnIds.every((turnId, index) => turnId === turnIds[index]) &&
         candidate.selectionReason === analysis.evidenceRead.selectionReason &&
@@ -371,8 +372,8 @@ function composeKeySessionAnalyses(audit, analyses, packets) {
         unavailable.push("Host Agent did not provide Key Session Analysis.");
     return { auditFingerprint: fingerprint, analyses: valid, unavailable };
 }
-function reportComposition(audit, analyses, synthesis = null) {
-    const composition = composeKeySessionAnalyses(audit, analyses);
+function reportComposition(audit, analyses, synthesis = null, packets) {
+    const composition = composeKeySessionAnalyses(audit, analyses, packets);
     const validatedSynthesis = synthesis === null ? null : validateReportSynthesis(audit, synthesis).synthesis;
     return { auditFingerprint: composition.auditFingerprint, audit, reportSynthesis: validatedSynthesis, keySessionAnalyses: composition.analyses };
 }

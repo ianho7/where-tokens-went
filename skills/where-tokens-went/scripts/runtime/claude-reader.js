@@ -288,7 +288,16 @@ function sameCwd(left, right) {
 function selected(pending, scope) {
     if (!scope.allProjects && !sameCwd(pending.session.projectCwd, scope.cwd))
         return false;
-    return pending.eventTimes.some((time) => time >= scope.since.getTime());
+    const until = scope.until?.getTime();
+    return pending.eventTimes.some((time) => time >= scope.since.getTime() && (until === undefined || time < until));
+}
+function inScope(value, scope) {
+    if (!value)
+        return false;
+    const time = Date.parse(value);
+    if (Number.isNaN(time) || time < scope.since.getTime())
+        return false;
+    return scope.until === undefined || time < scope.until.getTime();
 }
 const knownClaudeTypes = new Set([
     "user", "assistant", "system", "summary", "progress", "queue-operation", "file-history-snapshot", "cost-state",
@@ -340,6 +349,8 @@ async function readClaude(scope) {
             coverage.recordsRead += 1;
             const message = objectValue(record.message);
             const timestamp = timestampValue(record.timestamp, record.time, message?.timestamp);
+            if (scope.until !== undefined && timestamp !== null && !Number.isNaN(Date.parse(timestamp)) && Date.parse(timestamp) >= scope.until.getTime())
+                continue;
             const sessionId = stringValue(record.session_id, record.sessionId, message?.session_id, message?.sessionId) ?? activeSessionId ?? `unknown-session-${fallbackIndex++}`;
             activeSessionId = sessionId;
             const pending = pendingById.get(sessionId) ?? createSession(sessionId);
@@ -537,12 +548,12 @@ async function readClaude(scope) {
             });
         }
         for (const call of pending.modelCalls)
-            if (call.timestamp && !Number.isNaN(Date.parse(call.timestamp)) && Date.parse(call.timestamp) >= scope.since.getTime())
+            if (inScope(call.timestamp, scope))
                 modelCalls.push(call);
-        toolCalls.push(...pending.tools.filter((tool) => tool.timestamp && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
-        lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
-        skillEvidence.push(...pending.skillEvidence.filter((record) => record.timestamp && !Number.isNaN(Date.parse(record.timestamp)) && Date.parse(record.timestamp) >= scope.since.getTime()));
-        const finalCost = [...pending.sessionCosts].reverse().find((record) => record.timestamp && !Number.isNaN(Date.parse(record.timestamp)) && Date.parse(record.timestamp) >= scope.since.getTime());
+        toolCalls.push(...pending.tools.filter((tool) => inScope(tool.timestamp, scope)));
+        lifecycle.push(...pending.lifecycle.filter((event) => inScope(event.timestamp, scope)));
+        skillEvidence.push(...pending.skillEvidence.filter((record) => inScope(record.timestamp, scope)));
+        const finalCost = [...pending.sessionCosts].reverse().find((record) => inScope(record.timestamp, scope));
         if (finalCost)
             sessionCosts.push(finalCost);
     }

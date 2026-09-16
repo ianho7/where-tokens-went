@@ -506,7 +506,16 @@ function selectedByScope(session, eventTimes, scope) {
     if (!scope.allProjects && !sameCwd(session.projectCwd, scope.cwd))
         return false;
     const since = scope.since.getTime();
-    return eventTimes.some((time) => time >= since);
+    const until = scope.until?.getTime();
+    return eventTimes.some((time) => time >= since && (until === undefined || time < until));
+}
+function inScope(value, scope) {
+    if (!value)
+        return false;
+    const time = Date.parse(value);
+    if (Number.isNaN(time) || time < scope.since.getTime())
+        return false;
+    return scope.until === undefined || time < scope.until.getTime();
 }
 async function readCodex(scope) {
     const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
@@ -569,6 +578,8 @@ async function readCodex(scope) {
             coverage.recordsRead += 1;
             const payload = recordPayload(record);
             const timestamp = recordTimestamp(record, payload);
+            if (scope.until !== undefined && timestamp !== null && !Number.isNaN(Date.parse(timestamp)) && Date.parse(timestamp) >= scope.until.getTime())
+                continue;
             let sessionId = activeSessionId;
             if (isType(record, payload, "session_meta", "session_metadata")) {
                 // A subagent rollout can repeat the parent's SessionMeta after its own
@@ -887,9 +898,9 @@ async function readCodex(scope) {
                     : "No first user message was mapped to this source Turn.",
             });
         }
-        toolCalls.push(...pending.toolCalls.filter((tool) => tool.timestamp !== null && !Number.isNaN(Date.parse(tool.timestamp)) && Date.parse(tool.timestamp) >= scope.since.getTime()));
-        lifecycle.push(...pending.lifecycle.filter((event) => event.timestamp !== null && !Number.isNaN(Date.parse(event.timestamp)) && Date.parse(event.timestamp) >= scope.since.getTime()));
-        skillEvidence.push(...pending.skillEvidence.filter((record) => record.timestamp !== null && !Number.isNaN(Date.parse(record.timestamp)) && Date.parse(record.timestamp) >= scope.since.getTime()));
+        toolCalls.push(...pending.toolCalls.filter((tool) => inScope(tool.timestamp, scope)));
+        lifecycle.push(...pending.lifecycle.filter((event) => inScope(event.timestamp, scope)));
+        skillEvidence.push(...pending.skillEvidence.filter((record) => inScope(record.timestamp, scope)));
         const calls = pending.rawCalls.length > 0
             ? pending.rawCalls
             : pending.incrementalCalls.length > 0
@@ -898,7 +909,7 @@ async function readCodex(scope) {
                     ? [pending.finalTotal]
                     : [];
         for (const call of calls) {
-            if (!call.timestamp || Number.isNaN(Date.parse(call.timestamp)) || Date.parse(call.timestamp) < scope.since.getTime())
+            if (!inScope(call.timestamp, scope))
                 continue;
             modelCalls.push(call);
         }
