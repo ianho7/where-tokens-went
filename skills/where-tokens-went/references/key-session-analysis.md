@@ -10,6 +10,8 @@ Each analysis must help the user recognize that Session's actual task, understan
 
 This is not a ranking caption. A sentence that could describe another selected Session after replacing its rank, Session name, Turn number, identifier, or numeric values is not Session-specific analysis.
 
+A recommendation is a bounded first experiment, not a verdict that the Session was wasteful. Its rationale must explain why that action is more worth trying first than the nearest plausible alternative, using the mechanism Evidence, reversibility, or expected leverage rather than the Session's rank or largest number alone.
+
 ## Runtime input
 
 You receive:
@@ -32,6 +34,8 @@ All returned prose is user-facing. Do not narrate Host Agent work, Content Evide
 Content Evidence is the authority for task meaning and local context, but it is bounded and may be incomplete. Paraphrase it. Do not copy raw Prompt text, model responses, source code, command bodies, tool results, credentials, base64 data, or unrelated absolute paths into the output.
 
 An Evidence reference proves only the fields carried by that Evidence. A nearby compaction, retry, interruption, Subagent event, Skill use, large tool result, long duration, or Token peak is correlation until the selected Evidence supports a mechanism.
+
+Long duration, high cached input, a large tool result, or a nearby compaction event cannot independently trigger a primary Finding or recommendation. Treat each as supporting context only after task-specific Evidence identifies a mechanism; when that mechanism is not supported, return the explicit no-strong-Evidence state.
 
 ### Codex accounting boundary
 
@@ -93,7 +97,16 @@ Create a recommendation only when `primaryFinding` is present.
 
 The action must change or test the concrete mechanism described for that Session. Name the affected boundary, artifact, or workflow behavior. “Review the selected Turn/context boundary” is not sufficient without saying what Session-specific material is being checked and why.
 
-Explain rationale, applicability, trade-off, and one user-owned verification method. Verification must compare a supplied metric or Evidence shape in a later equivalent audit; it must not claim the action already worked.
+`rationale` must name the nearest plausible alternative action and explain why the proposed action deserves to be the first experiment—for example, because its mechanism Evidence is more direct, its boundary is more reversible, or it tests more leverage with less risk. Do not justify priority with rank, Token total, duration, cached input, tool-result size, or compaction alone.
+
+`verification` must include both of these elements:
+
+1. one expected direction in a supplied metric or Evidence shape during a later equivalent task (for example, a decrease in repeated context exposure or later input growth when that Evidence exists);
+2. one quality guardrail that must remain acceptable, such as completion quality, necessary context, completion time, or rework.
+
+If `AuditResult` has no corresponding quality indicator, explicitly make that guardrail a check the user owns on the later task; never present an unmeasured guardrail as a recorded or verified result. Verification is a future experiment plan and must not claim that the action already worked.
+
+Stage Boundary is an optional candidate example, not a Pattern, enum, router, or deterministic rule. Consider it only when the Session's task content shows all of the following: the objective clearly changes between stages; the later stage continues carrying substantial earlier context; the later stage needs only a compact subset of the earlier conclusions; and no Evidence shows that the complete earlier history is still necessary. The candidate must cite the selected Evidence for the transition and carried context. Do not suggest Stage Boundary when any prerequisite is missing, when the task remains one continuous objective, or when the apparent signal is only a long Session, high cached input, a large tool result, or nearby compaction.
 
 ### 6. Run the portability test across Sessions
 
@@ -174,10 +187,10 @@ Before returning the array, verify:
 2. Every cited Evidence ID resolves to the same Session and a Turn listed in that packet's `turnIds`.
 3. Every `taskContext` describes the actual task rather than its rank or the analysis procedure.
 4. Every non-null Finding explains a mechanism rather than restating concentration, duration, or ranking.
-5. Every recommendation targets that mechanism and includes applicability, trade-off, and verification.
+5. Every recommendation targets that mechanism, its rationale explains why it comes before the nearest plausible alternative, and its verification names an expected direction plus a quality guardrail; an unmeasured guardrail is explicitly user-owned.
 6. The portability test passes after removing ranks, identifiers, Turn labels, numbers, and locale-specific punctuation across all task, judgment, explanation, and action fields.
 7. Shared mechanisms are independently grounded rather than cosmetically paraphrased.
-8. Weak or empty Content Evidence produces the explicit null state, with a concrete missing-data explanation and no recommendation.
+8. Weak or empty Content Evidence produces the explicit null state, with a concrete missing-data explanation and no recommendation; long duration, high cached input, large tool results, and nearby compaction do not override that state.
 9. For Codex, every non-null conclusion belongs to a selected task with reconciled per-task Token accounting; a global mismatch does not suppress independently reconciled tasks, while a mismatched or unavailable task uses the explicit null state.
 10. No value was recalculated and no unavailable value became zero.
 11. No user-facing prose mentions Host Agent, Content Evidence, Evidence selection, schema state, ranking procedure, or model-call counting.
