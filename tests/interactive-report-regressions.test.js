@@ -830,7 +830,7 @@ test('time presentation uses numeric editorial dates and yearless chart labels',
 test('daily token trend uses the Kami contrast ladder and redundant line encodings', () => {
   const html = renderHtml(result(), 'zh-CN');
   assert.doesNotMatch(html, /stack:'tokens'/);
-  assert.match(html, /#2d4e7a/);
+  assert.match(html, /#2d5a8a/);
   assert.match(html, /getComputedStyle\(document\.documentElement\)\.getPropertyValue\('--serif'\)/);
   assert.match(html, /lineType,symbol,focus/);
   assert.match(html, /lineStyle:\{color,width:focus\?2\.5:2,opacity:focus\?1:\.92,type:lineType\}/);

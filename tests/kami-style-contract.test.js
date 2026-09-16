@@ -37,7 +37,7 @@ test('standalone report exposes the Kami visual contract', () => {
   const noJsHtml = html.replace(/<script>[\s\S]*?<\/script>/gi, '');
   assert.match(css, /--parchment:#f5f4ed/);
   assert.match(css, /--brand:#1b365d/);
-  assert.match(css, /--brand-light:#2d4e7a/);
+  assert.match(css, /--brand-light:#2d5a8a/);
   assert.doesNotMatch(css, /--chart-mid-blue/);
   assert.match(css, /Source Han Serif SC/);
   assert.match(css, /authorized TsangerJinKai02-W04/);
@@ -59,7 +59,7 @@ test('standalone report exposes the Kami visual contract', () => {
   assert.doesNotMatch(boot, /#b76448|#d99a78|#557c70|#8d6a9f/);
   assert.doesNotMatch(css, /linear-gradient|box-shadow:(?!none)|system-ui|font-weight:650|font-weight:700/);
   assert.doesNotMatch(boot, /linear-gradient|system-ui|font-weight:650|font-weight:700/);
-  assert.match(boot, /#2d4e7a/);
+  assert.match(boot, /#2d5a8a/);
   assert.match(boot, /getComputedStyle\(document\.documentElement\)\.getPropertyValue\('--serif'\)/);
   assert.match(boot, /lineType,symbol,focus/);
   assert.match(boot, /unclassified.*emptyCircle/);
