@@ -1,6 +1,10 @@
 node_modules/
 dist/
 
+# The public Skill vendors the small runtime needed to subset fonts.
+!/skills/where-tokens-went/scripts/runtime/node_modules/
+!/skills/where-tokens-went/scripts/runtime/node_modules/**
+
 # Source and development files are maintained outside the public Skill package.
 /src/
 /tests/

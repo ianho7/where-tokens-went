@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.normalizeLocale = normalizeLocale;
 exports.formatCompact = formatCompact;
 exports.resolveReportProjectName = resolveReportProjectName;
+exports.collectReportFontCharacters = collectReportFontCharacters;
+exports.subsetReportFonts = subsetReportFonts;
 exports.renderHtml = renderHtml;
 exports.renderText = renderText;
 exports.renderWeekText = renderWeekText;
@@ -1312,29 +1314,120 @@ function chartRuntime() {
     }
 }
 const fontDataCache = new Map();
-function fontDataUrl(fileName) {
-    const cached = fontDataCache.get(fileName);
+function fontAsset(filePath) {
+    const location = (0, node_path_1.resolve)(filePath);
+    const cached = fontDataCache.get(location);
     if (cached)
         return cached;
+    try {
+        const extension = (0, node_path_1.extname)(location).toLowerCase();
+        const metadata = extension === ".woff2"
+            ? { mime: "font/woff2", format: "woff2" }
+            : extension === ".woff"
+                ? { mime: "font/woff", format: "woff" }
+                : extension === ".otf"
+                    ? { mime: "font/otf", format: "opentype" }
+                    : { mime: "font/ttf", format: "truetype" };
+        const dataUrl = "data:" + metadata.mime + ";base64," + (0, node_fs_1.readFileSync)(location).toString("base64");
+        const asset = { dataUrl, format: metadata.format };
+        fontDataCache.set(location, asset);
+        return asset;
+    }
+    catch {
+        // Keep the safe local-first fallback when a configured or bundled font is absent.
+        return null;
+    }
+}
+function cssString(value) {
+    return "\"" + value
+        .replaceAll("\\", "\\\\")
+        .replaceAll("\"", "\\\"")
+        .replace(/[\u0000-\u001f\u007f]/g, " ") + "\"";
+}
+function fontFaceMarkup(comment, family, asset, weight) {
+    return "/* " + comment + " */@font-face{font-family:" + cssString(family) + ";src:url(\"" + asset.dataUrl + "\") format(\"" + asset.format + "\");font-weight:" + weight + ";font-style:normal;font-display:swap}";
+}
+function bundledFontAsset(fileName) {
     const locations = [(0, node_path_1.join)(__dirname, "assets", "fonts", fileName), (0, node_path_1.join)(__dirname, "..", "assets", "fonts", fileName)];
     for (const location of locations) {
-        try {
-            const dataUrl = "data:font/ttf;base64," + (0, node_fs_1.readFileSync)(location).toString("base64");
-            fontDataCache.set(fileName, dataUrl);
-            return dataUrl;
-        }
-        catch {
-            // Keep the safe local-first fallback when the authorized font assets are absent.
-        }
+        const asset = fontAsset(location);
+        if (asset)
+            return asset;
     }
-    return "";
+    return null;
 }
-function authorizedFontFaces() {
-    const body = fontDataUrl("TsangerJinKai02-W04.ttf");
-    const heading = fontDataUrl("TsangerJinKai02-W05.ttf");
+function authorizedFontFaces(fontConfig) {
+    if (fontConfig) {
+        const configured = fontAsset(fontConfig.filePath);
+        if (configured) {
+            const family = fontConfig.family?.trim() || "ReportConfiguredFont";
+            return {
+                css: fontFaceMarkup("configured report font 400", family, configured, 400) + fontFaceMarkup("configured report font 500", family, configured, 500),
+                family,
+            };
+        }
+        console.warn("[where-tokens-went] Configured font could not be read; using the bundled report font.");
+    }
+    const body = bundledFontAsset("TsangerJinKai02-W04.ttf");
+    const heading = bundledFontAsset("TsangerJinKai02-W05.ttf");
     if (!body || !heading)
-        return "";
-    return "/* authorized TsangerJinKai02-W04 */@font-face{font-family:\"TsangerJinKai02\";src:url(\"" + body + "\") format(\"truetype\");font-weight:400;font-style:normal;font-display:swap}/* authorized TsangerJinKai02-W05 */@font-face{font-family:\"TsangerJinKai02\";src:url(\"" + heading + "\") format(\"truetype\");font-weight:500;font-style:normal;font-display:swap}";
+        return { css: "", family: null };
+    return {
+        css: fontFaceMarkup("authorized TsangerJinKai02-W04", "TsangerJinKai02", body, 400) + fontFaceMarkup("authorized TsangerJinKai02-W05", "TsangerJinKai02", heading, 500),
+        family: null,
+    };
+}
+function configuredFontVariables(family) {
+    const value = cssString(family);
+    return ":root{--serif:" + value + ",Charter,Georgia,Palatino,\"Times New Roman\",serif;--sans:var(--serif)}html[lang=\"zh-CN\"]{--serif:" + value + ",\"Source Han Serif SC\",\"Source Han Serif CN\",\"Noto Serif CJK SC\",\"Noto Serif SC\",\"Songti SC\",\"STSong\",Georgia,serif;--sans:var(--serif)}";
+}
+const FONT_DATA_URL_PATTERN = /data:font\/(?:ttf|otf|woff|woff2);base64,[A-Za-z0-9+/=]+/g;
+const FONT_FACE_SOURCE_PATTERN = /src:url\("(data:font\/(?:ttf|otf|woff|woff2);base64,[A-Za-z0-9+/=]+)"\) format\("([^"]+)"\);font-weight:(400|500);/g;
+const REQUIRED_FONT_CHARACTERS = " \u00a0\uFFFD0123456789，。！？；：、“”‘’（）【】《》—…·";
+function collectReportFontCharacters(html) {
+    const characters = new Set();
+    for (const character of Array.from(html.replace(FONT_DATA_URL_PATTERN, "")))
+        characters.add(character);
+    for (const character of Array.from(REQUIRED_FONT_CHARACTERS))
+        characters.add(character);
+    return [...characters].join("");
+}
+function warnFontSubsettingFailure() {
+    console.warn("[where-tokens-went] Font subsetting was unavailable; keeping the full embedded font data.");
+}
+async function subsetReportFonts(html) {
+    FONT_FACE_SOURCE_PATTERN.lastIndex = 0;
+    const sources = [...html.matchAll(FONT_FACE_SOURCE_PATTERN)];
+    if (sources.length === 0)
+        return html;
+    const weights = new Set(sources.map((source) => source[3]));
+    if (sources.length !== 2 || weights.size !== 2 || !weights.has("400") || !weights.has("500"))
+        return html;
+    try {
+        const subsetFont = require("subset-font");
+        const characters = collectReportFontCharacters(html);
+        const replacements = [];
+        for (const source of sources) {
+            const input = Buffer.from(source[1].split(",")[1], "base64");
+            const subset = Buffer.from(await subsetFont(input, characters, { targetFormat: "woff2" }));
+            if (subset.length < 4 || subset.subarray(0, 4).toString("ascii") !== "wOF2")
+                throw new Error("The subset font was not WOFF2.");
+            replacements.push({
+                start: source.index ?? 0,
+                end: (source.index ?? 0) + source[0].length,
+                value: source[0].replace(source[1], "data:font/woff2;base64," + subset.toString("base64")).replace("format(\"" + source[2] + "\")", "format(\"woff2\")"),
+            });
+        }
+        let optimized = html;
+        for (const replacement of replacements.reverse()) {
+            optimized = optimized.slice(0, replacement.start) + replacement.value + optimized.slice(replacement.end);
+        }
+        return optimized;
+    }
+    catch {
+        warnFontSubsettingFailure();
+        return html;
+    }
 }
 function scriptSafeJson(value) {
     return (JSON.stringify(value) ?? "null")
@@ -1466,17 +1559,18 @@ function renderInteractiveCharts(result, locale, firstUserMessages = []) {
     const script = "<script>" + runtime + "</script><script>" + chartScript;
     return `<div class="ivory-group chart-ivory"><div id="token-trend" class="echart" role="img" aria-label="${escapeHtml(labels.dailyUsage)}"></div><p class="chart-summary">${escapeHtml(labels.charts.summary)}</p></div>${script}`;
 }
-function renderStyles() {
+function renderStyles(fontConfig) {
     const stylesheet = (0, node_fs_1.readFileSync)((0, node_path_1.join)(__dirname, "report.css"), "utf8");
-    return "<style>" + authorizedFontFaces() + "\n" + stylesheet + "</style>";
+    const faces = authorizedFontFaces(fontConfig);
+    return "<style>" + faces.css + "\n" + stylesheet + (faces.family ? "\n" + configuredFontVariables(faces.family) : "") + "</style>";
 }
-function renderHtml(result, locale = "en-US", composition, localFirstUserMessages) {
+function renderHtml(result, locale = "en-US", composition, localFirstUserMessages, fontConfig) {
     const labels = labelsFor(locale);
     const prompts = result.view === "share" ? [] : localFirstUserMessages ?? composition?.firstUserMessages ?? [];
     const modelBars = result.rankings.models.map((row) => ({ key: modelLabel(row.key, locale), value: row.value }));
     const parts = [
         "<!doctype html><html lang=\"" + labels.htmlLang + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
-            escapeHtml(labels.title) + "</title>" + renderStyles() + "</head><body><main>",
+            escapeHtml(labels.title) + "</title>" + renderStyles(fontConfig) + "</head><body><main>",
         renderReportHeader(result, locale, composition),
         "<div class=\"report-stage report-stage--overview\">" + renderSectionMarker(labels.sectionMarkers.overview) + renderPrimaryAnswer(result, locale, composition) + "</div>",
         "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "<p class=\"report-method-note\">" + escapeHtml(labels.methodNote) + "</p></section>",

@@ -47,9 +47,9 @@ const rates_1 = require("./rates");
 const report_1 = require("./report");
 function usage() {
     return [
-        "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
-        "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
-        "       where-tokens-went compose-report --locale zh-CN|en-US --html <final-path> < composition JSON envelope",
+        "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
+        "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
+        "       where-tokens-went compose-report --locale zh-CN|en-US --font <font-file> [--font-family <name>] --html <final-path> < composition JSON envelope",
     ].join("\n");
 }
 function parseDuration(value) {
@@ -86,6 +86,8 @@ function parseArgs(args) {
     let view = "full";
     let htmlPath = null;
     let sharePath = null;
+    let fontPath = null;
+    let fontFamily = null;
     let pricing = "litellm";
     for (let index = 1; index < args.length; index += 1) {
         const flag = args[index];
@@ -144,6 +146,14 @@ function parseArgs(args) {
             sharePath = requireValue(args, index, flag);
             index += 1;
         }
+        else if (flag === "--font") {
+            fontPath = requireValue(args, index, flag);
+            index += 1;
+        }
+        else if (flag === "--font-family") {
+            fontFamily = requireValue(args, index, flag);
+            index += 1;
+        }
         else {
             throw new Error(`Unknown argument: ${flag}.\n${usage()}`);
         }
@@ -154,7 +164,9 @@ function parseArgs(args) {
         throw new Error("--cwd and --all-projects are mutually exclusive.");
     if (!cwd && !allProjects)
         throw new Error("Provide --cwd or --all-projects.");
-    return { harness, cwd, allProjects, since, sinceExplicit, format, locale, view, htmlPath, sharePath, pricing };
+    if (fontFamily && !fontPath)
+        throw new Error("--font-family requires --font <font-file>.");
+    return { harness, cwd, allProjects, since, sinceExplicit, format, locale, view, htmlPath, sharePath, fontPath, fontFamily, pricing };
 }
 async function readHarness(harness, scope) {
     return harness === "codex"
@@ -246,6 +258,8 @@ function isRecord(value) {
 function parseComposeArgs(args) {
     let locale = "en-US";
     let htmlPath = null;
+    let fontPath = null;
+    let fontFamily = null;
     for (let index = 0; index < args.length; index += 1) {
         const flag = args[index];
         if (flag === "--locale" || flag === "--lang") {
@@ -256,13 +270,26 @@ function parseComposeArgs(args) {
             htmlPath = requireValue(args, index, flag);
             index += 1;
         }
+        else if (flag === "--font") {
+            fontPath = requireValue(args, index, flag);
+            index += 1;
+        }
+        else if (flag === "--font-family") {
+            fontFamily = requireValue(args, index, flag);
+            index += 1;
+        }
         else {
             throw new Error(`Unknown compose-report argument: ${flag}.\n${usage()}`);
         }
     }
     if (!htmlPath)
         throw new Error(`compose-report requires --html.\n${usage()}`);
-    return { locale, htmlPath };
+    if (fontFamily && !fontPath)
+        throw new Error("--font-family requires --font <font-file>.");
+    return { locale, htmlPath, fontPath, fontFamily };
+}
+function reportFontConfig(fontPath, fontFamily) {
+    return fontPath ? { filePath: fontPath, ...(fontFamily ? { family: fontFamily } : {}) } : undefined;
 }
 async function readStdin() {
     const chunks = [];
@@ -291,7 +318,7 @@ async function composeReportMain(args) {
     const projectName = typeof parsed.projectName === "string" && parsed.projectName.trim() ? parsed.projectName.trim() : undefined;
     const composition = { ...(0, key_session_analysis_1.reportComposition)(audit, analyses, validatedSynthesis), ...(projectName ? { projectName } : {}) };
     const firstUserMessages = (Array.isArray(parsed.firstUserMessages) ? parsed.firstUserMessages : []);
-    const output = await writeLocalFile(options.htmlPath, (0, report_1.renderHtml)(audit, options.locale, composition, firstUserMessages));
+    const output = await writeLocalFile(options.htmlPath, await (0, report_1.subsetReportFonts)((0, report_1.renderHtml)(audit, options.locale, composition, firstUserMessages, reportFontConfig(options.fontPath, options.fontFamily))));
     process.stdout.write("Output: final HTML report written to " + output + ".\n");
     return 0;
 }
@@ -330,7 +357,7 @@ async function main(args = process.argv.slice(2)) {
             const target = options.htmlPath;
             const projectName = options.cwd ? (0, report_1.resolveReportProjectName)(options.cwd) : null;
             const htmlResult = projectName ? { ...result, projectName } : result;
-            await writeLocalFile(target, (0, report_1.renderHtml)(htmlResult, options.locale, undefined, localFirstUserMessages));
+            await writeLocalFile(target, await (0, report_1.subsetReportFonts)((0, report_1.renderHtml)(htmlResult, options.locale, undefined, localFirstUserMessages, reportFontConfig(options.fontPath, options.fontFamily))));
             outputKinds.push("local HTML report");
         }
         if (options.sharePath !== null || options.view === "share") {
