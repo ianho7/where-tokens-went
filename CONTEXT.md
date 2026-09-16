@@ -2,6 +2,32 @@
 
 where-tokens-went is the domain of explaining a coding agent's historical resource usage from evidence already stored by its harness.
 
+## Product language boundary
+
+The glossary below defines the internal domain precisely. User-facing narrative uses the user's mental model and names their task, observed behavior, consequence, and next action directly. Internal workflow and schema terms may appear in developer documentation, structured data, and optional methodology details; they do not become conclusions merely because they are available.
+
+Preferred user-facing language:
+
+- `Host Agent`: omit it, or use “AI” only when authorship is material.
+- `Content Evidence`: do not narrate the read process; when methodology requires a label, use “用于理解任务的内容片段”.
+- `Session`: use “任务” for a user-recognizable top-level task and “任务记录” when persistence matters.
+- `Turn`: use “第 N 轮”. `ModelCall`: use “模型调用”.
+- `Audit Scope`: use “本次统计范围”. `Coverage`: use “数据完整度”.
+- `Provenance`: use “数据来源”; present its values as “记录值”“计算值”“估算值” or “暂不可用”.
+- accounting `mismatch`: use “Token 记录暂时无法核对”. `unavailable`: state what data is missing or what conclusion cannot be made.
+
+**Primary Answer**:
+The first-screen explanation that combines the largest meaningful Usage destination, one supported mechanism or explicit unknown state, one justified next action when available, and any trust limitation that materially changes the answer. It is a presentation contract assembled from authoritative Audit facts and validated interpretation, not a new metric.
+_Avoid_: executive summary, Audit procedure summary, mandatory Finding quota
+
+**语义留白**:
+用于保持阅读节奏、区分层级或承载明确版式意图的空间；当网格或模块留下没有内容、证据、操作或层级作用的空槽时，称为“无意义留白”。
+_Avoid_: 把所有空白都视为浪费, 为了填满空间添加无关内容
+
+**Atomic Module**:
+Kami 风格中按内容角色复用的基础呈现模块，例如 Metric、Tag、Section Title、Quiet Card 和 Plain List；应按语义使用，不要求每份报告机械包含全部模块。
+_Avoid_: 模块清单打卡, 为了使用组件而添加内容
+
 ## Language
 
 **Host Agent**:
