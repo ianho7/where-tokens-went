@@ -579,7 +579,7 @@ function renderPrimaryAnswer(result: AuditResult, locale: ReportLocale, composit
     ? "<article class=\"primary-answer__item primary-answer__item--limitation\"><h3>" + escapeHtml(labels.primaryLimitation) + "</h3><p>" + escapeHtml(limitation) + "</p></article>"
     : "";
   const refs = top ? "ranking:sessions:" + top.key : "summary:totalTokens";
-  return "<section class=\"primary-answer\" data-evidence-refs=\"" + escapeHtml(refs) + "\" aria-labelledby=\"primary-answer-title\"><header class=\"primary-answer__head\"><span class=\"primary-answer__kicker\">" + escapeHtml(labels.primaryAnswer) + "</span><h2 id=\"primary-answer-title\">" + escapeHtml(top ? labels.primaryDestination : labels.primaryNoDestination) + "</h2></header><div class=\"primary-answer__grid\"><article class=\"primary-answer__item primary-answer__item--destination\"><h3>" + escapeHtml(labels.primaryDestination) + "</h3><p class=\"primary-answer__destination\">" + destination + "</p></article><article class=\"primary-answer__item primary-answer__item--mechanism\"><h3>" + escapeHtml(labels.primaryMechanism) + "</h3>" + mechanism + "</article>" + action + limitationHtml + "</div></section>";
+  return "<section class=\"primary-answer\" data-evidence-refs=\"" + escapeHtml(refs) + "\" aria-labelledby=\"primary-answer-title\"><header class=\"primary-answer__head\"><span class=\"primary-answer__kicker\">" + escapeHtml(labels.primaryAnswer) + "</span><h2 id=\"primary-answer-title\">" + escapeHtml(top ? labels.primaryDestination : labels.primaryNoDestination) + "</h2></header><div class=\"primary-answer__grid\"><div class=\"primary-answer__item primary-answer__item--destination\"><p class=\"primary-answer__destination\">" + destination + "</p></div><article class=\"primary-answer__item primary-answer__item--mechanism\"><h3>" + escapeHtml(labels.primaryMechanism) + "</h3>" + mechanism + "</article>" + action + limitationHtml + "</div></section>";
 }
 
 function renderKpis(result: AuditResult, locale: ReportLocale): string {
@@ -1730,6 +1730,18 @@ details > .kami-table{margin-top:16px}
 @media print{.echart{display:none}details > :not(summary){display:block}details > summary{display:none}.kami-table{display:table;width:100%;max-width:none;white-space:normal;overflow:visible}}
 /* Kami desktop report repair */
 @media(min-width:881px){.metrics--count-1{grid-template-columns:minmax(0,1fr)}.metrics--count-2{grid-template-columns:repeat(2,minmax(0,1fr))}.metrics--count-4{grid-template-columns:repeat(4,minmax(0,1fr))}.metrics--count-5{grid-template-columns:repeat(5,minmax(0,1fr))}.primary-answer__grid{display:block}.primary-answer__item--destination{padding-bottom:0}.primary-answer__item--mechanism{padding-top:20px;border-top:0}.primary-answer__item--action{margin-top:8px;padding-top:24px;border-top:0}.primary-answer__item--limitation{margin-top:8px;padding-top:24px;border-top:0}.primary-answer__head h2{font-size:32px}section > h2{font-size:30px}.key-session-module-head h2{font-size:30px}.key-session-section-head h4{font-size:20px}.finding-lead{font-size:clamp(24px,2.2vw,26px)}}
+/* Primary answer repair: use the available desktop measure and let spacing replace rules. */
+.primary-answer__item p{max-width:none}
+.primary-answer__item--mechanism{padding-top:20px;border-top:0}
+.primary-answer__item--action{margin-top:8px;padding-top:24px;border-top:0}
+.primary-answer__item--limitation{margin-top:8px;padding-top:24px;border-top:0}
+@media(max-width:480px){.primary-answer__item--mechanism{padding-top:16px}.primary-answer__item--action,.primary-answer__item--limitation{margin-top:8px;padding-top:16px}}
+/* Key session narrative repair: use the available measure for evidence and action copy. */
+.key-session-judgment .finding,.key-session-judgment .finding-lead,.key-session-judgment .action h4,.key-session-judgment .action-copy,.key-session-judgment .verify{max-width:none}
+/* Metric alignment repair: reserve a shared two-line label track before values. */
+.metrics--coverage .metric,.metrics--economic .metric{display:grid;grid-template-rows:minmax(2.7em,auto) auto;align-content:start}
+.metrics--coverage .metric-label,.metrics--economic .metric-label{line-height:1.35}
+.metrics--economic.metrics--count-4{grid-template-columns:repeat(2,minmax(0,1fr))}
 </style>`;
 }
 

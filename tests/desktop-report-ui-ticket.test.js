@@ -26,6 +26,12 @@ test('desktop Primary Answer uses a reading-first stack with semantic spacing', 
   assert.match(repair, /\.primary-answer__item--mechanism\{[^}]*border-top:0/);
   assert.match(repair, /\.primary-answer__item--action\{[^}]*border-top:0/);
   assert.match(repair, /\.primary-answer__item--limitation\{[^}]*border-top:0/);
+  assert.match(repair, /\/\* Primary answer repair: use the available desktop measure and let spacing replace rules\. \*\/[\s\S]*\.primary-answer__item p\{max-width:none\}/);
+  assert.match(repair, /\/\* Primary answer repair:[\s\S]*\.primary-answer__item--mechanism\{padding-top:20px;border-top:0\}/);
+  assert.match(repair, /\/\* Key session narrative repair: use the available measure for evidence and action copy\. \*\/[\s\S]*\.key-session-judgment \.finding,[\s\S]*max-width:none/);
+  assert.match(repair, /\/\* Metric alignment repair: reserve a shared two-line label track before values\. \*\/[\s\S]*\.metrics--coverage \.metric,.metrics--economic \.metric\{display:grid;grid-template-rows:minmax\(2\.7em,auto\) auto/);
+  assert.match(repair, /\.metrics--coverage \.metric-label,.metrics--economic \.metric-label\{line-height:1\.35\}/);
+  assert.match(repair, /\.metrics--economic\.metrics--count-4\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
   assert.match(repair, /\.primary-answer__head h2\{font-size:32px/);
   assert.match(repair, /section > h2\{font-size:30px/);
   assert.match(repair, /\.key-session-section-head h4\{font-size:20px/);
