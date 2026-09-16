@@ -514,6 +514,8 @@ const EN = {
         unavailableReason: (reason) => {
             if (!reason)
                 return "No valid structured analysis was returned.";
+            if (reason.includes("did not provide Key Session Analysis"))
+                return "No verified task explanation was generated.";
             if (reason.includes("duplicate Session analysis prose"))
                 return "The same explanation was duplicated across tasks; the deterministic trajectory remains.";
             if (reason.includes("Codex Token accounting"))
@@ -882,6 +884,8 @@ const ZH = {
                 return "未返回合法的结构化分析。";
             if (reason === "未生成可核对的任务解读。")
                 return reason;
+            if (reason.includes("did not provide Key Session Analysis"))
+                return "未生成可核对的任务解读。";
             if (reason.includes("duplicate Session analysis prose"))
                 return "不同任务的解读重复，已保留确定性轨迹。";
             if (reason.includes("Codex Token accounting"))

@@ -33,6 +33,10 @@ Content Evidence is the authority for task meaning and local context, but it is 
 
 An Evidence reference proves only the fields carried by that Evidence. A nearby compaction, retry, interruption, Subagent event, Skill use, large tool result, long duration, or Token peak is correlation until the selected Evidence supports a mechanism.
 
+### Codex accounting boundary
+
+For Codex, use the selected task's entry in `auditResult.keySessionTokenAccounting` when deciding whether a conclusion is admissible. A non-null `primaryFinding` and its `recommendation` require that selected task's status to be `reconciled`. A global `summary.tokenAccountingStatus` of `mismatch` does not block an independently reconciled selected task. For a selected task whose status is `mismatch` or `unavailable`, still return its grounded `taskContext` and exact `evidenceRead`, but set both `primaryFinding` and `recommendation` to `null` and state the concrete accounting limitation. Do not omit every task analysis because one task failed reconciliation, and do not infer a mechanism from the unverified task.
+
 ## Analysis procedure
 
 Follow these steps in order.
@@ -174,10 +178,11 @@ Before returning the array, verify:
 6. The portability test passes after removing ranks, identifiers, Turn labels, numbers, and locale-specific punctuation across all task, judgment, explanation, and action fields.
 7. Shared mechanisms are independently grounded rather than cosmetically paraphrased.
 8. Weak or empty Content Evidence produces the explicit null state, with a concrete missing-data explanation and no recommendation.
-9. No value was recalculated and no unavailable value became zero.
-10. No user-facing prose mentions Host Agent, Content Evidence, Evidence selection, schema state, ranking procedure, or model-call counting.
-11. No raw historical content or secret appears in the output.
-12. The output is valid JSON matching the required structure and ranking order.
+9. For Codex, every non-null conclusion belongs to a selected task with reconciled per-task Token accounting; a global mismatch does not suppress independently reconciled tasks, while a mismatched or unavailable task uses the explicit null state.
+10. No value was recalculated and no unavailable value became zero.
+11. No user-facing prose mentions Host Agent, Content Evidence, Evidence selection, schema state, ranking procedure, or model-call counting.
+12. No raw historical content or secret appears in the output.
+13. The output is valid JSON matching the required structure and ranking order.
 
 ## Bound runtime values
 

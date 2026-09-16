@@ -204,6 +204,7 @@ test('validated report synthesis replaces fixed checks in the original Findings 
 
 test('Primary Answer leads with the largest task, supported mechanism, action, and one material limitation', () => {
   const audit = keySessionResult();
+  audit.coverage.partialSessions = 1;
   audit.coverage.warnings.push('Some Codex Sessions have Turn snapshots that do not reconcile to their per-response Usage; only individually reconciled Sessions are eligible for AI analysis.');
   const synthesis = emptyReportSynthesisFor(audit);
   const html = renderHtml(audit, 'zh-CN', reportCompositionFor(audit, synthesis, [keyAnalysisFor(audit)]));
@@ -218,6 +219,37 @@ test('Primary Answer leads with the largest task, supported mechanism, action, a
   assert.match(primary, /下一步/);
   assert.match(primary, /数据完整度/);
   assert.ok(primary.indexOf('图表') === -1);
+});
+
+test('global accounting mismatch stays in the trust layer when the largest task is reconciled', () => {
+  const audit = keySessionResult();
+  audit.summary.tokenAccountingStatus = { ...audit.summary.tokenAccountingStatus, value: 'mismatch' };
+  audit.summary.keySessionTokenAccountingStatus = { ...audit.summary.keySessionTokenAccountingStatus, value: 'mismatch' };
+  audit.keySessionTokenAccounting = audit.keySessionTokenAccounting.map((entry) => entry.sessionId === 'key-s2' ? { ...entry, status: 'mismatch' } : entry);
+  audit.coverage.warnings.push('Some Codex Sessions have Turn snapshots that do not reconcile to their per-response Usage; only individually reconciled Sessions are eligible for AI analysis.');
+  const synthesis = emptyReportSynthesisFor(audit);
+  const composition = reportCompositionFor(audit, synthesis, [keyAnalysisFor(audit)]);
+
+  for (const locale of ['zh-CN', 'en-US']) {
+    const html = renderHtml(audit, locale, composition);
+    const primaryStart = html.indexOf('<section class="primary-answer"');
+    const scopeStart = html.indexOf('<section><h2>' + (locale === 'zh-CN' ? '本次统计范围' : 'Usage scope') + '</h2>');
+    const primary = html.slice(primaryStart, scopeStart > primaryStart ? scopeStart : undefined);
+    assert.doesNotMatch(primary, /primary-answer__item--limitation/);
+    assert.match(visibleHtmlText(html), locale === 'zh-CN' ? /部分 Codex 任务的轮次快照与每次模型调用的 Token 记录暂时无法核对/ : /Some Codex task records cannot currently be reconciled/);
+  }
+});
+
+test('primary limitation follows the largest task accounting status', () => {
+  const audit = keySessionResult();
+  audit.summary.tokenAccountingStatus = { ...audit.summary.tokenAccountingStatus, value: 'mismatch' };
+  audit.summary.keySessionTokenAccountingStatus = { ...audit.summary.keySessionTokenAccountingStatus, value: 'mismatch' };
+  audit.keySessionTokenAccounting = audit.keySessionTokenAccounting.map((entry) => entry.sessionId === 'key-s1' ? { ...entry, status: 'mismatch' } : entry);
+  const html = renderHtml(audit, 'zh-CN', reportCompositionFor(audit, emptyReportSynthesisFor(audit), [keyAnalysisFor(audit, false)]));
+  const primaryStart = html.indexOf('<section class="primary-answer"');
+  const scopeStart = html.indexOf('<section><h2>本次统计范围</h2>');
+  const primary = html.slice(primaryStart, scopeStart > primaryStart ? scopeStart : undefined);
+  assert.match(primary, /Token 记录暂时无法核对/);
 });
 
 test('insufficient mechanism evidence shows a concrete unknown without inventing an action', () => {
@@ -577,6 +609,36 @@ test('Key Session composition keeps explicit null analyses when Content Evidence
   const unsupportedComposition = composeKeySessionAnalyses(audit, [unsupportedFinding], []);
   assert.equal(unsupportedComposition.analyses.length, 0);
   assert.match(unsupportedComposition.unavailable[0], /Content Evidence is insufficient/);
+});
+
+test('empty Key Session composition explains that no task analysis was generated', () => {
+  const audit = keySessionResult();
+  const html = renderHtml(audit, 'zh-CN', reportCompositionFor(audit, emptyReportSynthesisFor(audit), []));
+  const visible = visibleHtmlText(html);
+  assert.match(visible, /关键任务分析不可用：未生成可核对的任务解读。/);
+  assert.doesNotMatch(visible, /任务解读未通过证据核对/);
+});
+
+test('Key Session analysis uses per-task accounting instead of globally blocking on mismatch', () => {
+  const globallyMismatched = keySessionResult();
+  globallyMismatched.summary.tokenAccountingStatus = { ...globallyMismatched.summary.tokenAccountingStatus, value: 'mismatch' };
+  const independentlyReconciled = composeKeySessionAnalyses(globallyMismatched, [keyAnalysisFor(globallyMismatched)]);
+  assert.equal(independentlyReconciled.analyses.length, 1);
+  assert.equal(independentlyReconciled.unavailable.length, 0);
+
+  const selectedMismatched = keySessionResult();
+  selectedMismatched.summary.tokenAccountingStatus = { ...selectedMismatched.summary.tokenAccountingStatus, value: 'mismatch' };
+  selectedMismatched.summary.keySessionTokenAccountingStatus = { ...selectedMismatched.summary.keySessionTokenAccountingStatus, value: 'mismatch' };
+  selectedMismatched.keySessionTokenAccounting = selectedMismatched.keySessionTokenAccounting.map((entry) => entry.sessionId === 'key-s1' ? { ...entry, status: 'mismatch' } : entry);
+  const explicitUnknown = composeKeySessionAnalyses(selectedMismatched, [keyAnalysisFor(selectedMismatched, false)]);
+  assert.equal(explicitUnknown.analyses.length, 1);
+  assert.equal(explicitUnknown.analyses[0].primaryFinding, null);
+  assert.equal(explicitUnknown.analyses[0].recommendation, null);
+  assert.equal(explicitUnknown.unavailable.length, 0);
+
+  const unsupportedConclusion = composeKeySessionAnalyses(selectedMismatched, [keyAnalysisFor(selectedMismatched)]);
+  assert.equal(unsupportedConclusion.analyses.length, 0);
+  assert.match(unsupportedConclusion.unavailable[0], /Token accounting/);
 });
 
 test('Kami restyle preserves the normalized bilingual content contract', () => {

@@ -825,6 +825,7 @@ const EN: ReportMessages = {
     factWithoutDuration: (concentration) => concentration + ".",
     unavailableReason: (reason) => {
       if (!reason) return "No valid structured analysis was returned.";
+      if (reason.includes("did not provide Key Session Analysis")) return "No verified task explanation was generated.";
       if (reason.includes("duplicate Session analysis prose")) return "The same explanation was duplicated across tasks; the deterministic trajectory remains.";
       if (reason.includes("Codex Token accounting")) return "The task's Token records could not be reconciled.";
       if (reason.includes("Audit fingerprint")) return "The explanation does not match the current usage record.";
@@ -1185,6 +1186,7 @@ const ZH: ReportMessages = {
     unavailableReason: (reason) => {
       if (!reason) return "未返回合法的结构化分析。";
       if (reason === "未生成可核对的任务解读。") return reason;
+      if (reason.includes("did not provide Key Session Analysis")) return "未生成可核对的任务解读。";
       if (reason.includes("duplicate Session analysis prose")) return "不同任务的解读重复，已保留确定性轨迹。";
       if (reason.includes("Codex Token accounting")) return "Codex Token 记录暂时无法核对。";
       if (reason.includes("Audit fingerprint")) return "任务解读与当前统计不匹配。";

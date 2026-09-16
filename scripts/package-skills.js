@@ -7,16 +7,25 @@ const repoRoot = path.resolve(__dirname, '..');
 const compiledRoot = path.join(repoRoot, 'dist', 'src');
 const echartsAssets = path.join(repoRoot, 'dist', 'assets');
 const reportSynthesisPrompt = path.join(repoRoot, 'prompts', 'report-synthesis.md');
+const keySessionAnalysisPrompt = path.join(repoRoot, 'prompts', 'key-session-analysis.md');
 const skillNames = [
   'where-tokens-went-codex',
   'where-tokens-went-claude',
 ];
+
+function copyIfChanged(source, destination) {
+  if (fs.existsSync(destination) && fs.readFileSync(source).equals(fs.readFileSync(destination))) return;
+  fs.copyFileSync(source, destination);
+}
 
 if (!fs.existsSync(path.join(compiledRoot, 'cli.js'))) {
   throw new Error('Compiled CLI not found. Run npm run build before packaging Skills.');
 }
 if (!fs.existsSync(reportSynthesisPrompt)) {
   throw new Error('Report Synthesis Prompt not found at prompts/report-synthesis.md.');
+}
+if (!fs.existsSync(keySessionAnalysisPrompt)) {
+  throw new Error('Key Session Analysis Prompt not found at prompts/key-session-analysis.md.');
 }
 const launcher = `#!/usr/bin/env node
 
@@ -61,7 +70,8 @@ for (const name of skillNames) {
   }
   const referencesRoot = path.join(repoRoot, 'skills', name, 'references');
   fs.mkdirSync(referencesRoot, { recursive: true });
-  fs.copyFileSync(reportSynthesisPrompt, path.join(referencesRoot, 'report-synthesis.md'));
+  copyIfChanged(reportSynthesisPrompt, path.join(referencesRoot, 'report-synthesis.md'));
+  copyIfChanged(keySessionAnalysisPrompt, path.join(referencesRoot, 'key-session-analysis.md'));
   fs.writeFileSync(path.join(scriptsRoot, 'where-tokens-went.js'), launcher, 'utf8');
   console.log(`packaged ${name}`);
 }
