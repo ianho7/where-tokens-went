@@ -1,6 +1,28 @@
 node_modules/
 dist/
 
+# Source and development files are maintained outside the public Skill package.
+/src/
+/tests/
+/scripts/
+/prompts/
+/docs/
+/assets/
+/bin/
+/package.json
+/package-lock.json
+/tsconfig.json
+/CONTEXT.md
+/.baoyu-skills/
+/skills/where-tokens-went-claude/
+/skills/where-tokens-went-codex/
+
+# Local caches and editor metadata.
+/.uv-cache/
+.DS_Store
+.idea/
+.vscode/
+
 # Generated HTML reports; keep local copies out of repository language stats.
 /*.html
 
@@ -22,10 +44,6 @@ dist/
 # Local Session and task work
 /.scratch/
 /issues/
-/docs/handoff/
-/docs/plans/
-/docs/research/
-/docs/specs/
 /where-tokens-went-项目中文文案修改清单.md
 
 # Local-only font experiment
