@@ -172,9 +172,13 @@ test('standalone report adds five stable localized chapter markers without chang
 test('report header keeps the primary metric beside the identity and removes the lower divider', () => {
   const html = renderHtml(fixture(), 'zh-CN');
   const css = extractReportStyles(html);
-  assert.match(css, /\.report-header__main\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(260px,\.46fr\);gap:32px;align-items:end\}/);
-  assert.match(css, /\.report-header__primary\{display:grid;grid-template-columns:minmax\(0,1fr\);justify-items:end;align-content:end;gap:6px/);
+  assert.match(css, /\.report-header__main\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(260px,\.46fr\);gap:32px;align-items:start\}/);
+  assert.match(css, /\.report-header__primary\{display:grid;grid-template-columns:minmax\(0,1fr\);justify-items:end;align-content:start;gap:6px/);
+  assert.match(css, /\.report-header__value\{font-size:36px;line-height:1\.05;white-space:normal;color:var\(--brand\)\}/);
   assert.match(css, /\.report-header__primary-label,\.report-header__primary-date\{display:block;white-space:nowrap}/);
+  assert.match(css, /\.chart-ivory \.echart\{margin:0\}/);
+  assert.match(css, /\.chart-ivory>\.chart-summary\{margin:12px 0 0\}/);
+  assert.match(css, /\.turn-detail-table \.event\{width:240px;max-width:240px;white-space:normal;overflow-wrap:anywhere;word-break:normal/);
   assert.doesNotMatch(css, /\.report-header\{[^}]*border-bottom/);
   assert.match(css, /@media\(max-width:880px\)\{[\s\S]*?\.report-header__main\{display:block;gap:0\}/);
 });

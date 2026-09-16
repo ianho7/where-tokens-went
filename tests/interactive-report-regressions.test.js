@@ -703,6 +703,8 @@ test('model distribution adds a donut chart for small model sets without changin
   const html = renderHtml(result(), 'zh-CN');
   assert.match(html, /id="model-share-chart" class="echart"/);
   assert.match(html, /type:'pie'/);
+  assert.match(html, /legend:\{type:'scroll',orient:'vertical',left:'60%',top:16,bottom:16,width:'40%'/);
+  assert.match(html, /radius:\['42%','58%'\],center:\['31%','50%'\]/);
   assert.match(html, /d\.models\.length<=6/);
   assert.match(html, /按模型查看 Token 占比/);
 });
