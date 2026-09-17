@@ -189,6 +189,8 @@ function validateReportSynthesis(audit, synthesis) {
     else {
         if (candidate.findings.length > 5)
             errors.push("Report synthesis cannot contain more than five Findings.");
+        if (candidate.findings.length === 1)
+            errors.push("Report synthesis requires at least two Findings when findings are present, or return zero findings with noStrongFindingReason.");
         for (const [index, finding] of candidate.findings.entries()) {
             if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
                 errors.push("Finding " + index + " is malformed.");

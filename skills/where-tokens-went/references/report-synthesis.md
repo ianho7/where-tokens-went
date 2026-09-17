@@ -130,7 +130,7 @@ Combine candidates that describe the same underlying pattern. Do not produce sep
 
 Run a portability test before keeping multiple Findings: mentally remove ranks, metric names, Evidence identifiers, Session/model/project names, and exact numeric values. If the remaining conclusions and reasoning are interchangeable, they are a parameterized template rather than distinct Findings. Merge them into one stronger Finding or remove the lower-value copies. Do not preserve duplicates by changing only labels, order, or wording.
 
-Return zero to five Findings. There is no minimum count. Return fewer when fewer are genuinely supported; zero is a valid result and must include a concrete `noStrongFindingReason`. Do not manufacture Findings to reach a target count.
+When Findings are present, return between two and five prioritized Findings from multiple distinct perspectives. Never return only one Finding. If fewer than two meaningful patterns exist that change user understanding, return `findings: []` with an explicit `noStrongFindingReason`. Do not manufacture Findings to reach a target count.
 
 If no candidate is sufficiently supported and useful, return no Findings and explain why in `noStrongFindingReason`.
 
@@ -279,7 +279,7 @@ Use exactly this structure:
 
 When Findings are present:
 
-- `findings` contains zero to five entries; there is no minimum;
+- `findings` contains between two and five entries when patterns are present; never return only one Finding;
 - `noStrongFindingReason` is `null`.
 
 When no strong or useful Finding is supported:
@@ -306,7 +306,7 @@ Before returning the JSON, verify:
 2. Every Evidence reference resolves in the current Audit.
 3. The Overview contains one or two sentences, cites one to three current-Audit Evidence references, and describes overall activity and usage shape rather than project outcomes.
 4. The Overview and Findings may share a theme, but the Overview stays global while the Finding supplies the less-obvious relationship; they do not repeat wording or detailed Evidence.
-5. Every Finding is a synthesis rather than a metric restatement.
+5. Every Finding is a synthesis rather than a metric restatement; when Findings are present, there are at least two distinct Findings from different perspectives.
 6. No supplied value was recalculated, completed, or converted from unavailable to zero.
 7. Correlation is not presented as causation.
 8. Duplicate, parameterized-template, or low-value Findings were merged or removed; each retained Finding has a distinct Evidence relationship.

@@ -505,6 +505,11 @@ const EN = {
         stats: (files, records, skipped, partial, warnings) => files + " files, " + records + " records, " + skipped + " skipped, " + partial + " partial tasks, " + warnings + " coverage warnings.",
     },
     keySession: {
+        decisionState: {
+            testable: "Worth trying",
+            notRecommended: "Not recommended",
+            unavailable: "Unavailable",
+        },
         noComposition: "No verified task explanation was provided.",
         roundLabel: (ordinal) => "Round " + ordinal,
         concentrationUnavailable: "Top 5 round share is unavailable",
@@ -873,6 +878,11 @@ const ZH = {
         stats: (files, records, skipped, partial, warnings) => files + " 个文件，" + records + " 条记录，跳过 " + skipped + "，" + partial + " 个不完整任务，" + warnings + " 条覆盖异常·警告级。",
     },
     keySession: {
+        decisionState: {
+            testable: "可试",
+            notRecommended: "暂不建议",
+            unavailable: "不可用",
+        },
         noComposition: "未生成可核对的任务解读。",
         roundLabel: (ordinal) => "第 " + ordinal + " 轮",
         concentrationUnavailable: "前 5 轮合计占比不可用",

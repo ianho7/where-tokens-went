@@ -75,9 +75,9 @@ Examine the selected Turn Evidence together with its bounded Content Evidence. C
 
 Select one mechanism only when it is more useful than merely restating a Token peak, duration, concentration percentage, or ranking.
 
-`observation` states the Session-specific pattern. `interpretation` explains the supported mechanism and materiality. Cite only exact same-Session Turn Evidence IDs that were selected and read.
+`observation` states the Session-specific pattern. When `primaryFinding` is present, the first sentence of `observation` must be a concise, task-specific key finding that can stand alone and be directly reusable as the collapsed card insight. Prefer explaining the underlying mechanism or a real stage/phase transition. It must not begin with a Token number, rank/ordinal, process instruction, or methodology narration. Keep caveats, alternative explanations, and full details in `interpretation` or later sentences; keep action proposals in `recommendation.action`. `interpretation` explains the supported mechanism and materiality. Cite only exact same-Session Turn Evidence IDs that were selected and read.
 
-If the Evidence supports concentration but not an explanatory mechanism, use `primaryFinding: null`. “Token usage formed a concentrated signal” is a metric restatement, not a Finding.
+If the Evidence supports concentration but not an explanatory mechanism, use `primaryFinding: null` and `recommendation: null`. Retain an explicit, concrete unknown in `limitations` and do not fabricate a problem or suggest an ungrounded action. “Token usage formed a concentrated signal” is a metric restatement, not a Finding.
 
 Do not use a rank, Turn number, Model Call count, duration, or Token total as the mechanism. Those values can establish where the phenomenon occurred, but the interpretation must explain what in this task caused or shaped the observed usage when the Evidence supports that explanation.
 
@@ -186,11 +186,11 @@ Before returning the array, verify:
 1. Every entry belongs to the current Top 3 and uses the exact Audit fingerprint.
 2. Every cited Evidence ID resolves to the same Session and a Turn listed in that packet's `turnIds`.
 3. Every `taskContext` describes the actual task rather than its rank or the analysis procedure.
-4. Every non-null Finding explains a mechanism rather than restating concentration, duration, or ranking.
+4. Every non-null Finding explains a mechanism rather than restating concentration, duration, or ranking; its observation begins with a concise, task-specific first sentence that can stand alone without leading with Token numbers, ranks, or methodology narration.
 5. Every recommendation targets that mechanism, its rationale explains why it comes before the nearest plausible alternative, and its verification names an expected direction plus a quality guardrail; an unmeasured guardrail is explicitly user-owned.
 6. The portability test passes after removing ranks, identifiers, Turn labels, numbers, and locale-specific punctuation across all task, judgment, explanation, and action fields.
 7. Shared mechanisms are independently grounded rather than cosmetically paraphrased.
-8. Weak or empty Content Evidence produces the explicit null state, with a concrete missing-data explanation and no recommendation; long duration, high cached input, large tool results, and nearby compaction do not override that state.
+8. Weak or empty Content Evidence produces the explicit null state, with a concrete missing-data explanation in limitations and no recommendation; long duration, high cached input, large tool results, and nearby compaction do not override that state.
 9. For Codex, every non-null conclusion belongs to a selected task with reconciled per-task Token accounting; a global mismatch does not suppress independently reconciled tasks, while a mismatched or unavailable task uses the explicit null state.
 10. No value was recalculated and no unavailable value became zero.
 11. No user-facing prose mentions Host Agent, Content Evidence, Evidence selection, schema state, ranking procedure, or model-call counting.
