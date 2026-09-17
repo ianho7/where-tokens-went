@@ -289,11 +289,13 @@ async function setRunAuditFingerprint(run, fingerprint) {
     run.manifest.auditFingerprint = fingerprint;
     await persistManifest(run);
 }
-async function setRunTopSessions(run, sessions) {
+async function setRunTopSessions(run, sessions, sessionRecords) {
+    const filePathById = new Map(sessionRecords?.map((s) => [s.sessionId, s.filePath]) ?? []);
     run.manifest.topSessions = sessions.slice(0, 3).map((session, index) => ({
         sessionId: session.key,
         rank: index + 1,
         tokens: typeof session.value.value === "number" ? session.value.value : null,
+        filePath: filePathById.get(session.key) ?? null,
     }));
     await persistManifest(run);
 }

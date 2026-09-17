@@ -1,10 +1,45 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.UNAVAILABLE_PRICING = exports.LITELLM_MODEL_CATALOG_URL = void 0;
 exports.pricingProviderForHarness = pricingProviderForHarness;
 exports.rateForInput = rateForInput;
 exports.resolveApiPricing = resolveApiPricing;
 const node_perf_hooks_1 = require("node:perf_hooks");
+const node_fs_1 = require("node:fs");
+const path = __importStar(require("node:path"));
 exports.LITELLM_MODEL_CATALOG_URL = "https://api.litellm.ai/model_catalog";
 function pricingProviderForHarness(harness) {
     return harness === "codex" ? "openai" : "anthropic";
@@ -230,6 +265,47 @@ function rateForInput(rate, inputTokens) {
         outputPerMillion: tier.outputPerMillion ?? rate.outputPerMillion,
     };
 }
+function getRatesCachePath() {
+    if (process.env.RATES_CACHE_FILE)
+        return process.env.RATES_CACHE_FILE;
+    return path.join(process.cwd(), ".scratch", "rates-cache.json");
+}
+function readRatesDiskCache() {
+    const cachePath = getRatesCachePath();
+    const map = new Map();
+    try {
+        const raw = (0, node_fs_1.readFileSync)(cachePath, "utf8");
+        const json = JSON.parse(raw);
+        const now = Date.now();
+        for (const [key, entry] of Object.entries(json)) {
+            if (entry && typeof entry.expiresAt === "number" && entry.expiresAt > now) {
+                map.set(key, entry);
+            }
+        }
+    }
+    catch {
+        // Cache file missing or corrupted
+    }
+    return map;
+}
+function writeRatesDiskCache(map) {
+    const cachePath = getRatesCachePath();
+    try {
+        const dir = path.dirname(cachePath);
+        (0, node_fs_1.mkdirSync)(dir, { recursive: true });
+        const obj = {};
+        const now = Date.now();
+        for (const [k, v] of map.entries()) {
+            if (v.expiresAt > now) {
+                obj[k] = v;
+            }
+        }
+        (0, node_fs_1.writeFileSync)(cachePath, JSON.stringify(obj, null, 2), "utf8");
+    }
+    catch {
+        // Best effort write
+    }
+}
 async function resolveApiPricing(calls, harness, mode = "litellm", fetcher = defaultPriceFetcher, baseUrl = exports.LITELLM_MODEL_CATALOG_URL, timing) {
     const pairs = [...new Map(calls
             .filter((call) => (!call.provider || call.provider === pricingProviderForHarness(harness)) && call.model)
@@ -240,16 +316,41 @@ async function resolveApiPricing(calls, harness, mode = "litellm", fetcher = def
     const dynamicRates = [];
     const limitations = [];
     const retrievedAt = pairs.length > 0 ? new Date().toISOString() : null;
+    const shouldUseCache = baseUrl === exports.LITELLM_MODEL_CATALOG_URL;
+    const diskCache = shouldUseCache ? readRatesDiskCache() : null;
+    let cacheUpdated = false;
     for (const pair of pairs) {
+        const cacheKey = pair.provider + "|" + pair.model;
+        if (diskCache && diskCache.has(cacheKey)) {
+            const cached = diskCache.get(cacheKey);
+            if (cached.rate) {
+                dynamicRates.push(cached.rate);
+            }
+            else {
+                limitations.push("LiteLLM returned no exact price entry for " + pair.provider + "/" + pair.model);
+            }
+            continue;
+        }
         const result = await lookupLiteLlmRate(pair.provider, pair.model, fetcher, baseUrl, timing);
         if (result.rate) {
             dynamicRates.push(result.rate);
+            if (diskCache) {
+                diskCache.set(cacheKey, { rate: result.rate, expiresAt: Date.now() + 7 * 24 * 3600 * 1000 });
+                cacheUpdated = true;
+            }
         }
         else {
             limitations.push(result.failed
                 ? "LiteLLM price lookup failed for " + pair.provider + "/" + pair.model
                 : "LiteLLM returned no exact price entry for " + pair.provider + "/" + pair.model);
+            if (diskCache && !result.failed) {
+                diskCache.set(cacheKey, { rate: null, expiresAt: Date.now() + 24 * 3600 * 1000 });
+                cacheUpdated = true;
+            }
         }
+    }
+    if (diskCache && cacheUpdated) {
+        writeRatesDiskCache(diskCache);
     }
     const effectiveDates = dynamicRates.map((rate) => rate.effectiveDate).filter((value) => value !== null);
     return {

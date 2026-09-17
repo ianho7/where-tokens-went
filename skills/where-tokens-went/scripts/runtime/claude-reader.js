@@ -150,7 +150,7 @@ function explicitSkillName(...values) {
     }
     return null;
 }
-function createSession(sessionId) {
+function createSession(sessionId, filePath) {
     return {
         session: {
             harness: "claude",
@@ -160,6 +160,7 @@ function createSession(sessionId) {
             endedAt: null,
             parentSessionId: null,
             sourceVersion: null,
+            filePath: filePath ?? null,
         },
         eventTimes: [],
         modelCalls: [],
@@ -353,7 +354,9 @@ async function readClaude(scope) {
                 continue;
             const sessionId = stringValue(record.session_id, record.sessionId, message?.session_id, message?.sessionId) ?? activeSessionId ?? `unknown-session-${fallbackIndex++}`;
             activeSessionId = sessionId;
-            const pending = pendingById.get(sessionId) ?? createSession(sessionId);
+            const pending = pendingById.get(sessionId) ?? createSession(sessionId, file);
+            if (!pending.session.filePath)
+                pending.session.filePath = file;
             pendingById.set(sessionId, pending);
             updateTime(pending, timestamp);
             const cwd = stringValue(record.cwd, record.project_cwd, record.projectCwd, message?.cwd);

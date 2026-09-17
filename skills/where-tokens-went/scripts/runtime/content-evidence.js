@@ -195,9 +195,55 @@ function validateRequest(request) {
         seen.add(selection.sessionId);
     }
 }
+function getSessionFilePath(request, sessionId) {
+    if (!request.sessionFiles)
+        return null;
+    if (request.sessionFiles instanceof Map) {
+        return request.sessionFiles.get(sessionId) ?? null;
+    }
+    if (Array.isArray(request.sessionFiles)) {
+        const entry = request.sessionFiles.find((s) => s.sessionId === sessionId);
+        return entry?.filePath ?? null;
+    }
+    return request.sessionFiles[sessionId] ?? null;
+}
+async function resolveDirectFiles(root, request) {
+    if (!request.sessionFiles || request.selections.length === 0)
+        return null;
+    const candidateFiles = [];
+    for (const selection of request.selections) {
+        const rawPath = getSessionFilePath(request, selection.sessionId);
+        if (!rawPath)
+            return null;
+        const candidates = [
+            rawPath,
+            path.isAbsolute(rawPath) ? rawPath : path.resolve(root, rawPath),
+            path.isAbsolute(rawPath) ? rawPath : path.resolve(root, "..", rawPath),
+        ];
+        let resolved = null;
+        for (const c of candidates) {
+            try {
+                const info = await (0, promises_1.stat)(c);
+                if (info.isFile()) {
+                    resolved = c;
+                    break;
+                }
+            }
+            catch { }
+        }
+        if (resolved) {
+            candidateFiles.push(resolved);
+        }
+        else {
+            return null;
+        }
+    }
+    return [...new Set(candidateFiles)];
+}
 async function readCodexEvidence(request) {
     const root = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-    const files = await jsonlFiles(path.join(root, "sessions"), "rollout-");
+    const directFiles = await resolveDirectFiles(path.join(root, "sessions"), request);
+    const files = directFiles ?? await jsonlFiles(path.join(root, "sessions"), "rollout-");
     const selections = new Map(request.selections.map((selection) => [selection.sessionId, selection]));
     const items = new Map();
     const warnings = new Map();
@@ -266,7 +312,8 @@ async function readCodexEvidence(request) {
 }
 async function readClaudeEvidence(request) {
     const root = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
-    const files = await jsonlFiles(path.join(root, "projects"));
+    const directFiles = await resolveDirectFiles(path.join(root, "projects"), request);
+    const files = directFiles ?? await jsonlFiles(path.join(root, "projects"));
     const selections = new Map(request.selections.map((selection) => [selection.sessionId, selection]));
     const packets = new Map();
     const scopeRejected = new Set();

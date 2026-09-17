@@ -1300,18 +1300,22 @@ function renderWeek(result, locale) {
         renderWeekChanges(comparison.modelChanges, labels.models, locale) +
         renderWeekChanges(comparison.toolChanges, labels.tools, locale);
 }
+let cachedChartRuntime = null;
 function chartRuntime() {
+    if (cachedChartRuntime !== null)
+        return cachedChartRuntime;
     try {
-        return (0, node_fs_1.readFileSync)((0, node_path_1.join)(__dirname, "assets", "echarts.min.js"), "utf8");
+        cachedChartRuntime = (0, node_fs_1.readFileSync)((0, node_path_1.join)(__dirname, "assets", "echarts.min.js"), "utf8");
     }
     catch {
         try {
-            return (0, node_fs_1.readFileSync)((0, node_path_1.join)(__dirname, "..", "assets", "echarts.min.js"), "utf8");
+            cachedChartRuntime = (0, node_fs_1.readFileSync)((0, node_path_1.join)(__dirname, "..", "assets", "echarts.min.js"), "utf8");
         }
         catch {
-            return "";
+            cachedChartRuntime = "";
         }
     }
+    return cachedChartRuntime;
 }
 const fontDataCache = new Map();
 function fontAsset(filePath) {
@@ -1356,6 +1360,7 @@ function bundledFontAsset(fileName) {
     }
     return null;
 }
+let cachedBundledFontFaces = null;
 function authorizedFontFaces(fontConfig) {
     if (fontConfig) {
         const configured = fontAsset(fontConfig.filePath);
@@ -1368,14 +1373,18 @@ function authorizedFontFaces(fontConfig) {
         }
         console.warn("[where-tokens-went] Configured font could not be read; using the bundled report font.");
     }
+    if (cachedBundledFontFaces !== null)
+        return cachedBundledFontFaces;
     const body = bundledFontAsset("TsangerJinKai02-W04.ttf");
     const heading = bundledFontAsset("TsangerJinKai02-W05.ttf");
     if (!body || !heading)
         return { css: "", family: null };
-    return {
+    const result = {
         css: fontFaceMarkup("authorized TsangerJinKai02-W04", "TsangerJinKai02", body, 400) + fontFaceMarkup("authorized TsangerJinKai02-W05", "TsangerJinKai02", heading, 500),
         family: null,
     };
+    cachedBundledFontFaces = result;
+    return result;
 }
 function configuredFontVariables(family) {
     const value = cssString(family);
@@ -1559,8 +1568,25 @@ function renderInteractiveCharts(result, locale, firstUserMessages = []) {
     const script = "<script>" + runtime + "</script><script>" + chartScript;
     return `<div class="ivory-group chart-ivory"><div id="token-trend" class="echart" role="img" aria-label="${escapeHtml(labels.dailyUsage)}"></div><p class="chart-summary">${escapeHtml(labels.charts.summary)}</p></div>${script}`;
 }
+let cachedStylesheet = null;
+function readStylesheet() {
+    if (cachedStylesheet !== null)
+        return cachedStylesheet;
+    try {
+        cachedStylesheet = (0, node_fs_1.readFileSync)((0, node_path_1.join)(__dirname, "report.css"), "utf8");
+    }
+    catch {
+        try {
+            cachedStylesheet = (0, node_fs_1.readFileSync)((0, node_path_1.join)(__dirname, "..", "report.css"), "utf8");
+        }
+        catch {
+            cachedStylesheet = "";
+        }
+    }
+    return cachedStylesheet;
+}
 function renderStyles(fontConfig) {
-    const stylesheet = (0, node_fs_1.readFileSync)((0, node_path_1.join)(__dirname, "report.css"), "utf8");
+    const stylesheet = readStylesheet();
     const faces = authorizedFontFaces(fontConfig);
     return "<style>" + faces.css + "\n" + stylesheet + (faces.family ? "\n" + configuredFontVariables(faces.family) : "") + "</style>";
 }

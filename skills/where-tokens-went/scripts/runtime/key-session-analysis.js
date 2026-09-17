@@ -36,6 +36,8 @@ function strings(value) {
     return Array.isArray(value) && value.every(nonEmpty);
 }
 function sameSessionEvidence(audit, sessionId, evidenceIds) {
+    if (!Array.isArray(evidenceIds))
+        return [];
     const turnEvidence = new Map((audit.turns ?? []).map((turn) => [turn.evidenceId, turn]));
     return evidenceIds.filter((evidenceId) => {
         const turn = turnEvidence.get(evidenceId);
@@ -43,6 +45,8 @@ function sameSessionEvidence(audit, sessionId, evidenceIds) {
     });
 }
 function evidenceNotRead(audit, sessionId, turnIds, evidenceIds) {
+    if (!Array.isArray(evidenceIds) || !Array.isArray(turnIds))
+        return [];
     const readEvidence = new Set((audit.turns ?? [])
         .filter((turn) => turn.sessionId === sessionId && turnIds.includes(turn.turnId))
         .map((turn) => turn.evidenceId));

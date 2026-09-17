@@ -499,7 +499,7 @@ async function reportRunPrepareMain(args) {
         }
         await (0, report_run_1.writeRunArtifact)(run, "audit", audit);
         await (0, report_run_1.writeRunArtifact)(run, "firstUserMessages", read.firstUserMessages ?? []);
-        await (0, report_run_1.setRunTopSessions)(run, audit.rankings.sessions);
+        await (0, report_run_1.setRunTopSessions)(run, audit.rankings.sessions, read.sessions);
         await (0, report_run_1.setRunAuditFingerprint)(run, (0, key_session_analysis_1.auditFingerprint)(audit));
         await (0, report_run_1.setReportRunStatus)(run, "prepared");
         outputRunSummary(run, { next: ["evidence", "report-synthesis", "key-session-analysis", "compose", "finalize"] });
@@ -546,6 +546,9 @@ async function reportRunEvidenceMain(args) {
         selections: input.selections,
         maxItemsPerSession,
         maxCharsPerItem,
+        sessionFiles: (run.manifest.topSessions ?? [])
+            .filter((s) => typeof s.filePath === 'string' && s.filePath.length > 0)
+            .map((s) => ({ sessionId: s.sessionId, filePath: s.filePath })),
     };
     const packets = await (0, report_run_1.withRunSpan)(run, { phase: "content-read", operation: "read-content-evidence", source: "filesystem" }, async () => {
         const value = await (0, content_evidence_1.readContentEvidence)(evidenceRequest);
@@ -638,18 +641,21 @@ async function reportRunComposeMain(args) {
                 run.manifest.warnings.push("Report Synthesis was unavailable or failed validation; deterministic fallback is used.");
             const keyValidation = analyses.map((candidate) => {
                 if (!isRecord(candidate))
-                    return { valid: false };
+                    return { valid: false, errors: ["Candidate analysis is not an object."] };
                 try {
                     return (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, candidate, packets?.filter((packet) => packet.sessionId === candidate.sessionId));
                 }
-                catch {
-                    return { valid: false };
+                catch (error) {
+                    return { valid: false, errors: [error instanceof Error ? error.message : String(error)] };
                 }
             });
             const validKeyCount = keyValidation.filter((result) => result.valid).length;
-            const invalidKeyCount = keyValidation.length - validKeyCount;
-            if (invalidKeyCount > 0)
-                run.manifest.warnings.push(`${invalidKeyCount} Key Session Analysis entr${invalidKeyCount === 1 ? "y" : "ies"} failed validation and will be omitted.`);
+            const invalidKeys = keyValidation.filter((result) => !result.valid);
+            const invalidKeyCount = invalidKeys.length;
+            if (invalidKeyCount > 0) {
+                const errorDetails = invalidKeys.flatMap((result) => result.errors).filter(Boolean);
+                run.manifest.warnings.push(`${invalidKeyCount} Key Session Analysis entr${invalidKeyCount === 1 ? "y" : "ies"} failed validation and will be omitted.${errorDetails.length > 0 ? " Reasons: " + errorDetails.join("; ") : ""}`);
+            }
             await (0, report_run_1.writeRunArtifact)(run, "reportSynthesis", {
                 version: 1,
                 runId: run.manifest.runId,

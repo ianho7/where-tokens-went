@@ -40,6 +40,29 @@ function sessionTotal(sessionId, calls, harness) {
         return null;
     return ownCalls.reduce((total, call) => total + callTokens(call, harness), 0);
 }
+function buildSessionTotalsIndex(calls, harness) {
+    const totals = new Map();
+    for (const call of calls) {
+        let entry = totals.get(call.sessionId);
+        if (!entry) {
+            entry = { sum: 0, complete: true, count: 0 };
+            totals.set(call.sessionId, entry);
+        }
+        entry.count += 1;
+        const tokens = callTokens(call, harness);
+        if (tokens === null) {
+            entry.complete = false;
+        }
+        else {
+            entry.sum += tokens;
+        }
+    }
+    const result = new Map();
+    for (const [sessionId, entry] of totals.entries()) {
+        result.set(sessionId, (entry.count > 0 && entry.complete) ? entry.sum : null);
+    }
+    return result;
+}
 function sumTokens(calls, harness) {
     if (calls.length === 0 || calls.some((call) => callTokens(call, harness) === null)) {
         return { value: null, provenance: "unavailable" };
@@ -581,7 +604,108 @@ function safeToolName(name) {
     const value = name.trim();
     return value && value.length <= 80 && /^[A-Za-z0-9_.:-]+$/.test(value) ? value : "other-tool";
 }
-function buildToolAnalysis(read) {
+function bisectRight(arr, x) {
+    let low = 0;
+    let high = arr.length;
+    while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (arr[mid] <= x) {
+            low = mid + 1;
+        }
+        else {
+            high = mid;
+        }
+    }
+    return low;
+}
+function bisectLeft(arr, x) {
+    let low = 0;
+    let high = arr.length;
+    while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (arr[mid] < x) {
+            low = mid + 1;
+        }
+        else {
+            high = mid;
+        }
+    }
+    return low;
+}
+function buildToolAmplificationIndex(calls, lifecycle) {
+    const compactionTimesBySession = new Map();
+    for (const event of lifecycle) {
+        if (event.kind === "compaction" && event.timestamp) {
+            const time = timestampMs(event.timestamp);
+            if (time !== null) {
+                let list = compactionTimesBySession.get(event.sessionId);
+                if (!list) {
+                    list = [];
+                    compactionTimesBySession.set(event.sessionId, list);
+                }
+                list.push(time);
+            }
+        }
+    }
+    for (const list of compactionTimesBySession.values()) {
+        list.sort((a, b) => a - b);
+    }
+    const callTimesBySession = new Map();
+    for (const call of calls) {
+        if (call.activeBranch === false || !call.timestamp)
+            continue;
+        const time = timestampMs(call.timestamp);
+        if (time !== null) {
+            let list = callTimesBySession.get(call.sessionId);
+            if (!list) {
+                list = [];
+                callTimesBySession.set(call.sessionId, list);
+            }
+            list.push(time);
+        }
+    }
+    for (const list of callTimesBySession.values()) {
+        list.sort((a, b) => a - b);
+    }
+    const memo = new Map();
+    function laterCallsForTool(tool) {
+        const cached = memo.get(tool);
+        if (cached !== undefined)
+            return cached;
+        if (!tool.timestamp) {
+            memo.set(tool, 0);
+            return 0;
+        }
+        const toolTime = timestampMs(tool.timestamp);
+        if (toolTime === null) {
+            memo.set(tool, 0);
+            return 0;
+        }
+        const callTimes = callTimesBySession.get(tool.sessionId);
+        if (!callTimes || callTimes.length === 0) {
+            memo.set(tool, 0);
+            return 0;
+        }
+        const compactions = compactionTimesBySession.get(tool.sessionId);
+        let nextCompaction;
+        if (compactions && compactions.length > 0) {
+            for (let i = 0; i < compactions.length; i++) {
+                if (compactions[i] > toolTime) {
+                    nextCompaction = compactions[i];
+                    break;
+                }
+            }
+        }
+        const low = bisectRight(callTimes, toolTime);
+        const high = nextCompaction !== undefined ? bisectLeft(callTimes, nextCompaction) : callTimes.length;
+        const count = high > low ? high - low : 0;
+        memo.set(tool, count);
+        return count;
+    }
+    return { laterCallsForTool };
+}
+function buildToolAnalysis(read, amplificationIndex) {
+    const index = amplificationIndex ?? buildToolAmplificationIndex(read.modelCalls, read.lifecycle);
     const groups = new Map();
     for (const tool of read.toolCalls) {
         const key = safeToolName(tool.toolName);
@@ -603,7 +727,7 @@ function buildToolAnalysis(read) {
             group.pairedResults += 1;
             group.hasResult = true;
             group.injectedTokens += tool.resultChars / 4;
-            group.amplifiedTokens += (tool.resultChars / 4) * laterCalls(tool, read.modelCalls.filter((call) => call.activeBranch !== false), read.lifecycle);
+            group.amplifiedTokens += (tool.resultChars / 4) * index.laterCallsForTool(tool);
         }
         groups.set(key, group);
     }
@@ -737,25 +861,82 @@ function turnCoverage(turn) {
         method: "available Turn evidence fields divided by the eight Turn trajectory fields, expressed as percentage points",
     };
 }
-function buildTurnAnalysis(read, totalTokens, harness) {
+function buildTurnAnalysis(read, totalTokens, harness, precomputedSessionTotals) {
     const sourceTurns = read.turns ?? [];
     const callsByTurn = new Map();
+    const callsWithoutTurnBySession = new Map();
     for (const call of read.modelCalls) {
-        if (!call.turnId)
-            continue;
-        const key = call.sessionId + "\0" + call.turnId;
-        callsByTurn.set(key, [...(callsByTurn.get(key) ?? []), call]);
+        if (call.turnId) {
+            const key = call.sessionId + "\0" + call.turnId;
+            let list = callsByTurn.get(key);
+            if (!list) {
+                list = [];
+                callsByTurn.set(key, list);
+            }
+            list.push(call);
+        }
+        else {
+            let list = callsWithoutTurnBySession.get(call.sessionId);
+            if (!list) {
+                list = [];
+                callsWithoutTurnBySession.set(call.sessionId, list);
+            }
+            list.push(call);
+        }
     }
+    const turnCountBySession = new Map();
+    for (const turn of sourceTurns) {
+        turnCountBySession.set(turn.sessionId, (turnCountBySession.get(turn.sessionId) ?? 0) + 1);
+    }
+    const toolsByTurn = new Map();
+    for (const tool of read.toolCalls) {
+        if (tool.turnId) {
+            const key = tool.sessionId + "\0" + tool.turnId;
+            let list = toolsByTurn.get(key);
+            if (!list) {
+                list = [];
+                toolsByTurn.set(key, list);
+            }
+            list.push(tool);
+        }
+    }
+    const lifecycleByTurn = new Map();
+    for (const event of read.lifecycle) {
+        if (event.turnId) {
+            const key = event.sessionId + "\0" + event.turnId;
+            let list = lifecycleByTurn.get(key);
+            if (!list) {
+                list = [];
+                lifecycleByTurn.set(key, list);
+            }
+            list.push(event);
+        }
+    }
+    const skillEvidenceByTurn = new Map();
+    for (const record of read.skillEvidence ?? []) {
+        if (record.turnId &&
+            record.skillName &&
+            record.evidenceType !== "listing" &&
+            (record.state === "invoked" || record.state === "attributed")) {
+            const key = record.sessionId + "\0" + record.turnId;
+            let set = skillEvidenceByTurn.get(key);
+            if (!set) {
+                set = new Set();
+                skillEvidenceByTurn.set(key, set);
+            }
+            set.add(record.skillName);
+        }
+    }
+    const sessionTotals = precomputedSessionTotals ?? buildSessionTotalsIndex(read.modelCalls, harness);
     const turns = sourceTurns.map((turn) => {
         const key = turn.sessionId + "\0" + turn.turnId;
-        const calls = callsByTurn.get(key) ?? (sourceTurns.filter((item) => item.sessionId === turn.sessionId).length === 1
-            ? read.modelCalls.filter((call) => call.sessionId === turn.sessionId && !call.turnId)
+        const calls = callsByTurn.get(key) ?? (turnCountBySession.get(turn.sessionId) === 1
+            ? callsWithoutTurnBySession.get(turn.sessionId) ?? []
             : []);
-        const tools = read.toolCalls.filter((tool) => tool.sessionId === turn.sessionId && tool.turnId === turn.turnId);
-        const lifecycle = read.lifecycle.filter((event) => event.sessionId === turn.sessionId && event.turnId === turn.turnId);
-        const skillMarkers = [...new Set((read.skillEvidence ?? [])
-                .filter((record) => record.sessionId === turn.sessionId && record.turnId === turn.turnId && record.skillName && record.evidenceType !== "listing" && (record.state === "invoked" || record.state === "attributed"))
-                .map((record) => record.skillName))].sort();
+        const tools = toolsByTurn.get(key) ?? [];
+        const lifecycle = lifecycleByTurn.get(key) ?? [];
+        const skillMarkersSet = skillEvidenceByTurn.get(key);
+        const skillMarkers = skillMarkersSet ? [...skillMarkersSet].sort() : [];
         const total = calls.every((call) => callTokens(call, harness) !== null) && calls.length > 0
             ? calls.reduce((sum, call) => sum + callTokens(call, harness), 0)
             : null;
@@ -764,7 +945,7 @@ function buildTurnAnalysis(read, totalTokens, harness) {
             turnId: turn.turnId,
             ordinal: numericEvidence(turn.ordinal, "reported", "source Turn ordinal"),
             tokens: tokenBreakdown(calls, "Turn " + turn.turnId, harness),
-            sessionSharePercent: sharePercentEvidence(total ?? 0, sessionTotal(turn.sessionId, read.modelCalls, harness), "Turn " + turn.turnId, { sessionId: turn.sessionId, recordId: turn.turnId }),
+            sessionSharePercent: sharePercentEvidence(total ?? 0, sessionTotals.get(turn.sessionId) ?? null, "Turn " + turn.turnId, { sessionId: turn.sessionId, recordId: turn.turnId }),
             modelCallCount: countEvidence(calls.length, "count of ModelCall records in Turn " + turn.turnId),
             startedAt: timeEvidence(turn.startedAt, "source Turn start timestamp"),
             endedAt: timeEvidence(turn.endedAt, "source Turn end timestamp"),
@@ -805,11 +986,22 @@ function buildTurnAnalysis(read, totalTokens, harness) {
             coverage: { value: Math.round((evidence.filter((item) => item.value !== null).length / Math.max(1, evidence.length)) * 10000) / 100, provenance: "derived", method: "candidate Evidence values available divided by candidate Evidence values" },
         });
     };
+    const turnsBySession = new Map();
+    for (const turn of turns) {
+        if (typeof turn.tokens.totalTokens.value === "number") {
+            let list = turnsBySession.get(turn.sessionId);
+            if (!list) {
+                list = [];
+                turnsBySession.set(turn.sessionId, list);
+            }
+            list.push(turn);
+        }
+    }
     const sessionIds = [...new Set(turns.map((turn) => turn.sessionId))];
     for (const sessionId of sessionIds) {
-        const sessionTurns = turns.filter((turn) => turn.sessionId === sessionId && typeof turn.tokens.totalTokens.value === "number");
+        const sessionTurns = turnsBySession.get(sessionId) ?? [];
         const sorted = [...sessionTurns].sort((left, right) => right.tokens.totalTokens.value - left.tokens.totalTokens.value);
-        const sessionTotalValue = sessionTotal(sessionId, read.modelCalls, harness);
+        const sessionTotalValue = sessionTotals.get(sessionId) ?? null;
         if (sorted.length > 0 && sessionTotalValue !== null && sessionTotalValue > 0) {
             const top = sorted[0];
             const topThree = sorted.slice(0, 3);
@@ -850,8 +1042,8 @@ function buildTurnAnalysis(read, totalTokens, harness) {
     }
     return { turns, candidates };
 }
-function buildReportData(read, totalTokens, harness, pricing) {
-    const tools = buildToolAnalysis(read);
+function buildReportData(read, totalTokens, harness, pricing, amplificationIndex) {
+    const tools = buildToolAnalysis(read, amplificationIndex);
     const apiEquivalent = apiEquivalentCost(read.modelCalls, harness, pricing);
     const cost = apiCost(read.modelCalls, harness, pricing);
     return {
@@ -874,33 +1066,27 @@ function projectKey(cwd, scope) {
         return "<current-project>";
     return `project-${(0, node_crypto_1.createHash)("sha256").update(cwd).digest("hex").slice(0, 12)}`;
 }
-function topSession(sessions, calls, harness) {
+function topSession(sessions, calls, harness, sessionTotals) {
+    const callsCountBySession = new Map();
+    for (const call of calls) {
+        callsCountBySession.set(call.sessionId, (callsCountBySession.get(call.sessionId) ?? 0) + 1);
+    }
+    const totals = sessionTotals ?? buildSessionTotalsIndex(calls, harness);
     const candidates = sessions
-        .map((session) => ({ session, tokens: sessionTotal(session.sessionId, calls, harness), calls: calls.filter((call) => call.sessionId === session.sessionId).length }))
+        .map((session) => ({
+        session,
+        tokens: totals.get(session.sessionId) ?? null,
+        calls: callsCountBySession.get(session.sessionId) ?? 0,
+    }))
         .filter((candidate) => candidate.tokens !== null && candidate.calls > 0)
         .sort((left, right) => right.tokens - left.tokens || left.session.sessionId.localeCompare(right.session.sessionId));
     return candidates[0] ? { session: candidates[0].session, tokens: candidates[0].tokens } : null;
 }
 function laterCalls(tool, calls, lifecycle) {
-    if (!tool.timestamp)
-        return 0;
-    const toolTime = Date.parse(tool.timestamp);
-    if (Number.isNaN(toolTime))
-        return 0;
-    const nextCompaction = lifecycle
-        .filter((event) => event.sessionId === tool.sessionId && event.kind === "compaction" && event.timestamp)
-        .map((event) => Date.parse(event.timestamp))
-        .filter((time) => !Number.isNaN(time) && time > toolTime)
-        .sort((left, right) => left - right)[0];
-    return calls.filter((call) => {
-        if (call.sessionId !== tool.sessionId || !call.timestamp)
-            return false;
-        const callTime = Date.parse(call.timestamp);
-        return !Number.isNaN(callTime) && callTime > toolTime && (nextCompaction === undefined || callTime < nextCompaction);
-    }).length;
+    return buildToolAmplificationIndex(calls, lifecycle).laterCallsForTool(tool);
 }
-function toolAmplification(read) {
-    const contextCalls = read.modelCalls.filter((call) => call.activeBranch !== false);
+function toolAmplification(read, amplificationIndex) {
+    const index = amplificationIndex ?? buildToolAmplificationIndex(read.modelCalls, read.lifecycle);
     let total = 0;
     let hasResult = false;
     let largest = null;
@@ -909,7 +1095,7 @@ function toolAmplification(read) {
             continue;
         hasResult = true;
         const estimatedResultTokens = tool.resultChars / 4;
-        const following = laterCalls(tool, contextCalls, read.lifecycle);
+        const following = index.laterCallsForTool(tool);
         const tokens = estimatedResultTokens * following;
         total += tokens;
         if (!largest || tokens > largest.tokens)
@@ -1000,12 +1186,14 @@ function automatedChecks(largest, largestCalls, tokenTotal, amplification, extra
 function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICING) {
     const tokenTotal = sumTokens(read.modelCalls, harness);
     const reportedCost = reportedCostForRead(read);
-    const largest = topSession(read.sessions, read.modelCalls, harness);
+    const sessionTotals = buildSessionTotalsIndex(read.modelCalls, harness);
+    const largest = topSession(read.sessions, read.modelCalls, harness, sessionTotals);
     const largestCalls = largest ? read.modelCalls.filter((call) => call.sessionId === largest.session.sessionId) : [];
-    const amplification = toolAmplification(read);
+    const toolAmpIndex = buildToolAmplificationIndex(read.modelCalls, read.lifecycle);
+    const amplification = toolAmplification(read, toolAmpIndex);
     const extraLifecycle = read.lifecycle.filter((event) => event.kind !== "compaction");
     const sessionComposition = codexSessionComposition(read, harness);
-    const trajectory = buildTurnAnalysis(read, tokenTotal.value, harness);
+    const trajectory = buildTurnAnalysis(read, tokenTotal.value, harness, sessionTotals);
     const sessionProjects = new Map(read.sessions.map((session) => [session.sessionId, session.projectCwd]));
     const sessionById = new Map(read.sessions.map((session) => [session.sessionId, session]));
     const rankings = {
@@ -1118,7 +1306,7 @@ function analyseAudit(scope, read, harness, pricing = rates_1.UNAVAILABLE_PRICIN
         turns: trajectory.turns,
         turnCandidates: trajectory.candidates,
         keySessionTokenAccounting,
-        report: buildReportData(read, tokenTotal.value, harness, pricing),
+        report: buildReportData(read, tokenTotal.value, harness, pricing, toolAmpIndex),
         checks,
     };
 }

@@ -221,9 +221,31 @@ function sameCwd(left, right) {
         return false;
     return normaliseCwd(left) === normaliseCwd(right);
 }
-async function rolloutFiles(root) {
+async function rolloutFiles(root, scope) {
     const found = [];
-    async function visit(directory) {
+    let cutoffYear;
+    let cutoffMonth;
+    let cutoffDay;
+    let untilYear;
+    let untilMonth;
+    let untilDay;
+    if (scope?.since) {
+        const sinceMs = scope.since.getTime() - 86400000;
+        const d = new Date(sinceMs);
+        const utcStr = `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${String(d.getUTCDate()).padStart(2, "0")}`;
+        const localStr = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+        const cutoffStr = utcStr < localStr ? utcStr : localStr;
+        [cutoffYear, cutoffMonth, cutoffDay] = cutoffStr.split("/");
+    }
+    if (scope?.until) {
+        const untilMs = scope.until.getTime() + 86400000;
+        const ud = new Date(untilMs);
+        const uUtcStr = `${ud.getUTCFullYear()}/${String(ud.getUTCMonth() + 1).padStart(2, "0")}/${String(ud.getUTCDate()).padStart(2, "0")}`;
+        const uLocalStr = `${ud.getFullYear()}/${String(ud.getMonth() + 1).padStart(2, "0")}/${String(ud.getDate()).padStart(2, "0")}`;
+        const untilStr = uUtcStr > uLocalStr ? uUtcStr : uLocalStr;
+        [untilYear, untilMonth, untilDay] = untilStr.split("/");
+    }
+    async function visit(directory, relParts) {
         let entries;
         try {
             entries = await (0, promises_1.readdir)(directory, { withFileTypes: true });
@@ -234,14 +256,34 @@ async function rolloutFiles(root) {
         for (const entry of entries) {
             const fullPath = path.join(directory, entry.name);
             if (entry.isDirectory()) {
-                await visit(fullPath);
+                if (relParts.length === 0 && /^\d{4}$/.test(entry.name)) {
+                    if (cutoffYear && entry.name < cutoffYear)
+                        continue;
+                    if (untilYear && entry.name > untilYear)
+                        continue;
+                }
+                else if (relParts.length === 1 && /^\d{2}$/.test(entry.name)) {
+                    const ym = `${relParts[0]}/${entry.name}`;
+                    if (cutoffYear && cutoffMonth && ym < `${cutoffYear}/${cutoffMonth}`)
+                        continue;
+                    if (untilYear && untilMonth && ym > `${untilYear}/${untilMonth}`)
+                        continue;
+                }
+                else if (relParts.length === 2 && /^\d{2}$/.test(entry.name)) {
+                    const ymd = `${relParts[0]}/${relParts[1]}/${entry.name}`;
+                    if (cutoffYear && cutoffMonth && cutoffDay && ymd < `${cutoffYear}/${cutoffMonth}/${cutoffDay}`)
+                        continue;
+                    if (untilYear && untilMonth && untilDay && ymd > `${untilYear}/${untilMonth}/${untilDay}`)
+                        continue;
+                }
+                await visit(fullPath, [...relParts, entry.name]);
             }
             else if (entry.isFile() && entry.name.startsWith("rollout-") && entry.name.endsWith(".jsonl")) {
                 found.push(fullPath);
             }
         }
     }
-    await visit(root);
+    await visit(root, []);
     return found.sort();
 }
 function recordPayload(record) {
@@ -519,7 +561,7 @@ function inScope(value, scope) {
 }
 async function readCodex(scope) {
     const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
-    const files = await rolloutFiles(path.join(codexHome, "sessions"));
+    const files = await rolloutFiles(path.join(codexHome, "sessions"), scope);
     const coverage = {
         filesRead: 0,
         recordsRead: 0,
@@ -603,6 +645,7 @@ async function readCodex(scope) {
                             endedAt: null,
                             parentSessionId: null,
                             sourceVersion: null,
+                            filePath: file,
                         },
                         eventTimes: [],
                         rawCalls: [],
@@ -661,6 +704,8 @@ async function readCodex(scope) {
                 partial: false,
                 partialCoverageCounted: false,
             };
+            if (!pending.session.filePath)
+                pending.session.filePath = file;
             pendingById.set(sessionId, pending);
             updateSessionTimes(pending, timestamp);
             const recordType = stringValue(record.type)?.toLowerCase();
