@@ -129,3 +129,27 @@ _Avoid_: Confidence
 **Context Amplification**:
 The repeated inclusion of earlier content, especially tool results, in later model requests within a Session.
 _Avoid_: Exact billed tokens
+
+**Skill 洞察**:
+Host Agent 结合 Skill 历史使用数据与选定 Skill 的 `SKILL.md` 内容生成的证据化解读。用于揭示核心集中度、真实能力增量、通用流程冗余或渐进披露机会；必须区分事实、解读与建议，不作质量评分，也不推导虚假因果。
+_Avoid_: Skill lint, Skill 排行榜, 质量评级, 自动审查员
+
+**Capability Delta**:
+如果移除该 Skill，强模型在当前任务中真正失去的环境特有事实、本地工具、硬约束、审批边界或领域判断规则。
+_Avoid_: 将纯文本体量等同于能力, 机械否定通用指导
+
+**Generic Procedure**:
+强模型自身已普遍具备的任务理解、代码阅读、步骤分解、代码整洁和常规测试等通用操作步骤。随着底层模型变强，此类内容可能从能力增量演变为上下文冗余。
+_Avoid_: 机械判定为劣质内容, 自动建议删除 Skill
+
+**Candidate Selector**:
+在报告准备阶段运行的无模型确定性规则层，根据调用份额、任务内频次与命名规则筛选至多 5 个最具代表性的 Skill 进入内容审查。
+_Avoid_: 全量送入模型, 由 LLM 自行挑选审查对象
+
+**Skill Snapshot**:
+在 prepare 阶段按严格确定性路径（工作区 harness 路径 → 工作区 .agents → 用户 harness 路径 → 用户 .agents）读取并固化的 `SKILL.md` 文本、哈希与引用元数据。供后续 AI 推理与证据门禁校验对齐使用，避免运行时磁盘竞争或内容漂移。
+_Avoid_: 运行时动态二次读盘, 猜测未经声明的内部路径
+
+**Evidence Gate**:
+在模型推理完成后运行的代码门禁。验证指标真实性、文本摘录严格逐字匹配（≤ 200 字符）、拒绝因果推论（associated ≠ caused，callsPerTask ≠ repeated prompt injection）并控制置信度过滤。
+_Avoid_: 依赖模型自律修复证据, 模糊改写因果陈述

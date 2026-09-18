@@ -48,6 +48,7 @@ const key_session_analysis_1 = require("./key-session-analysis");
 const rates_1 = require("./rates");
 const report_run_1 = require("./report-run");
 const report_1 = require("./report");
+const skill_insights_1 = require("./skill-insights");
 function usage() {
     return [
         "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
@@ -501,8 +502,16 @@ async function reportRunPrepareMain(args) {
         await (0, report_run_1.writeRunArtifact)(run, "firstUserMessages", read.firstUserMessages ?? []);
         await (0, report_run_1.setRunTopSessions)(run, audit.rankings.sessions, read.sessions);
         await (0, report_run_1.setRunAuditFingerprint)(run, (0, key_session_analysis_1.auditFingerprint)(audit));
+        const totalTasks = typeof audit.summary.sessionCount?.value === "number" ? audit.summary.sessionCount.value : 0;
+        const candidatesResult = await (0, report_run_1.withRunSpan)(run, { phase: "skill-candidate-select", operation: "select-skill-candidates", source: "runner" }, async () => {
+            return (0, skill_insights_1.selectSkillCandidates)(audit.report.skills ?? [], totalTasks);
+        });
+        const snapshot = await (0, report_run_1.withRunSpan)(run, { phase: "skill-snapshot", operation: "load-skill-snapshot", source: "filesystem" }, async () => {
+            return (0, skill_insights_1.loadSkillSnapshot)(scope.harness, scope.cwd, candidatesResult.candidates, (0, key_session_analysis_1.auditFingerprint)(audit));
+        });
+        await (0, report_run_1.writeRunArtifact)(run, "skillSnapshot", snapshot);
         await (0, report_run_1.setReportRunStatus)(run, "prepared");
-        outputRunSummary(run, { next: ["evidence", "report-synthesis", "key-session-analysis", "compose", "finalize"] });
+        outputRunSummary(run, { next: ["evidence", "report-synthesis", "key-session-analysis", "skill-insights", "compose", "finalize"] });
         return 0;
     }
     catch (error) {
@@ -593,6 +602,7 @@ async function reportRunComposeMain(args) {
     let analyses = [];
     let validatedSynthesis = null;
     let packets;
+    let validatedSkillInsights = [];
     try {
         const currentContract = await (0, report_run_1.withRunSpan)(run, { phase: "prompt-read", operation: "verify-report-contract", source: "filesystem" }, async () => {
             const metadata = await (0, report_run_1.resolveRunContractMetadata)();
@@ -658,6 +668,36 @@ async function reportRunComposeMain(args) {
                 run.manifest.warnings.push("More than three Key Session Analyses were supplied; only the Token-ranked Top 3 are eligible.");
             if (analyses.length > 0 && packets === undefined)
                 throw new Error("Key Session Analysis requires the run-scoped Evidence artifact.");
+            let rawSkillInsights = undefined;
+            if (parsed.skillInsights === undefined) {
+                const fileCandidate = path.join(run.runDir, "skill-insights.json");
+                try {
+                    rawSkillInsights = JSON.parse(await fs.readFile(fileCandidate, "utf8"));
+                }
+                catch {
+                    rawSkillInsights = null;
+                }
+            }
+            else {
+                rawSkillInsights = parsed.skillInsights;
+            }
+            if (rawSkillInsights && run.manifest.artifacts.skillSnapshot) {
+                try {
+                    const snapshot = await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot");
+                    if (snapshot) {
+                        const validation = (0, skill_insights_1.validateSkillInsights)(rawSkillInsights, snapshot);
+                        if (validation.valid) {
+                            validatedSkillInsights = validation.insights;
+                        }
+                        if (validation.errors.length > 0) {
+                            run.manifest.warnings.push(`Skill Insights validation: ${validation.errors.join("; ")}`);
+                        }
+                    }
+                }
+                catch {
+                    // ignore error reading snapshot
+                }
+            }
             const synthesisValidation = (0, key_session_analysis_1.validateReportSynthesis)(audit, synthesisCandidate);
             validatedSynthesis = synthesisValidation.valid ? synthesisValidation.synthesis : null;
             if (!synthesisValidation.valid)
@@ -703,12 +743,13 @@ async function reportRunComposeMain(args) {
                 invalidCount: invalidKeyCount,
             });
         });
-        const composition = await (0, report_run_1.withRunSpan)(run, { phase: "compose", operation: "compose-report", source: "runner" }, async () => (0, key_session_analysis_1.reportComposition)(audit, analyses, validatedSynthesis, packets));
+        const composition = await (0, report_run_1.withRunSpan)(run, { phase: "compose", operation: "compose-report", source: "runner" }, async () => (0, key_session_analysis_1.reportComposition)(audit, analyses, validatedSynthesis, packets, validatedSkillInsights));
         await (0, report_run_1.writeRunArtifact)(run, "composition", {
             runId: run.manifest.runId,
             auditFingerprint: run.manifest.auditFingerprint,
             reportSynthesis: composition.reportSynthesis,
             keySessionAnalyses: composition.keySessionAnalyses,
+            skillInsights: composition.skillInsights,
         });
         const firstUserMessages = run.manifest.artifacts.firstUserMessages
             ? await (0, report_run_1.readRunArtifact)(run.runDir, "firstUserMessages")

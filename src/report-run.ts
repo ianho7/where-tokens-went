@@ -32,6 +32,8 @@ export type RunArtifactName =
   | "audit"
   | "evidence"
   | "firstUserMessages"
+  | "skillSnapshot"
+  | "skillInsights"
   | "reportSynthesis"
   | "keySessionAnalyses"
   | "composition"
@@ -97,6 +99,7 @@ export interface ReportRunManifest {
   promptHashes: {
     reportSynthesis: string | null;
     keySessionAnalysis: string | null;
+    skillInsights?: string | null;
   };
   runtimeHash: string | null;
   warnings: string[];
@@ -147,6 +150,8 @@ export const DEFAULT_RUN_STAGES = [
   "deterministic-analysis",
   "content-selection",
   "content-read",
+  "skill-candidate-select",
+  "skill-snapshot",
   "report-synthesis",
   "key-session-analysis",
   "validation",
@@ -161,6 +166,8 @@ const artifactFiles: Record<RunArtifactName, string> = {
   audit: "audit.json",
   evidence: "evidence.json",
   firstUserMessages: "first-user-messages.json",
+  skillSnapshot: "skill-snapshot.json",
+  skillInsights: "skill-insights.json",
   reportSynthesis: "report-synthesis.json",
   keySessionAnalyses: "key-session-analyses.json",
   composition: "composition.json",
@@ -267,7 +274,7 @@ function initialManifest(scope: ReportRunScope, runId: string): ReportRunManifes
     traceCompleteness: "complete",
     traceErrorCode: null,
     totalDurationMs: null,
-    promptHashes: { reportSynthesis: null, keySessionAnalysis: null },
+    promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null },
     runtimeHash: null,
     warnings: [],
   };

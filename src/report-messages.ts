@@ -318,6 +318,14 @@ export interface ReportMessages {
   firstRequestCompositionCoverage: string;
   coldFirstRequestRate: string;
   identityCoverage: string;
+  skillInsightsTitle: string;
+  skillInsightsNote: string;
+  skillInsightLabels: {
+    claim: string;
+    interpretation: string;
+    action: string;
+    evidence: string;
+  };
   skillEvidence: string;
   skillState: string;
   availableSessions: string;
@@ -691,6 +699,14 @@ const EN: ReportMessages = {
   firstRequestCompositionCoverage: "first-request composition coverage",
   coldFirstRequestRate: "cold first-request rate",
   identityCoverage: "task identity coverage",
+  skillInsightsTitle: "Skill Insights",
+  skillInsightsNote: "Evidence-backed patterns derived from usage and selected SKILL.md content; focused on capability delta and workflow core.",
+  skillInsightLabels: {
+    claim: "Core Finding",
+    interpretation: "Why It Matters",
+    action: "Suggested Action",
+    evidence: "Key Evidence",
+  },
   skillEvidence: "Skill evidence",
   skillState: "state",
   availableSessions: "available tasks",
@@ -1056,6 +1072,14 @@ const ZH: ReportMessages = {
   firstRequestCompositionCoverage: "首次请求 Token 构成完整度",
   coldFirstRequestRate: "首次请求未命中缓存的比例",
   identityCoverage: "任务身份可信度",
+  skillInsightsTitle: "Skill 洞察",
+  skillInsightsNote: "结合 Skill 使用数据与选定 SKILL.md 内容生成的模式解读；重点关注能力增量与工作流核心。",
+  skillInsightLabels: {
+    claim: "核心发现",
+    interpretation: "为什么重要",
+    action: "建议检查方向",
+    evidence: "关键证据",
+  },
   skillEvidence: "Skill 使用证据",
   skillState: "状态",
   availableSessions: "可用任务",

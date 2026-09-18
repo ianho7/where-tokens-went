@@ -8,6 +8,7 @@ const compiledRoot = path.join(repoRoot, 'dist', 'src');
 const echartsAssets = path.join(repoRoot, 'dist', 'assets');
 const reportSynthesisPrompt = path.join(repoRoot, 'prompts', 'report-synthesis.md');
 const keySessionAnalysisPrompt = path.join(repoRoot, 'prompts', 'key-session-analysis.md');
+const skillInsightsPrompt = path.join(repoRoot, 'prompts', 'skill-insights.md');
 const skillNames = ['where-tokens-went'];
 
 function copyIfChanged(source, destination) {
@@ -47,6 +48,9 @@ if (!fs.existsSync(reportSynthesisPrompt)) {
 }
 if (!fs.existsSync(keySessionAnalysisPrompt)) {
   throw new Error('Key Session Analysis Prompt not found at prompts/key-session-analysis.md.');
+}
+if (!fs.existsSync(skillInsightsPrompt)) {
+  throw new Error('Skill Insights Prompt not found at prompts/skill-insights.md.');
 }
 const launcher = `#!/usr/bin/env node
 
@@ -94,6 +98,7 @@ for (const name of skillNames) {
   fs.mkdirSync(referencesRoot, { recursive: true });
   copyIfChanged(reportSynthesisPrompt, path.join(referencesRoot, 'report-synthesis.md'));
   copyIfChanged(keySessionAnalysisPrompt, path.join(referencesRoot, 'key-session-analysis.md'));
+  copyIfChanged(skillInsightsPrompt, path.join(referencesRoot, 'skill-insights.md'));
   fs.writeFileSync(path.join(scriptsRoot, 'where-tokens-went.js'), launcher, 'utf8');
   console.log(`packaged ${name}`);
 }

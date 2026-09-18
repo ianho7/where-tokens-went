@@ -6,6 +6,7 @@ import type {
   KeySessionAnalysis,
   ReportComposition,
   ReportSynthesis,
+  ValidatedSkillInsight,
 } from "./types";
 
 export interface KeySessionValidation {
@@ -395,8 +396,15 @@ export function reportComposition(
   analyses: KeySessionAnalysis[],
   synthesis: ReportSynthesis | null = null,
   packets?: ContentEvidencePacket[],
+  skillInsights?: ValidatedSkillInsight[],
 ): ReportComposition {
   const composition = composeKeySessionAnalyses(audit, analyses, packets);
   const validatedSynthesis = synthesis === null ? null : validateReportSynthesis(audit, synthesis).synthesis;
-  return { auditFingerprint: composition.auditFingerprint, audit, reportSynthesis: validatedSynthesis, keySessionAnalyses: composition.analyses };
+  return {
+    auditFingerprint: composition.auditFingerprint,
+    audit,
+    reportSynthesis: validatedSynthesis,
+    keySessionAnalyses: composition.analyses,
+    skillInsights,
+  };
 }

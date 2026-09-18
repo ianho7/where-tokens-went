@@ -378,8 +378,14 @@ function composeKeySessionAnalyses(audit, analyses, packets) {
         unavailable.push("Host Agent did not provide Key Session Analysis.");
     return { auditFingerprint: fingerprint, analyses: valid, unavailable };
 }
-function reportComposition(audit, analyses, synthesis = null, packets) {
+function reportComposition(audit, analyses, synthesis = null, packets, skillInsights) {
     const composition = composeKeySessionAnalyses(audit, analyses, packets);
     const validatedSynthesis = synthesis === null ? null : validateReportSynthesis(audit, synthesis).synthesis;
-    return { auditFingerprint: composition.auditFingerprint, audit, reportSynthesis: validatedSynthesis, keySessionAnalyses: composition.analyses };
+    return {
+        auditFingerprint: composition.auditFingerprint,
+        audit,
+        reportSynthesis: validatedSynthesis,
+        keySessionAnalyses: composition.analyses,
+        skillInsights,
+    };
 }

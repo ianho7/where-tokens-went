@@ -462,6 +462,7 @@ export interface ReportComposition {
   audit: AuditResult;
   reportSynthesis: ReportSynthesis | null;
   keySessionAnalyses: KeySessionAnalysis[];
+  skillInsights?: ValidatedSkillInsight[];
   /** Local-only resolved project display name; never part of AuditResult. */
   projectName?: string;
   /** Optional local-only projection used by the full HTML renderer. */
@@ -557,4 +558,110 @@ export interface WeekStructureChange {
 export interface AuditResult extends AuditSnapshot {
   view?: AuditView;
   weekComparison?: WeekComparison;
+}
+
+export interface SkillDerivedMetrics {
+  calls: number;
+  tasks: number;
+  callShare: number;
+  callsPerTask: number;
+  taskCoverage: number;
+  rankByCalls: number;
+  rankByTasks: number;
+  associatedTokens: number | null;
+  associatedCost: number | null;
+}
+
+export interface GlobalSkillUsage {
+  totalSkillsUsed: number;
+  totalSkillCalls: number;
+  totalTasks: number;
+  topSkillCallShare: number;
+  topSkillCountForShare: number;
+  lowFrequencyThreshold: number;
+  lowFrequencySkillCount: number;
+  lowFrequencyCallShare: number;
+  singleUseSkillCount: number;
+}
+
+export type SkillCandidateType =
+  | "high_frequency"
+  | "high_calls_per_task"
+  | "skill_family";
+
+export interface SkillCandidate {
+  skillId: string;
+  skillName: string;
+  candidateTypes: SkillCandidateType[];
+  signals: {
+    callShare?: number;
+    callsPerTask?: number;
+    rankByCalls?: number;
+    familyGroup?: string;
+  };
+}
+
+export interface SkillCandidatesResult {
+  global: GlobalSkillUsage;
+  candidates: SkillCandidate[];
+}
+
+export interface SkillContentSnapshot {
+  skillId: string;
+  skillName: string;
+  skillPath: string | null;
+  contentState: "available" | "unavailable";
+  skillMdBytes: number;
+  skillMdEstimatedTokens: number;
+  skillMdHash: string | null;
+  skillMdContent: string | null;
+  referenceCount: number;
+  referenceBytes: number;
+  referenceFiles: string[];
+}
+
+export interface SkillSnapshotArtifact {
+  auditFingerprint: string;
+  createdAt: string;
+  selectedSkills: SkillContentSnapshot[];
+}
+
+export type SkillInsightType =
+  | "core_skill_concentration"
+  | "long_tail_usage"
+  | "high_frequency_generic_procedure"
+  | "high_frequency_strong_capability_delta"
+  | "rare_thick_skill"
+  | "skill_family_overlap"
+  | "cross_skill_generic_duplication"
+  | "progressive_disclosure_opportunity";
+
+export interface SkillInsightEvidence {
+  kind: "usage_metric" | "skill_content";
+  metric?: string;
+  value?: number | string;
+  skillId?: string;
+  category?: string;
+  evidenceExcerpt?: string;
+}
+
+export interface ValidatedSkillInsight {
+  id: string;
+  type: SkillInsightType;
+  title: string;
+  claim: string;
+  interpretation: string;
+  action: string;
+  confidence: "high" | "medium";
+  skillIds: string[];
+  evidence: SkillInsightEvidence[];
+}
+
+export interface SkillInsightsArtifact {
+  auditFingerprint: string;
+  createdAt: string;
+  status: "completed" | "insufficient_evidence" | "unavailable";
+  insights: ValidatedSkillInsight[];
+  unsupportedClaimsDropped: number;
+  oversizedFallbackUsed: boolean;
 }

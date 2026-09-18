@@ -33,7 +33,8 @@ import {
   type ReportRunScope,
 } from "./report-run";
 import { normalizeLocale, renderHtml, renderShare, renderText, renderWeekText, resolveReportProjectName, subsetReportFonts, type ReportFontConfig } from "./report";
-import type { AuditResult, AuditSnapshot, AuditView, ContentEvidencePacket, ContentEvidenceSelection, EvidenceValue, FirstUserMessageRecord, Harness, KeySessionAnalysis, ReadResult, ReadScope, ReportLocale, ReportSynthesis, WeekComparison, WeekStructureChange } from "./types";
+import { selectSkillCandidates, loadSkillSnapshot, validateSkillInsights } from "./skill-insights";
+import type { AuditResult, AuditSnapshot, AuditView, ContentEvidencePacket, ContentEvidenceSelection, EvidenceValue, FirstUserMessageRecord, Harness, KeySessionAnalysis, ReadResult, ReadScope, ReportLocale, ReportSynthesis, WeekComparison, WeekStructureChange, SkillSnapshotArtifact, ValidatedSkillInsight } from "./types";
 
 interface CliOptions {
   harness: Harness;
@@ -536,8 +537,16 @@ async function reportRunPrepareMain(args: string[]): Promise<number> {
     await writeRunArtifact(run, "firstUserMessages", read.firstUserMessages ?? []);
     await setRunTopSessions(run, audit.rankings.sessions, read.sessions);
     await setRunAuditFingerprint(run, auditFingerprint(audit));
+    const totalTasks = typeof audit.summary.sessionCount?.value === "number" ? audit.summary.sessionCount.value : 0;
+    const candidatesResult = await withRunSpan(run, { phase: "skill-candidate-select", operation: "select-skill-candidates", source: "runner" }, async () => {
+      return selectSkillCandidates(audit.report.skills ?? [], totalTasks);
+    });
+    const snapshot = await withRunSpan(run, { phase: "skill-snapshot", operation: "load-skill-snapshot", source: "filesystem" }, async () => {
+      return loadSkillSnapshot(scope.harness, scope.cwd, candidatesResult.candidates, auditFingerprint(audit));
+    });
+    await writeRunArtifact(run, "skillSnapshot", snapshot);
     await setReportRunStatus(run, "prepared");
-    outputRunSummary(run, { next: ["evidence", "report-synthesis", "key-session-analysis", "compose", "finalize"] });
+    outputRunSummary(run, { next: ["evidence", "report-synthesis", "key-session-analysis", "skill-insights", "compose", "finalize"] });
     return 0;
   } catch (error) {
     if (run) await markPreparedRunFailed(run);
@@ -631,6 +640,7 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
   let analyses: KeySessionAnalysis[] = [];
   let validatedSynthesis: ReportSynthesis | null = null;
   let packets: ContentEvidencePacket[] | undefined;
+  let validatedSkillInsights: ValidatedSkillInsight[] = [];
   try {
       const currentContract = await withRunSpan(run, { phase: "prompt-read", operation: "verify-report-contract", source: "filesystem" }, async () => {
         const metadata = await resolveRunContractMetadata();
@@ -683,6 +693,36 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
       }
       if (analyses.length > 3) run.manifest.warnings.push("More than three Key Session Analyses were supplied; only the Token-ranked Top 3 are eligible.");
       if (analyses.length > 0 && packets === undefined) throw new Error("Key Session Analysis requires the run-scoped Evidence artifact.");
+
+      let rawSkillInsights: unknown = undefined;
+      if (parsed.skillInsights === undefined) {
+        const fileCandidate = path.join(run.runDir, "skill-insights.json");
+        try {
+          rawSkillInsights = JSON.parse(await fs.readFile(fileCandidate, "utf8"));
+        } catch {
+          rawSkillInsights = null;
+        }
+      } else {
+        rawSkillInsights = parsed.skillInsights;
+      }
+
+      if (rawSkillInsights && run.manifest.artifacts.skillSnapshot) {
+        try {
+          const snapshot = await readRunArtifact(run.runDir, "skillSnapshot") as SkillSnapshotArtifact;
+          if (snapshot) {
+            const validation = validateSkillInsights(rawSkillInsights, snapshot);
+            if (validation.valid) {
+              validatedSkillInsights = validation.insights;
+            }
+            if (validation.errors.length > 0) {
+              run.manifest.warnings.push(`Skill Insights validation: ${validation.errors.join("; ")}`);
+            }
+          }
+        } catch {
+          // ignore error reading snapshot
+        }
+      }
+
       const synthesisValidation = validateReportSynthesis(audit, synthesisCandidate);
       validatedSynthesis = synthesisValidation.valid ? synthesisValidation.synthesis : null;
       if (!synthesisValidation.valid) run.manifest.warnings.push("Report Synthesis was unavailable or failed validation; deterministic fallback is used.");
@@ -725,12 +765,13 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
         invalidCount: invalidKeyCount,
       } satisfies RunAiArtifact<KeySessionAnalysis[]>);
     });
-    const composition = await withRunSpan(run, { phase: "compose", operation: "compose-report", source: "runner" }, async () => reportComposition(audit, analyses, validatedSynthesis, packets));
+    const composition = await withRunSpan(run, { phase: "compose", operation: "compose-report", source: "runner" }, async () => reportComposition(audit, analyses, validatedSynthesis, packets, validatedSkillInsights));
     await writeRunArtifact(run, "composition", {
       runId: run.manifest.runId,
       auditFingerprint: run.manifest.auditFingerprint,
       reportSynthesis: composition.reportSynthesis,
       keySessionAnalyses: composition.keySessionAnalyses,
+      skillInsights: composition.skillInsights,
     });
     const firstUserMessages = run.manifest.artifacts.firstUserMessages
       ? await readRunArtifact(run.runDir, "firstUserMessages") as FirstUserMessageRecord[]

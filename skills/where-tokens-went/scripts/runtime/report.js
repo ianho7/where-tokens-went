@@ -1135,6 +1135,42 @@ function renderFirstRequestHtml(result, locale) {
     const comparison = comparisonGroups ? "<div class=\"comparison-grid\">" + comparisonGroups + "</div>" : "";
     return "<section class=\"first-request\"><h2>" + escapeHtml(labels.firstRequestBurden) + "</h2>" + renderMetrics(metrics, locale, "first-request") + "<p class=\"coverage-note\">" + escapeHtml(labels.firstRequestNote) + "</p>" + comparison + limitations + "</section>";
 }
+function renderSkillInsightsHtml(composition, locale) {
+    const insights = composition?.skillInsights;
+    if (!insights || insights.length === 0)
+        return "";
+    const labels = labelsFor(locale);
+    const cards = insights.map((item) => {
+        const evidenceItems = item.evidence.map((ev) => {
+            if (ev.kind === "usage_metric") {
+                const valStr = ev.value !== undefined ? ": " + escapeHtml(String(ev.value)) : "";
+                return "<span class=\"kami-badge metric-badge\">" + escapeHtml(ev.metric || "") + valStr + "</span>";
+            }
+            const titleAttr = ev.category ? " title=\"" + escapeHtml(ev.category) + "\"" : "";
+            return "<blockquote class=\"skill-excerpt\"" + titleAttr + ">&ldquo;" + escapeHtml(ev.evidenceExcerpt || "") + "&rdquo;</blockquote>";
+        }).join("");
+        const claimLabel = labels.skillInsightLabels.claim;
+        const interpretationLabel = labels.skillInsightLabels.interpretation;
+        const actionLabel = labels.skillInsightLabels.action;
+        return ("<div class=\"quiet-card skill-insight-card\">" +
+            "<div class=\"card-header\">" +
+            "<h3 class=\"card-title\">" + escapeHtml(item.title) + "</h3>" +
+            "<span class=\"kami-badge confidence-badge\">" + escapeHtml(item.confidence) + "</span>" +
+            "</div>" +
+            "<div class=\"card-body\">" +
+            "<p class=\"insight-claim\"><strong>" + escapeHtml(claimLabel) + "：</strong>" + escapeHtml(item.claim) + "</p>" +
+            (evidenceItems ? "<div class=\"insight-evidence\">" + evidenceItems + "</div>" : "") +
+            "<p class=\"insight-interpretation\"><strong>" + escapeHtml(interpretationLabel) + "：</strong>" + escapeHtml(item.interpretation) + "</p>" +
+            "<p class=\"insight-action\"><strong>" + escapeHtml(actionLabel) + "：</strong>" + escapeHtml(item.action) + "</p>" +
+            "</div>" +
+            "</div>");
+    }).join("");
+    return ("<section class=\"skill-insights\">" +
+        "<h2>" + escapeHtml(labels.skillInsightsTitle) + "</h2>" +
+        "<p class=\"coverage-note\">" + escapeHtml(labels.skillInsightsNote) + "</p>" +
+        "<div class=\"quiet-cards-grid skill-insights-grid\">" + cards + "</div>" +
+        "</section>");
+}
 function renderSkillsHtml(result, locale) {
     const labels = labelsFor(locale);
     if (result.report.skills.length === 0)
@@ -1726,6 +1762,7 @@ function renderHtml(result, locale = "en-US", composition, localFirstUserMessage
         renderFindings(result, locale, composition),
         renderCacheHtml(result, locale),
         renderFirstRequestHtml(result, locale),
+        renderSkillInsightsHtml(composition, locale),
         renderSkillsHtml(result, locale),
         renderSectionMarker(labels.sectionMarkers.patterns),
         result.weekComparison ? "<section><h2>" + escapeHtml(labels.weekView) + "</h2>" + renderWeek(result, locale) + "</section>" : "",
