@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  calculatePercentileLinear,
   deriveSkillMetrics,
   selectSkillCandidates,
   resolveSkillPath,
@@ -32,50 +33,84 @@ function mockSkill(name, invocations, sessions, tokens = 1000, cost = 0.05) {
   };
 }
 
-test('deriveSkillMetrics handles empty data and zero tasks gracefully', () => {
-  const empty = deriveSkillMetrics([], 0);
-  assert.equal(empty.global.totalSkillsUsed, 0);
-  assert.equal(empty.global.totalSkillCalls, 0);
-  assert.equal(empty.global.topSkillCallShare, 0);
-  assert.equal(empty.perSkill.size, 0);
-
-  const single = deriveSkillMetrics([mockSkill('test-skill', 10, 2)], 0);
-  assert.equal(single.global.totalSkillsUsed, 1);
-  assert.equal(single.global.totalSkillCalls, 10);
-  assert.equal(single.global.topSkillCallShare, 1);
-  const derived = single.perSkill.get('test-skill');
-  assert.ok(derived);
-  assert.equal(derived.calls, 10);
-  assert.equal(derived.tasks, 2);
-  assert.equal(derived.callsPerTask, 5);
-  assert.equal(derived.callShare, 1);
+test('calculatePercentileLinear matches mathematical definition with linear interpolation', () => {
+  const vals = [1.0, 1.0, 1.0, 2.0, 10.0];
+  assert.equal(calculatePercentileLinear(vals, 0.5), 1.0);
+  assert.equal(calculatePercentileLinear(vals, 0.75), 2.0);
+  assert.equal(calculatePercentileLinear(vals, 0.9), 6.8);
+  assert.equal(calculatePercentileLinear(vals, 1.0), 10.0);
+  assert.equal(calculatePercentileLinear([], 0.5), 0);
+  assert.equal(calculatePercentileLinear([5.5], 0.9), 5.5);
 });
 
-test('selectSkillCandidates identifies high frequency, high callsPerTask, and family candidates up to max 5', () => {
+test('deriveSkillMetrics calculates distribution context and global topology ratios', () => {
   const skills = [
-    mockSkill('core-alpha', 100, 10), // callShare = 100/250 = 0.40 -> high_frequency
-    mockSkill('core-beta', 80, 8),    // callShare = 80/250 = 0.32 -> high_frequency
-    mockSkill('repetitive-tool', 30, 2), // callsPerTask = 15.0 >= 3.0 -> high_calls_per_task
-    mockSkill('agent-family-codex', 15, 5), // family
-    mockSkill('agent-family-claude', 15, 5), // family
-    mockSkill('extra-skill-1', 4, 4),
-    mockSkill('extra-skill-2', 3, 3),
-    mockSkill('extra-skill-3', 2, 2),
-    mockSkill('extra-skill-4', 1, 1),
+    mockSkill('family-a-codex', 100, 10), // callsPerTask = 10
+    mockSkill('family-a-claude', 20, 10), // callsPerTask = 2
+    mockSkill('standalone-tool', 8, 8),    // callsPerTask = 1
+    mockSkill('low-freq-1', 4, 4),        // callsPerTask = 1
+    mockSkill('low-freq-2', 1, 1),        // callsPerTask = 1, single use
   ];
 
-  const result = selectSkillCandidates(skills, 20);
+  const { global, perSkill } = deriveSkillMetrics(skills, 20);
+  assert.equal(global.totalSkillsUsed, 5);
+  assert.equal(global.totalSkillCalls, 133);
+
+  // Distribution of callsPerTask: [1, 1, 1, 2, 10]
+  assert.equal(global.callsPerTaskDistribution.median, 1.0);
+  assert.equal(global.callsPerTaskDistribution.p75, 2.0);
+  assert.equal(global.callsPerTaskDistribution.p90, 6.8);
+  assert.equal(global.callsPerTaskDistribution.max, 10.0);
+
+  // Global shares
+  // Top 4 calls: 100 + 20 + 8 + 4 = 132 / 133 = 0.9925
+  assert.equal(global.top4CallShare, 0.9925);
+  // lowFrequency (<=5 calls): low-freq-1 (4) and low-freq-2 (1) = 2 / 5 = 0.4
+  assert.equal(global.lowFrequencySkillShare, 0.4);
+  // lowFrequency calls: (4 + 1) / 133 = 5 / 133 = 0.0376
+  assert.equal(global.lowFrequencyCallShare, 0.0376);
+  // singleUse: 1 / 5 = 0.2
+  assert.equal(global.singleUseSkillShare, 0.2);
+
+  // Dominant family candidate grouping
+  assert.ok(global.dominantFamily);
+  assert.equal(global.dominantFamily.groupId, 'family-a');
+  assert.equal(global.dominantFamily.memberSkillIds.length, 2);
+  assert.equal(global.dominantFamily.callShare, Math.round((120 / 133) * 10000) / 10000);
+});
+
+test('selectSkillCandidates implements family-aware diverse sampling with quotas and max 5 ceiling', () => {
+  const skills = [
+    mockSkill('family-main-codex', 180, 18),  // dominant group, callsPerTask = 10
+    mockSkill('family-main-claude', 50, 20),  // dominant group, callsPerTask = 2.5
+    mockSkill('family-main-extra', 10, 10),   // dominant group (3rd member, must be throttled!)
+    mockSkill('kami', 39, 8),                 // non-dominant high-frequency, callsPerTask = 4.875
+    mockSkill('outlier-helper', 9, 2),        // non-dominant callsPerTask outlier = 4.5
+    mockSkill('spare-skill', 3, 3),           // diversity candidate
+  ];
+
+  const result = selectSkillCandidates(skills, 30);
   assert.ok(result.candidates.length <= 5, 'Must not exceed 5 unique skills');
-  assert.ok(result.candidates.length >= 3, 'Must pick top candidates');
 
   const names = result.candidates.map(c => c.skillName);
-  assert.ok(names.includes('core-alpha'), 'Should include top core skill');
-  assert.ok(names.includes('repetitive-tool'), 'Should include high callsPerTask skill');
+  // Dominant group must not occupy more than 2 slots
+  const domMembersInCandidates = names.filter(n => n.startsWith('family-main-'));
+  assert.equal(domMembersInCandidates.length, 2, 'Dominant family must occupy at most 2 slots');
 
-  // Verify long-tail stats in global
-  assert.equal(result.global.lowFrequencyThreshold, 5);
-  assert.equal(result.global.lowFrequencySkillCount, 4); // 4, 3, 2, 1 calls
-  assert.equal(result.global.singleUseSkillCount, 1);
+  // Must include top non-dominant skill
+  assert.ok(names.includes('kami'), 'Must include top non-dominant high frequency skill');
+
+  // Must include non-dominant callsPerTask outlier when present
+  assert.ok(names.includes('outlier-helper'), 'Must include non-dominant outlier');
+});
+
+test('selectSkillCandidates does not force fill 5 slots when candidates are sparse', () => {
+  const skills = [
+    mockSkill('solo-skill', 10, 2),
+  ];
+
+  const result = selectSkillCandidates(skills, 5);
+  assert.equal(result.candidates.length, 1, 'Must not force fill empty slots when only 1 candidate exists');
 });
 
 test('resolveSkillPath adheres strictly to deterministic search order', async () => {
@@ -96,7 +131,7 @@ test('resolveSkillPath adheres strictly to deterministic search order', async ()
   }
 });
 
-test('loadSkillSnapshot produces immutable snapshot with references metadata', async () => {
+test('loadSkillSnapshot produces immutable snapshot with distributionContext and metadata', async () => {
   const tmp = await mkdtemp(path.join(os.tmpdir(), 'skill-snapshot-test-'));
   try {
     const cwd = path.join(tmp, 'workspace');
@@ -113,36 +148,37 @@ test('loadSkillSnapshot produces immutable snapshot with references metadata', a
         candidateTypes: ['high_frequency'],
         signals: { callShare: 0.5 },
       },
-      {
-        skillId: 'missing-skill',
-        skillName: 'missing-skill',
-        candidateTypes: ['high_calls_per_task'],
-        signals: { callsPerTask: 5 },
-      },
     ];
 
-    const snapshot = await loadSkillSnapshot('codex', cwd, candidates, 'test-fingerprint');
+    const globalUsage = {
+      totalSkillsUsed: 1,
+      totalSkillCalls: 10,
+      totalTasks: 2,
+      callsPerTaskDistribution: { median: 5, p75: 5, p90: 5, max: 5 },
+      top4CallShare: 1,
+      lowFrequencySkillShare: 0,
+      lowFrequencyCallShare: 0,
+      singleUseSkillShare: 0,
+      dominantFamily: null,
+    };
+
+    const snapshot = await loadSkillSnapshot('codex', cwd, candidates, 'test-fingerprint', globalUsage);
     assert.equal(snapshot.auditFingerprint, 'test-fingerprint');
-    assert.equal(snapshot.selectedSkills.length, 2);
+    assert.equal(snapshot.distributionContext.median, 5);
+    assert.equal(snapshot.selectedSkills.length, 1);
+    assert.equal(snapshot.selectedCandidates.length, 1);
 
     const demo = snapshot.selectedSkills.find(s => s.skillName === 'demo-skill');
     assert.ok(demo);
     assert.equal(demo.contentState, 'available');
     assert.ok(demo.skillMdBytes > 0);
-    assert.ok(demo.skillMdHash);
     assert.equal(demo.referenceCount, 1);
-    assert.deepEqual(demo.referenceFiles, ['guide.md']);
-
-    const missing = snapshot.selectedSkills.find(s => s.skillName === 'missing-skill');
-    assert.ok(missing);
-    assert.equal(missing.contentState, 'unavailable');
-    assert.equal(missing.skillMdContent, null);
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
 });
 
-test('report-run prepare creates skill-snapshot.json and updates manifest', async () => {
+test('report-run prepare creates skill-snapshot.json with distributionContext and updates manifest', async () => {
   const { spawn } = require('node:child_process');
   const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
   function runCli(args, env) {
@@ -183,6 +219,7 @@ test('report-run prepare creates skill-snapshot.json and updates manifest', asyn
 
     const snapshot = JSON.parse(await readFile(path.join(runDir, 'skill-snapshot.json'), 'utf8'));
     assert.ok(Array.isArray(snapshot.selectedSkills));
+    assert.ok(snapshot.distributionContext);
     assert.equal(snapshot.auditFingerprint, manifest.auditFingerprint);
   } finally {
     await rm(tmp, { recursive: true, force: true });

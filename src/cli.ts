@@ -542,7 +542,7 @@ async function reportRunPrepareMain(args: string[]): Promise<number> {
       return selectSkillCandidates(audit.report.skills ?? [], totalTasks);
     });
     const snapshot = await withRunSpan(run, { phase: "skill-snapshot", operation: "load-skill-snapshot", source: "filesystem" }, async () => {
-      return loadSkillSnapshot(scope.harness, scope.cwd, candidatesResult.candidates, auditFingerprint(audit));
+      return loadSkillSnapshot(scope.harness, scope.cwd, candidatesResult.candidates, auditFingerprint(audit), candidatesResult.global);
     });
     await writeRunArtifact(run, "skillSnapshot", snapshot);
     await setReportRunStatus(run, "prepared");

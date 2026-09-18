@@ -507,7 +507,7 @@ async function reportRunPrepareMain(args) {
             return (0, skill_insights_1.selectSkillCandidates)(audit.report.skills ?? [], totalTasks);
         });
         const snapshot = await (0, report_run_1.withRunSpan)(run, { phase: "skill-snapshot", operation: "load-skill-snapshot", source: "filesystem" }, async () => {
-            return (0, skill_insights_1.loadSkillSnapshot)(scope.harness, scope.cwd, candidatesResult.candidates, (0, key_session_analysis_1.auditFingerprint)(audit));
+            return (0, skill_insights_1.loadSkillSnapshot)(scope.harness, scope.cwd, candidatesResult.candidates, (0, key_session_analysis_1.auditFingerprint)(audit), candidatesResult.global);
         });
         await (0, report_run_1.writeRunArtifact)(run, "skillSnapshot", snapshot);
         await (0, report_run_1.setReportRunStatus)(run, "prepared");

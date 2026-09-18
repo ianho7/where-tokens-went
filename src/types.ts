@@ -572,16 +572,29 @@ export interface SkillDerivedMetrics {
   associatedCost: number | null;
 }
 
+export interface CallsPerTaskDistribution {
+  median: number;
+  p75: number;
+  p90: number;
+  max: number;
+}
+
+export interface DominantFamilyCandidate {
+  groupId: string;
+  memberSkillIds: string[];
+  callShare: number;
+}
+
 export interface GlobalSkillUsage {
   totalSkillsUsed: number;
   totalSkillCalls: number;
   totalTasks: number;
-  topSkillCallShare: number;
-  topSkillCountForShare: number;
-  lowFrequencyThreshold: number;
-  lowFrequencySkillCount: number;
+  callsPerTaskDistribution: CallsPerTaskDistribution;
+  top4CallShare: number;
+  lowFrequencySkillShare: number;
   lowFrequencyCallShare: number;
-  singleUseSkillCount: number;
+  singleUseSkillShare: number;
+  dominantFamily: DominantFamilyCandidate | null;
 }
 
 export type SkillCandidateType =
@@ -598,6 +611,7 @@ export interface SkillCandidate {
     callsPerTask?: number;
     rankByCalls?: number;
     familyGroup?: string;
+    isOutlier?: boolean;
   };
 }
 
@@ -623,6 +637,9 @@ export interface SkillContentSnapshot {
 export interface SkillSnapshotArtifact {
   auditFingerprint: string;
   createdAt: string;
+  distributionContext: CallsPerTaskDistribution;
+  globalUsage: GlobalSkillUsage;
+  selectedCandidates: SkillCandidate[];
   selectedSkills: SkillContentSnapshot[];
 }
 

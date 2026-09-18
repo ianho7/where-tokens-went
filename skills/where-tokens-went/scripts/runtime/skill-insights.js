@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SKILL_CONTENT_BUDGET_TOKENS = void 0;
+exports.calculatePercentileLinear = calculatePercentileLinear;
 exports.deriveSkillMetrics = deriveSkillMetrics;
 exports.selectSkillCandidates = selectSkillCandidates;
 exports.resolveSkillPath = resolveSkillPath;
@@ -50,29 +51,45 @@ function skillCalls(skill) {
 function skillTasks(skill) {
     return typeof skill.sessionCount?.value === "number" ? skill.sessionCount.value : 0;
 }
+function calculatePercentileLinear(values, p) {
+    if (!values || values.length === 0)
+        return 0;
+    if (values.length === 1)
+        return Math.round(values[0] * 100) / 100;
+    const clampedP = Math.max(0, Math.min(1, p));
+    const index = clampedP * (values.length - 1);
+    const lower = Math.floor(index);
+    const fraction = index - lower;
+    if (lower >= values.length - 1) {
+        return Math.round(values[values.length - 1] * 100) / 100;
+    }
+    const val = values[lower] + fraction * (values[lower + 1] - values[lower]);
+    return Math.round(val * 100) / 100;
+}
 function deriveSkillMetrics(skills, totalTasks) {
     const perSkill = new Map();
-    if (!skills || skills.length === 0) {
+    const activeSkills = (skills || []).filter((s) => skillCalls(s) > 0);
+    const totalSkillCalls = activeSkills.reduce((sum, s) => sum + skillCalls(s), 0);
+    const totalSkillsUsed = activeSkills.length;
+    const effectiveTotalTasks = totalTasks > 0 ? totalTasks : Math.max(1, ...skills.map(skillTasks));
+    if (activeSkills.length === 0) {
         return {
             global: {
                 totalSkillsUsed: 0,
                 totalSkillCalls: 0,
                 totalTasks: Math.max(0, totalTasks),
-                topSkillCallShare: 0,
-                topSkillCountForShare: 0,
-                lowFrequencyThreshold: 5,
-                lowFrequencySkillCount: 0,
+                callsPerTaskDistribution: { median: 0, p75: 0, p90: 0, max: 0 },
+                top4CallShare: 0,
+                lowFrequencySkillShare: 0,
                 lowFrequencyCallShare: 0,
-                singleUseSkillCount: 0,
+                singleUseSkillShare: 0,
+                dominantFamily: null,
             },
             perSkill,
         };
     }
-    const totalSkillCalls = skills.reduce((sum, s) => sum + skillCalls(s), 0);
-    const totalSkillsUsed = skills.filter((s) => skillCalls(s) > 0).length;
-    const effectiveTotalTasks = totalTasks > 0 ? totalTasks : Math.max(1, ...skills.map(skillTasks));
-    const sortedByCalls = [...skills].sort((a, b) => skillCalls(b) - skillCalls(a));
-    const sortedByTasks = [...skills].sort((a, b) => skillTasks(b) - skillTasks(a));
+    const sortedByCalls = [...activeSkills].sort((a, b) => skillCalls(b) - skillCalls(a));
+    const sortedByTasks = [...activeSkills].sort((a, b) => skillTasks(b) - skillTasks(a));
     const callRanks = new Map();
     sortedByCalls.forEach((s, idx) => callRanks.set(s.name, idx + 1));
     const taskRanks = new Map();
@@ -95,28 +112,57 @@ function deriveSkillMetrics(skills, totalTasks) {
             associatedCost: typeof skill.attributedApiEquivalentCost?.value === "number" ? skill.attributedApiEquivalentCost.value : null,
         });
     }
-    const topN = Math.min(4, sortedByCalls.length);
-    const topSkillCallShare = sortedByCalls.slice(0, topN).reduce((sum, s) => sum + (perSkill.get(s.name)?.callShare ?? 0), 0);
-    const lowFreqSkills = skills.filter((s) => skillCalls(s) <= 5 && skillCalls(s) > 0);
-    const lowFrequencySkillCount = lowFreqSkills.length;
-    const lowFrequencyCalls = lowFreqSkills.reduce((sum, s) => sum + skillCalls(s), 0);
-    const lowFrequencyCallShare = totalSkillCalls > 0 ? lowFrequencyCalls / totalSkillCalls : 0;
-    const singleUseSkillCount = skills.filter((s) => skillCalls(s) === 1).length;
+    // Distribution Context: only for skills with tasks > 0 and calls > 0
+    const validCallsPerTask = activeSkills
+        .filter((s) => skillTasks(s) > 0)
+        .map((s) => skillCalls(s) / skillTasks(s))
+        .sort((a, b) => a - b);
+    const callsPerTaskDistribution = {
+        median: calculatePercentileLinear(validCallsPerTask, 0.5),
+        p75: calculatePercentileLinear(validCallsPerTask, 0.75),
+        p90: calculatePercentileLinear(validCallsPerTask, 0.9),
+        max: validCallsPerTask.length > 0 ? Math.round(validCallsPerTask[validCallsPerTask.length - 1] * 100) / 100 : 0,
+    };
+    // Global topology metrics
+    const top4Count = Math.min(4, totalSkillsUsed);
+    const top4Calls = sortedByCalls.slice(0, top4Count).reduce((sum, s) => sum + skillCalls(s), 0);
+    const top4CallShare = totalSkillCalls > 0 ? Math.round((top4Calls / totalSkillCalls) * 10000) / 10000 : 0;
+    const lowFrequencySkills = activeSkills.filter((s) => skillCalls(s) <= 5);
+    const lowFrequencySkillShare = totalSkillsUsed > 0 ? Math.round((lowFrequencySkills.length / totalSkillsUsed) * 10000) / 10000 : 0;
+    const lowFrequencyCalls = lowFrequencySkills.reduce((sum, s) => sum + skillCalls(s), 0);
+    const lowFrequencyCallShare = totalSkillCalls > 0 ? Math.round((lowFrequencyCalls / totalSkillCalls) * 10000) / 10000 : 0;
+    const singleUseSkills = activeSkills.filter((s) => skillCalls(s) === 1);
+    const singleUseSkillShare = totalSkillsUsed > 0 ? Math.round((singleUseSkills.length / totalSkillsUsed) * 10000) / 10000 : 0;
+    // Sampling Group / Family candidate grouping
+    const samplingGroups = detectSamplingGroups(activeSkills);
+    let dominantFamily = null;
+    let highestFamilyCalls = 0;
+    for (const [stem, members] of samplingGroups.entries()) {
+        const familyCalls = members.reduce((sum, name) => sum + (perSkill.get(name)?.calls ?? 0), 0);
+        if (familyCalls > highestFamilyCalls && familyCalls > 0) {
+            highestFamilyCalls = familyCalls;
+            dominantFamily = {
+                groupId: stem,
+                memberSkillIds: members,
+                callShare: totalSkillCalls > 0 ? Math.round((familyCalls / totalSkillCalls) * 10000) / 10000 : 0,
+            };
+        }
+    }
     const global = {
         totalSkillsUsed,
         totalSkillCalls,
         totalTasks: Math.max(0, totalTasks),
-        topSkillCallShare,
-        topSkillCountForShare: topN,
-        lowFrequencyThreshold: 5,
-        lowFrequencySkillCount,
+        callsPerTaskDistribution,
+        top4CallShare,
+        lowFrequencySkillShare,
         lowFrequencyCallShare,
-        singleUseSkillCount,
+        singleUseSkillShare,
+        dominantFamily,
     };
     return { global, perSkill };
 }
-function detectSkillFamilies(skills) {
-    const families = new Map();
+function detectSamplingGroups(skills) {
+    const groups = new Map();
     for (const skill of skills) {
         const name = skill.name;
         if (!name || name === "<unknown-skill>")
@@ -125,14 +171,14 @@ function detectSkillFamilies(skills) {
         if (parts.length >= 2) {
             const stem = parts.slice(0, -1).join("-");
             if (stem.length >= 3) {
-                const list = families.get(stem) ?? [];
+                const list = groups.get(stem) ?? [];
                 list.push(name);
-                families.set(stem, list);
+                groups.set(stem, list);
             }
         }
     }
     const result = new Map();
-    for (const [stem, members] of families.entries()) {
+    for (const [stem, members] of groups.entries()) {
         if (members.length >= 2) {
             result.set(stem, [...new Set(members)]);
         }
@@ -141,77 +187,91 @@ function detectSkillFamilies(skills) {
 }
 function selectSkillCandidates(skills, totalTasks) {
     const { global, perSkill } = deriveSkillMetrics(skills, totalTasks);
-    const candidateMap = new Map();
+    const selectedMap = new Map();
     function addCandidate(skillName, type, signals) {
-        let existing = candidateMap.get(skillName);
+        if (selectedMap.size >= 5 && !selectedMap.has(skillName))
+            return false;
+        let existing = selectedMap.get(skillName);
         if (!existing) {
-            existing = { candidateTypes: new Set(), signals: {} };
-            candidateMap.set(skillName, existing);
+            existing = {
+                skillId: skillName,
+                skillName,
+                candidateTypes: [type],
+                signals: { ...signals },
+            };
+            selectedMap.set(skillName, existing);
         }
-        existing.candidateTypes.add(type);
-        existing.signals = { ...existing.signals, ...signals };
+        else {
+            if (!existing.candidateTypes.includes(type)) {
+                existing.candidateTypes.push(type);
+            }
+            existing.signals = { ...existing.signals, ...signals };
+        }
+        return true;
     }
-    const sortedByCalls = [...skills].sort((a, b) => skillCalls(b) - skillCalls(a));
-    // 1. High frequency: top 2 or callShare >= 0.20
-    for (let i = 0; i < sortedByCalls.length; i++) {
-        const skill = sortedByCalls[i];
-        const metrics = perSkill.get(skill.name);
-        if (!metrics || metrics.calls <= 0)
-            continue;
-        if (i < 2 || metrics.callShare >= 0.20) {
-            addCandidate(skill.name, "high_frequency", {
-                callShare: metrics.callShare,
-                rankByCalls: metrics.rankByCalls,
+    const activeSkills = (skills || []).filter((s) => skillCalls(s) > 0);
+    const sortedByCalls = [...activeSkills].sort((a, b) => skillCalls(b) - skillCalls(a));
+    const dominantMembers = new Set(global.dominantFamily?.memberSkillIds ?? []);
+    // 1. Dominant family slots: at most 2 documents from dominant family
+    if (global.dominantFamily) {
+        const sortedFamilyMembers = [...global.dominantFamily.memberSkillIds]
+            .sort((a, b) => (perSkill.get(b)?.calls ?? 0) - (perSkill.get(a)?.calls ?? 0));
+        for (const member of sortedFamilyMembers.slice(0, 2)) {
+            const m = perSkill.get(member);
+            if (!m || m.calls <= 0)
+                continue;
+            addCandidate(member, "skill_family", {
+                familyGroup: global.dominantFamily.groupId,
+                callShare: m.callShare,
+                callsPerTask: m.callsPerTask,
+                rankByCalls: m.rankByCalls,
             });
         }
     }
-    // 2. High calls per task: callsPerTask >= 3.0 and calls >= 5
-    const highCallsPerTask = [...skills]
+    // 2. Non-dominant high-frequency skill: priority 1 slot (if exists)
+    const nonDominantByCalls = sortedByCalls.filter((s) => !dominantMembers.has(s.name));
+    if (nonDominantByCalls.length > 0) {
+        const topNonDom = nonDominantByCalls[0];
+        const m = perSkill.get(topNonDom.name);
+        addCandidate(topNonDom.name, "high_frequency", {
+            callShare: m.callShare,
+            callsPerTask: m.callsPerTask,
+            rankByCalls: m.rankByCalls,
+        });
+    }
+    // 3. Non-dominant callsPerTask outlier: priority 1 slot (if exists, calls >= 3, callsPerTask >= p75)
+    const outlierCandidates = nonDominantByCalls
         .filter((s) => {
         const m = perSkill.get(s.name);
-        return m && m.callsPerTask >= 3.0 && m.calls >= 5;
+        return (m &&
+            m.calls >= 3 &&
+            m.callsPerTask >= global.callsPerTaskDistribution.p75 &&
+            !selectedMap.has(s.name));
     })
         .sort((a, b) => (perSkill.get(b.name)?.callsPerTask ?? 0) - (perSkill.get(a.name)?.callsPerTask ?? 0));
-    for (const skill of highCallsPerTask.slice(0, 2)) {
-        const metrics = perSkill.get(skill.name);
-        addCandidate(skill.name, "high_calls_per_task", {
-            callsPerTask: metrics.callsPerTask,
+    if (outlierCandidates.length > 0) {
+        const topOutlier = outlierCandidates[0];
+        const m = perSkill.get(topOutlier.name);
+        addCandidate(topOutlier.name, "high_calls_per_task", {
+            callsPerTask: m.callsPerTask,
+            isOutlier: true,
+            rankByCalls: m.rankByCalls,
         });
     }
-    // 3. Family candidates: pick top family by total calls
-    const families = detectSkillFamilies(skills);
-    let bestFamily = null;
-    for (const [stem, members] of families.entries()) {
-        const totalCalls = members.reduce((sum, name) => sum + (perSkill.get(name)?.calls ?? 0), 0);
-        if (!bestFamily || totalCalls > bestFamily.totalCalls) {
-            bestFamily = { stem, members, totalCalls };
-        }
-    }
-    if (bestFamily && bestFamily.totalCalls > 0) {
-        const sortedMembers = [...bestFamily.members].sort((a, b) => (perSkill.get(b)?.calls ?? 0) - (perSkill.get(a)?.calls ?? 0));
-        for (const member of sortedMembers.slice(0, 2)) {
-            addCandidate(member, "skill_family", {
-                familyGroup: bestFamily.stem,
+    // 4. Optional diversity slot 5 (only if valid candidate exists, do NOT force fill)
+    if (selectedMap.size < 5) {
+        const remainingCandidates = nonDominantByCalls.filter((s) => !selectedMap.has(s.name));
+        if (remainingCandidates.length > 0) {
+            const extra = remainingCandidates[0];
+            const m = perSkill.get(extra.name);
+            addCandidate(extra.name, "high_frequency", {
+                callShare: m.callShare,
+                callsPerTask: m.callsPerTask,
+                rankByCalls: m.rankByCalls,
             });
         }
     }
-    // Convert to candidate list and cap at 5 unique skills
-    const candidates = [];
-    const candidateNames = [...candidateMap.keys()].sort((a, b) => {
-        const ma = perSkill.get(a);
-        const mb = perSkill.get(b);
-        return (mb?.calls ?? 0) - (ma?.calls ?? 0);
-    });
-    for (const name of candidateNames.slice(0, 5)) {
-        const entry = candidateMap.get(name);
-        candidates.push({
-            skillId: name,
-            skillName: name,
-            candidateTypes: [...entry.candidateTypes],
-            signals: entry.signals,
-        });
-    }
-    return { global, candidates };
+    return { global, candidates: [...selectedMap.values()] };
 }
 async function resolveSkillPath(harness, cwd, skillName) {
     if (!skillName || typeof skillName !== "string")
@@ -240,7 +300,7 @@ async function resolveSkillPath(harness, cwd, skillName) {
     }
     return null;
 }
-async function loadSkillSnapshot(harness, cwd, candidates, auditFingerprint) {
+async function loadSkillSnapshot(harness, cwd, candidates, auditFingerprint, globalUsage) {
     const selectedSkills = [];
     for (const candidate of candidates) {
         const resolvedPath = await resolveSkillPath(harness, cwd, candidate.skillName);
@@ -321,6 +381,9 @@ async function loadSkillSnapshot(harness, cwd, candidates, auditFingerprint) {
     return {
         auditFingerprint,
         createdAt: new Date().toISOString(),
+        distributionContext: globalUsage.callsPerTaskDistribution,
+        globalUsage,
+        selectedCandidates: candidates,
         selectedSkills,
     };
 }
