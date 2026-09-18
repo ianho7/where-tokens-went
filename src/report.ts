@@ -1239,29 +1239,36 @@ function renderSkillInsightsHtml(composition: ReportComposition | undefined, loc
   const labels = labelsFor(locale);
   const cards = insights.map((item: ValidatedSkillInsight) => {
     const evidenceItems = item.evidence.map((ev: SkillInsightEvidence) => {
-      if (ev.kind === "usage_metric") {
+      if (ev.kind.includes("metric")) {
         const valStr = ev.value !== undefined ? ": " + escapeHtml(String(ev.value)) : "";
         return "<span class=\"kami-badge metric-badge\">" + escapeHtml(ev.metric || "") + valStr + "</span>";
       }
-      const titleAttr = ev.category ? " title=\"" + escapeHtml(ev.category) + "\"" : "";
-      return "<blockquote class=\"skill-excerpt\"" + titleAttr + ">&ldquo;" + escapeHtml(ev.evidenceExcerpt || "") + "&rdquo;</blockquote>";
+      const roleStr = ev.role ? " [" + escapeHtml(ev.role) + "]" : "";
+      const scopeStr = ev.loadingScope ? " (" + escapeHtml(ev.loadingScope) + ")" : "";
+      return "<blockquote class=\"skill-excerpt\" title=\"" + escapeHtml((ev.role || "") + (ev.loadingScope ? " - " + ev.loadingScope : "")) + "\">&ldquo;" + escapeHtml(ev.evidenceExcerpt || "") + "&rdquo;<span class=\"excerpt-tags\">" + roleStr + scopeStr + "</span></blockquote>";
     }).join("");
 
-    const claimLabel = labels.skillInsightLabels.claim;
-    const interpretationLabel = labels.skillInsightLabels.interpretation;
-    const actionLabel = labels.skillInsightLabels.action;
+    const shiftHtml = item.mentalModelShift
+      ? "<div class=\"insight-shift\"><span class=\"shift-tag\">" + escapeHtml(labels.skillInsightLabels.shiftSurface) + "：</span>" + escapeHtml(item.mentalModelShift.surface) + "<br><span class=\"shift-tag shift-tag--highlight\">" + escapeHtml(labels.skillInsightLabels.shiftObserved) + "：</span>" + escapeHtml(item.mentalModelShift.observed) + "</div>"
+      : "";
 
     return (
       "<div class=\"quiet-card skill-insight-card\">" +
         "<div class=\"card-header\">" +
-          "<h3 class=\"card-title\">" + escapeHtml(item.title) + "</h3>" +
+          "<div class=\"card-title-group\">" +
+            "<span class=\"kami-badge scope-badge\">" + escapeHtml(item.scope) + "</span>" +
+            "<h3 class=\"card-title\">" + escapeHtml(item.title) + "</h3>" +
+          "</div>" +
           "<span class=\"kami-badge confidence-badge\">" + escapeHtml(item.confidence) + "</span>" +
         "</div>" +
         "<div class=\"card-body\">" +
-          "<p class=\"insight-claim\"><strong>" + escapeHtml(claimLabel) + "：</strong>" + escapeHtml(item.claim) + "</p>" +
+          shiftHtml +
+          "<p class=\"insight-observation\"><strong>" + escapeHtml(labels.skillInsightLabels.observation) + "：</strong>" + escapeHtml(item.observation) + "</p>" +
+          (item.contrast ? "<p class=\"insight-contrast\"><strong>" + escapeHtml(labels.skillInsightLabels.contrast) + "：</strong>" + escapeHtml(item.contrast) + "</p>" : "") +
           (evidenceItems ? "<div class=\"insight-evidence\">" + evidenceItems + "</div>" : "") +
-          "<p class=\"insight-interpretation\"><strong>" + escapeHtml(interpretationLabel) + "：</strong>" + escapeHtml(item.interpretation) + "</p>" +
-          "<p class=\"insight-action\"><strong>" + escapeHtml(actionLabel) + "：</strong>" + escapeHtml(item.action) + "</p>" +
+          "<p class=\"insight-interpretation\"><strong>" + escapeHtml(labels.skillInsightLabels.interpretation) + "：</strong>" + escapeHtml(item.interpretation) + "</p>" +
+          (item.conditionalMechanism ? "<p class=\"insight-mechanism\"><strong>" + escapeHtml(labels.skillInsightLabels.mechanism) + "：</strong>" + escapeHtml(item.conditionalMechanism) + "</p>" : "") +
+          (item.consequence ? "<p class=\"insight-action\"><strong>" + escapeHtml(labels.skillInsightLabels.consequence) + "：</strong>" + escapeHtml(item.consequence) + "</p>" : "") +
         "</div>" +
       "</div>"
     );

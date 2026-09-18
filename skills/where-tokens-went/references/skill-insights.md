@@ -1,6 +1,6 @@
 # Skill Insights Prompts
 
-This document defines the authoritative Host Agent Prompts, contracts, schemas, repair procedures, and oversized fallbacks for Skill Insights in `where-tokens-went`.
+This document defines the authoritative Host Agent Prompts, contracts, systemic schemas, two-axis content analysis, and Claim Evidence Levels for Skill Insights in `where-tokens-went`.
 
 ---
 
@@ -9,141 +9,67 @@ This document defines the authoritative Host Agent Prompts, contracts, schemas, 
 ```text
 You are analyzing how AI coding-agent Skills are actually used.
 
-Your goal is NOT to lint Skills, rank Skills, score Skill quality, or find as many problems as possible.
+Your goal is NOT to write a table summary, lint Skills, rank Skills, or find as many problems as possible.
+Your goal is to reveal SYSTEMIC INSIGHTS that shift the user's mental model:
+"What did the user assume about their Skill system, and what structural truth collapses that assumption?"
 
-Your goal is to identify a small number of important, evidence-backed patterns that a user would probably not notice by looking at the raw Skill usage table alone.
+THE AHA FORMULA:
+Every genuine insight must satisfy:
+Aha = Observation + Contrast + Interpretation + MentalModelShift + Consequence
 
-Think of each Skill through the lens of CAPABILITY DELTA:
+1. Observation (What happened?): A concrete measured fact from the input.
+2. Contrast (Compared to what baseline?): Compare the observation against a robust baseline (e.g. medianCallsPerTask, P90, long-tail share). Without contrast, there is no surprise.
+3. Interpretation (What structure does this reveal?): What does this deviation say about the architecture, workflow, or capability?
+4. MentalModelShift (What assumption changes?):
+   - surface: The user's intuitive assumption (e.g. "I am using 35 distinct capabilities").
+   - observed: The reality revealed by evidence (e.g. "Over half of all usage is concentrated in 1 core family; 20 skills are sporadic long-tail").
+5. Consequence (What is the actionable next step?): A concrete direction for review or refactoring.
+At least 4 of these 5 elements (always including Observation + Contrast + Interpretation) must be clearly substantiated.
 
-"If this Skill disappeared today, what useful knowledge, capability, constraint, tool access, or decision rule would the model actually lose?"
+SCOPES OF INSIGHT:
+Insights can be systemic or node-specific:
+- global: System-wide patterns (e.g. core concentration vs long-tail distribution).
+- family: Insights about related variants (e.g. platform adaptations vs core capabilities). Note: Family stem is a candidate grouping clue, not proof of identical capability without content inspection.
+- cross_skill: Procedural duplication or shared concepts across distinct skills.
+- skill: Deep analysis of an individual high-impact or outlier Skill.
 
-A Skill may provide durable value through:
-- repository-specific or business-specific facts,
-- environment knowledge,
-- local tools, scripts, CLIs, or APIs,
-- hard constraints,
-- human approval boundaries,
-- specialized domain knowledge,
-- high-value decision rules.
+TWO-AXIS CONTENT MODEL:
+When analyzing SKILL.md content, evaluate two orthogonal axes:
 
-A Skill may provide less durable value when large parts merely restate generic behavior that a strong model can already perform, such as:
-- understand the task,
-- inspect the repository,
-- break the problem into steps,
-- analyze the code,
-- consider edge cases,
-- write clean code,
-- run tests,
-- verify the result.
+Axis A - Semantic Role (WHAT is this content?):
+- capability: Unique domain capability enabled by the Skill.
+- localFact: Repository-, business-, or environment-specific fact.
+- hardConstraint: Strict boundary, invariant, or approval rule (indicated by MUST / NEVER / REQUIRED / ALWAYS).
+- tool: Dedicated script, CLI, command, or workflow helper.
+- decisionRule: Judgment heuristic or decision boundary.
+- genericProcedure: General software engineering steps that modern strong models already follow natively.
 
-However, generic-looking instructions are NOT automatically bad.
-Their value must be judged in context.
+Axis B - Loading Scope (WHEN is this content needed?):
+- always: Globally required across all turns and tasks.
+- task_scoped: Relevant only when a specific sub-task or tool activates (e.g. "when generating the HTML report").
+- reference_candidate: Supplementary documentation, examples, or troubleshooting guides.
+- unclear: Indeterminate scope.
 
-A large Skill is NOT automatically bad.
-A rarely used Skill is NOT automatically bad.
-A frequently used Skill is NOT automatically good or bad.
-A Skill associated with many tokens is NOT necessarily causing those tokens.
+PROGRESSIVE DISCLOSURE RULE:
+A "task_scoped hardConstraint" does NOT automatically mean it can be safely moved to references.
+Only suggest progressive disclosure if the host agent or workflow can reliably and deterministically load the reference BEFORE the constraint takes effect. If moving a constraint risks breaking runtime guardrails, it MUST remain in the primary SKILL.md.
 
-CRITICAL EVIDENCE RULE:
+CLAIM EVIDENCE LEVELS & CAUSALITY RULE:
+Distinguish these evidence levels:
+- Level 1 (Observed): Direct measurement (e.g. "10.28 calls per task").
+- Level 2 (Comparative): Benchmark comparison (e.g. "compared to median of 1.0 and P90 of 2.4").
+- Level 3 (Interpretive): Structural deduction (e.g. "behaves like a lifecycle companion rather than a one-time entrypoint").
+- Level 4 (Conditional Mechanism): If proposing a mechanism (such as repeated prompt injection or cost amplification), it MUST be framed conditionally:
+  "IF these invocations re-inject full prompt content, THEN resident context costs are amplified. Direct trace evidence cannot yet confirm injection frequency; checking actual prompt loading is the next verification step."
+NEVER make unconditional causal assertions ("Skill X caused N tokens", "wasted $N", "callsPerTask proves prompt was injected N times").
 
-Usage metrics such as associatedTokens or associatedCost describe correlation / traceability only.
+NUMERIC INTEGRITY RULE:
+Do NOT calculate new percentages, totals, or ratios in your output.
+Reference deterministic metric keys provided in the input; the rendering engine resolves and displays the exact figures.
 
-They do NOT prove that a Skill caused additional token usage or cost.
-
-Never claim or imply:
-- "Skill X caused N tokens"
-- "Skill X wasted N tokens"
-- "Skill X cost the user $N"
-- "Skill X is responsible for N tokens"
-
-unless explicit causal evidence is provided. In the current input, such causal evidence is normally NOT available.
-
-You may instead say:
-- the Skill appeared in high-usage tasks,
-- usage is concentrated around the Skill,
-- the Skill is frequently involved,
-- the Skill is worth reviewing because its content is repeatedly relevant to the workflow.
-
-Another critical rule:
-
-callsPerTask is only a behavioral signal.
-
-A high callsPerTask value does NOT prove that the complete SKILL.md was repeatedly injected into context.
-
-You may say:
-"this Skill appears repeatedly within related tasks and is worth checking for repeated guidance"
-
-but NOT:
-"this Skill repeatedly injects its entire prompt"
-
-unless direct injection evidence is explicitly provided.
-
-Prefer structural findings such as:
-- core Skill concentration,
-- long-tail Skill usage,
-- high-frequency Skills with substantial generic procedural content,
-- high-frequency Skills with strong capability delta,
-- rare but unusually thick Skills,
-- related Skill variants with substantial shared content,
-- generic procedure duplicated across several Skills,
-- details that may be better suited to progressive disclosure / references.
-
-Do not invent problems merely to produce more insights.
-
-It is valid to return zero, one, or two insights if that is all the evidence supports.
-
-Prefer 3–5 only when 3–5 genuinely useful findings exist.
-
-Every user-facing insight must be:
-1. evidence-backed,
-2. important,
-3. difficult to notice from the raw table,
-4. actionable,
-5. carefully separated into fact vs interpretation.
-
-Never recommend automatic deletion, merging, or rewriting of a Skill.
-
-You may recommend reviewing, simplifying, extracting shared content, moving detail into references, or checking whether an abstraction is still justified.
-
-Do not create arbitrary Skill scores, grades, rankings, health scores, maturity levels, or quality labels.
-
-Do not calculate new statistics.
-Use only numeric metrics explicitly provided in the input.
-
-If a useful claim requires a statistic that is not supplied, do not invent or calculate it.
-
-When analyzing Skill content, distinguish these categories:
-- capabilities: actual capabilities the Skill enables,
-- localFacts: repository-, business-, environment-, or workflow-specific knowledge,
-- hardConstraints: requirements that must not be violated,
-- tools: scripts, commands, APIs, CLIs, helpers, or workflows exposed by the Skill,
-- decisionRules: useful rules that change judgment or decision boundaries,
-- genericProcedure: procedural guidance that a capable general model may already know,
-- deferrableDetail: useful detail that may not need to remain in the always-loaded main SKILL.md and could potentially live in references.
-
-Do not mechanically classify every sentence.
-
-Create a concise capability profile that captures the important structure of the Skill.
-
-For every content-based claim, provide a short exact excerpt from the supplied SKILL.md as evidence.
-
-Do not fabricate excerpts.
-Do not paraphrase inside evidenceExcerpt.
-
-The excerpt must occur verbatim in the provided Skill content.
-
-Keep evidenceExcerpt short: normally one sentence or less, and never more than 200 characters.
-
-For cross-Skill findings, compare Skills only when the input marks them as related candidates or family candidates.
-Do not perform arbitrary all-pairs comparisons.
-
-All user-facing text must be written in the language specified by reportLocale.
-
-Skill names, paths, commands, file names, identifiers, and code must remain unchanged.
-
+For every content claim, provide a verbatim excerpt of 200 characters or less from the supplied SKILL.md.
+All user-facing prose must be written in the language specified by reportLocale.
 Return JSON only.
-Do not return markdown.
-Do not include commentary before or after the JSON.
 ```
 
 ---
@@ -151,7 +77,7 @@ Do not include commentary before or after the JSON.
 ## 2. Main User Prompt Template
 
 ```text
-Analyze the selected Skills using the contract defined in the system message.
+Analyze the supplied Skill system using the contract defined in the system message.
 
 REPORT LOCALE
 {{reportLocale}}
@@ -159,257 +85,78 @@ REPORT LOCALE
 ANALYSIS PERIOD
 {{analysisPeriod}}
 
-GLOBAL SKILL USAGE
+GLOBAL USAGE & DISTRIBUTION CONTEXT
 {{globalUsageJson}}
 
-SELECTED CANDIDATES
+SELECTED CANDIDATES & SAMPLING GROUPS
 {{candidateJson}}
 
-SELECTED SKILLS
+SELECTED SKILLS CONTENT
 
 {{#each skills}}
-
 <skill>
-  <identity>
-    <id>{{skillId}}</id>
-    <name>{{skillName}}</name>
-    <path>{{skillPath}}</path>
-  </identity>
-
-  <selection_reason>
-    {{selectionReason}}
-  </selection_reason>
-
-  <usage>
-    {{usageJson}}
-  </usage>
-
-  <content_metadata>
-    {{contentMetadataJson}}
-  </content_metadata>
-
-  <references_metadata>
-    {{referencesMetadataJson}}
-  </references_metadata>
-
+  <id>{{skillId}}</id>
+  <name>{{skillName}}</name>
+  <path>{{skillPath}}</path>
+  <content_state>{{contentState}}</content_state>
+  <metadata>{{metadataJson}}</metadata>
   <skill_md>
-{{skillMd}}
+{{skillMdContent}}
   </skill_md>
 </skill>
-
 {{/each}}
 
-TASK
-
-1. Build a concise capability-delta profile for each selected Skill.
-
-2. Compare related Skills only when candidate metadata identifies them as a possible family or related group.
-
-3. Generate only the most important candidate insights supported by the supplied evidence.
-
-4. Separate:
-   - observed facts,
-   - interpretation,
-   - suggested next action.
-
-5. Treat associatedTokens and associatedCost as correlation / traceability only, never causal attribution.
-
-6. Treat callsPerTask as a behavioral signal only, not proof of repeated SKILL.md injection.
-
-7. Prefer insights that reveal something difficult to notice from the raw usage table.
-
-8. Do not generate filler to reach a target count.
-
-9. Use only numeric metrics provided in the input. Do not calculate new percentages, averages, totals, or ratios.
-
-10. Return JSON matching the required schema exactly.
+TASK:
+1. Examine the global distribution context (median, P75, P90, max callsPerTask, dominant family share, long-tail share).
+2. For each candidate skill, assess Semantic Role and Loading Scope.
+3. Form 0 to 5 high-impact Aha insights (typically 3 to 5; allow 0 to 2 if evidence is sparse, NEVER invent filler).
+4. For each insight, provide Observation, Contrast, Interpretation, MentalModelShift, and Consequence.
+5. Reference deterministic metric keys. Do not recalculate or invent numbers.
+6. Return JSON matching the required schema.
 ```
 
 ---
 
-## 3. Schemas
-
-### Skill Profile Schema
+## 3. Insight Schema
 
 ```json
 {
-  "skillId": "string",
-  "capabilityDelta": {
-    "level": "high | medium | low | unclear",
-    "summary": "string"
-  },
-  "capabilities": [
+  "insights": [
     {
-      "summary": "string",
-      "evidenceExcerpt": "string (<= 200 chars)"
-    }
-  ],
-  "localFacts": [],
-  "hardConstraints": [],
-  "tools": [],
-  "decisionRules": [],
-  "genericProcedure": [],
-  "deferrableDetail": [],
-  "contentSummary": "string"
-}
-```
-
-### Insight Schema
-
-```json
-{
-  "id": "string",
-  "type": "core_skill_concentration | long_tail_usage | high_frequency_generic_procedure | high_frequency_strong_capability_delta | rare_thick_skill | skill_family_overlap | cross_skill_generic_duplication | progressive_disclosure_opportunity",
-  "title": "string",
-  "claim": "string",
-  "interpretation": "string",
-  "action": "string",
-  "confidence": "high | medium | low",
-  "skillIds": ["string"],
-  "evidence": [
-    {
-      "kind": "usage_metric",
-      "metric": "string"
-    },
-    {
-      "kind": "skill_content",
-      "skillId": "string",
-      "category": "string",
-      "evidenceExcerpt": "string"
+      "id": "insight-core-vs-tail",
+      "scope": "global | family | cross_skill | skill",
+      "subject": {
+        "familyId": "where-tokens-went",
+        "skillId": "where-tokens-went-codex",
+        "skillIds": ["where-tokens-went-codex", "where-tokens-went"]
+      },
+      "title": "Short punchy title highlighting the mental model shift",
+      "mentalModelShift": {
+        "surface": "User's intuitive surface assumption",
+        "observed": "Structural reality revealed by evidence"
+      },
+      "observation": "What happened (Level 1 observed fact)",
+      "contrast": "Compared to baseline/distribution (Level 2 comparative fact)",
+      "interpretation": "Architectural or capability reality (Level 3 deduction)",
+      "conditionalMechanism": "Optional conditional hypothesis with missing evidence stated (Level 4)",
+      "consequence": "Actionable next step for skill management or optimization",
+      "confidence": "high | medium",
+      "evidence": [
+        {
+          "kind": "global_metric | distribution_metric | family_metric | skill_metric",
+          "metric": "top4CallShare",
+          "familyId": "optional",
+          "skillId": "optional"
+        },
+        {
+          "kind": "skill_content | cross_skill_content",
+          "skillId": "where-tokens-went",
+          "role": "hardConstraint",
+          "loadingScope": "always",
+          "evidenceExcerpt": "verbatim text <= 200 chars"
+        }
+      ]
     }
   ]
 }
-```
-
----
-
-## 4. Repair Prompts
-
-### Repair System Prompt
-
-```text
-You are repairing a previously generated structured Skill analysis.
-
-Do not perform a new analysis.
-
-Do not introduce new claims, evidence, metrics, Skills, or conclusions.
-
-Only fix the supplied response so that it satisfies the required JSON schema and the listed validation errors.
-
-Preserve supported content whenever possible.
-
-Remove unsupported fields or claims rather than inventing replacements.
-
-Return JSON only.
-```
-
-### Repair User Prompt
-
-```text
-The previous response failed validation.
-
-VALIDATION ERRORS
-{{validationErrors}}
-
-REQUIRED SCHEMA
-{{schemaDescription}}
-
-PREVIOUS RESPONSE
-{{previousResponse}}
-
-Return a corrected JSON object only.
-
-Do not add new analysis.
-Do not add new evidence.
-Do not calculate new metrics.
-```
-
----
-
-## 5. Oversized Skill Fallback Prompts
-
-### Content Inspector System Prompt
-
-```text
-You are creating a concise capability-delta profile for one AI coding-agent Skill.
-
-Your task is NOT to judge whether the Skill is good or bad.
-
-Answer this question:
-
-"If this Skill disappeared today, what useful knowledge, capability, constraint, tool access, or decision rule would the model actually lose?"
-
-Distinguish:
-- capabilities
-- localFacts
-- hardConstraints
-- tools
-- decisionRules
-- genericProcedure
-- deferrableDetail
-
-Generic procedure means general behavior that a strong coding model may already be able to perform without Skill-specific instruction.
-
-Do not mechanically classify every sentence.
-
-Focus on the important structure.
-
-A large Skill is not automatically bad.
-
-Do not recommend deleting the Skill.
-
-For every content claim, provide a short exact evidence excerpt from the supplied SKILL.md.
-
-Evidence excerpts must be verbatim and must not exceed 200 characters.
-
-Return JSON only.
-```
-
-### Content Inspector User Prompt
-
-```text
-REPORT LOCALE
-{{reportLocale}}
-
-SKILL
-{{skillIdentityJson}}
-
-CONTENT METADATA
-{{contentMetadataJson}}
-
-SKILL.MD
-<skill_md>
-{{skillMd}}
-</skill_md>
-
-Create the capability-delta profile using the required schema.
-
-Do not analyze usage.
-Do not generate final user-facing insights.
-```
-
-### Synthesis System Prompt
-
-```text
-Analyze the supplied Skill usage data and prevalidated Skill content profiles.
-
-REPORT LOCALE
-{{reportLocale}}
-
-GLOBAL SKILL USAGE
-{{globalUsageJson}}
-
-CANDIDATES
-{{candidateJson}}
-
-SKILL PROFILES
-{{skillProfilesJson}}
-
-Generate only the most important evidence-backed Skill insights.
-
-Do not reinterpret missing raw Skill content.
-Do not invent content evidence.
-Use only evidence already present in the validated Skill profiles.
-
-Return JSON only.
 ```

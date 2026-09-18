@@ -14,16 +14,21 @@ test('renderHtml renders skill insights cards when present in composition', () =
     skillInsights: [
       {
         id: 'insight-alpha',
-        type: 'high_frequency_strong_capability_delta',
+        scope: 'skill',
+        subject: { skillId: 'core-skill' },
         title: '核心指导提供关键环境约束',
-        claim: '该 Skill 涉及约 50% 的用量，提供了强制的环境一致性检查。',
+        mentalModelShift: {
+          surface: '这只是一个普通辅助工具',
+          observed: '它实际上提供了不可缺失的前置环境约束'
+        },
+        observation: '该 Skill 涉及约 50% 的用量，提供了强制的环境一致性检查。',
+        contrast: '全系统中位数为 1.0 calls/task，该 Skill 显著高于基准。',
         interpretation: '若缺失此类约束，模型易产生无边界的文件变更。',
-        action: '建议作为核心规则保留。',
+        consequence: '建议作为核心规则保留。',
         confidence: 'high',
-        skillIds: ['core-skill'],
         evidence: [
-          { kind: 'usage_metric', metric: 'callShare', value: 0.5 },
-          { kind: 'skill_content', skillId: 'core-skill', category: 'hardConstraints', evidenceExcerpt: 'Always check git status before editing.' }
+          { kind: 'skill_metric', metric: 'callShare', value: 0.5 },
+          { kind: 'skill_content', skillId: 'core-skill', role: 'hardConstraint', loadingScope: 'always', evidenceExcerpt: 'Always check git status before editing.' }
         ]
       }
     ]
@@ -136,16 +141,21 @@ test('report-run compose integrates validated skill insights into HTML report', 
       skillInsights: [
         {
           id: 'test-insight-1',
-          type: 'high_frequency_strong_capability_delta',
+          scope: 'skill',
+          subject: { skillId: 'verified-skill' },
           title: '执行策略具备强硬约束',
-          claim: '该 Skill 提供了明确的执行前置审批要求。',
+          mentalModelShift: {
+            surface: '普通编码流程',
+            observed: '执行策略具备严格前置审批硬约束'
+          },
+          observation: '该 Skill 提供了明确的执行前置审批要求。',
+          contrast: '相比于普通任务入口，该约束在执行前必须常驻生效。',
           interpretation: '若缺失此类约束，环境可能发生未经审核的高危操作。',
-          action: '建议作为核心硬约束保留。',
+          consequence: '建议作为核心硬约束保留。',
           confidence: 'high',
-          skillIds: ['verified-skill'],
           evidence: [
-            { kind: 'usage_metric', metric: 'calls' },
-            { kind: 'skill_content', skillId: 'verified-skill', category: 'hardConstraints', evidenceExcerpt: 'Execution policy requires explicit approval.' }
+            { kind: 'skill_metric', metric: 'calls' },
+            { kind: 'skill_content', skillId: 'verified-skill', role: 'hardConstraint', loadingScope: 'always', evidenceExcerpt: 'Execution policy requires explicit approval.' }
           ]
         }
       ]

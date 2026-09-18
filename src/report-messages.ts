@@ -321,8 +321,14 @@ export interface ReportMessages {
   skillInsightsTitle: string;
   skillInsightsNote: string;
   skillInsightLabels: {
-    claim: string;
+    observation: string;
+    contrast: string;
     interpretation: string;
+    consequence: string;
+    mechanism: string;
+    shiftSurface: string;
+    shiftObserved: string;
+    claim: string;
     action: string;
     evidence: string;
   };
@@ -702,8 +708,14 @@ const EN: ReportMessages = {
   skillInsightsTitle: "Skill Insights",
   skillInsightsNote: "Evidence-backed patterns derived from usage and selected SKILL.md content; focused on capability delta and workflow core.",
   skillInsightLabels: {
-    claim: "Core Finding",
+    observation: "Observation",
+    contrast: "Contrast Baseline",
     interpretation: "Why It Matters",
+    consequence: "Suggested Action",
+    mechanism: "Conditional Mechanism",
+    shiftSurface: "Surface Assumption",
+    shiftObserved: "Observed Reality",
+    claim: "Core Finding",
     action: "Suggested Action",
     evidence: "Key Evidence",
   },
@@ -1075,8 +1087,14 @@ const ZH: ReportMessages = {
   skillInsightsTitle: "Skill 洞察",
   skillInsightsNote: "结合 Skill 使用数据与选定 SKILL.md 内容生成的模式解读；重点关注能力增量与工作流核心。",
   skillInsightLabels: {
-    claim: "核心发现",
+    observation: "核心观察",
+    contrast: "基准对照",
     interpretation: "为什么重要",
+    consequence: "建议检查方向",
+    mechanism: "机制假设",
+    shiftSurface: "表面认知",
+    shiftObserved: "实际数据",
+    claim: "核心发现",
     action: "建议检查方向",
     evidence: "关键证据",
   },

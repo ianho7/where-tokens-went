@@ -185,3 +185,12 @@ details > .kami-table{margin-top:16px}
 .skill-insight-card .insight-evidence{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0}
 .skill-insight-card .metric-badge{font-family:var(--mono);font-size:12px;padding:2px 6px;border-radius:4px;background:var(--inline-code);color:var(--brand-light)}
 .skill-insight-card .skill-excerpt{margin:4px 0;padding:4px 10px;border-left:2px solid var(--brand-light);background:var(--inline-code);font-style:italic;font-size:13px;color:var(--dark-warm)}
+
+.card-title-group{display:flex;align-items:baseline;gap:8px}
+.scope-badge{font-size:10px;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:var(--inline-code);color:var(--brand)}
+.insight-shift{background:var(--parchment);padding:10px 14px;border-radius:6px;font-size:13px;line-height:1.45;margin-bottom:8px;border-left:3px solid var(--brand)}
+.shift-tag{color:var(--stone);font-weight:500}
+.shift-tag--highlight{color:var(--brand);font-weight:600}
+.excerpt-tags{display:inline-block;margin-left:6px;font-size:11px;color:var(--stone)}
+.insight-contrast strong{color:var(--stone)}
+.insight-mechanism strong{color:var(--brand-light)}

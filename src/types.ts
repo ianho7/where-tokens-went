@@ -643,34 +643,62 @@ export interface SkillSnapshotArtifact {
   selectedSkills: SkillContentSnapshot[];
 }
 
-export type SkillInsightType =
-  | "core_skill_concentration"
-  | "long_tail_usage"
-  | "high_frequency_generic_procedure"
-  | "high_frequency_strong_capability_delta"
-  | "rare_thick_skill"
-  | "skill_family_overlap"
-  | "cross_skill_generic_duplication"
-  | "progressive_disclosure_opportunity";
+export type SkillInsightScope = "global" | "family" | "cross_skill" | "skill";
+
+export type SkillSemanticRole =
+  | "capability"
+  | "localFact"
+  | "hardConstraint"
+  | "tool"
+  | "decisionRule"
+  | "genericProcedure";
+
+export type SkillLoadingScope =
+  | "always"
+  | "task_scoped"
+  | "reference_candidate"
+  | "unclear";
+
+export type SkillInsightEvidenceKind =
+  | "global_metric"
+  | "distribution_metric"
+  | "family_metric"
+  | "skill_metric"
+  | "skill_content"
+  | "cross_skill_content";
 
 export interface SkillInsightEvidence {
-  kind: "usage_metric" | "skill_content";
+  kind: SkillInsightEvidenceKind;
   metric?: string;
   value?: number | string;
   skillId?: string;
-  category?: string;
+  familyId?: string;
+  role?: SkillSemanticRole;
+  loadingScope?: SkillLoadingScope;
   evidenceExcerpt?: string;
+}
+
+export interface MentalModelShift {
+  surface: string;
+  observed: string;
 }
 
 export interface ValidatedSkillInsight {
   id: string;
-  type: SkillInsightType;
+  scope: SkillInsightScope;
+  subject?: {
+    familyId?: string;
+    skillId?: string;
+    skillIds?: string[];
+  };
   title: string;
-  claim: string;
+  mentalModelShift?: MentalModelShift;
+  observation: string;
+  contrast: string;
   interpretation: string;
-  action: string;
+  conditionalMechanism?: string | null;
+  consequence?: string | null;
   confidence: "high" | "medium";
-  skillIds: string[];
   evidence: SkillInsightEvidence[];
 }
 

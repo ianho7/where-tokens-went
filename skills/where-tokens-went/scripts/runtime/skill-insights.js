@@ -395,45 +395,28 @@ function calculateSkillSnapshotBudget(snapshot) {
         isOversized: total > exports.SKILL_CONTENT_BUDGET_TOKENS,
     };
 }
-const CAUSAL_REGEX = /\b(cause|caused|causing|causes|responsible for|waste|wasted|wasting|cost you)\b|导致|造成|浪费|花掉了|因为这个\s*Skill\s*消耗/i;
-const REPEATED_INJECTION_REGEX = /repeatedly inject|重复注入|完整.*注入/i;
-const ALLOWED_INSIGHT_TYPES = new Set([
-    "core_skill_concentration",
-    "long_tail_usage",
-    "high_frequency_generic_procedure",
-    "high_frequency_strong_capability_delta",
-    "rare_thick_skill",
-    "skill_family_overlap",
-    "cross_skill_generic_duplication",
-    "progressive_disclosure_opportunity",
-]);
-const ALLOWED_METRICS = new Set([
-    "totalSkillsUsed",
-    "totalSkillCalls",
-    "totalTasks",
-    "topSkillCallShare",
-    "topSkillCountForShare",
-    "lowFrequencyThreshold",
-    "lowFrequencySkillCount",
-    "lowFrequencyCallShare",
-    "singleUseSkillCount",
-    "calls",
-    "tasks",
-    "callShare",
-    "callsPerTask",
-    "taskCoverage",
-    "rankByCalls",
-    "rankByTasks",
-    "associatedTokens",
-    "associatedCost",
-    "skillMdBytes",
-    "skillMdEstimatedTokens",
-    "referenceCount",
-    "referenceBytes",
-]);
+const UNCONDITIONAL_CAUSAL_REGEX = /\b(cause|caused|causing|causes|responsible for|waste|wasted|cost you)\b|导致了|造成了|浪费了|花掉了|因为这个\s*Skill\s*消耗/i;
+const CONDITIONAL_INDICATOR_REGEX = /\b(if|assuming|hypothesis|potential|whether)\b|如果|若|假设|视乎|是否/i;
+const UNCONFIRMED_INDICATOR_REGEX = /\b(cannot confirm|unconfirmed|missing trace|cannot prove|unverified)\b|当前缺少|尚未证实|尚无法确认|不能证明/i;
+const REPEATED_INJECTION_ASSERTION_REGEX = /证明(?:完整)?(?:SKILL\.md|Prompt)被重复注入|proves (?:that )?(?:the )?(?:entire |full )?prompt was repeatedly injected/i;
 function normalizeText(text) {
     return text.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();
 }
+const ALLOWED_SCOPES = new Set(["global", "family", "cross_skill", "skill"]);
+const ALLOWED_ROLES = new Set([
+    "capability",
+    "localFact",
+    "hardConstraint",
+    "tool",
+    "decisionRule",
+    "genericProcedure",
+]);
+const ALLOWED_LOADING_SCOPES = new Set([
+    "always",
+    "task_scoped",
+    "reference_candidate",
+    "unclear",
+]);
 function validateSkillInsights(raw, snapshot, globalUsage) {
     const errors = [];
     let unsupportedClaimsDropped = 0;
@@ -463,6 +446,13 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
         snapshotSkillsMap.set(s.skillId, s);
         snapshotSkillsMap.set(s.skillName, s);
     }
+    const candidateMap = new Map();
+    for (const c of snapshot.selectedCandidates || []) {
+        candidateMap.set(c.skillId, c);
+        candidateMap.set(c.skillName, c);
+    }
+    const activeGlobal = snapshot.globalUsage || globalUsage;
+    const activeDist = snapshot.distributionContext || activeGlobal?.callsPerTaskDistribution;
     const acceptedInsights = [];
     for (const item of rawList) {
         if (!item || typeof item !== "object") {
@@ -471,40 +461,57 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
         }
         const c = item;
         const id = typeof c.id === "string" ? c.id.trim() : "";
-        const type = c.type;
+        const scope = (typeof c.scope === "string" ? c.scope.trim() : "skill");
         const title = typeof c.title === "string" ? c.title.trim() : "";
-        const claim = typeof c.claim === "string" ? c.claim.trim() : "";
+        // Core 5 elements
+        const observation = typeof c.observation === "string" ? c.observation.trim() : (typeof c.claim === "string" ? c.claim.trim() : "");
+        const contrast = typeof c.contrast === "string" ? c.contrast.trim() : "";
         const interpretation = typeof c.interpretation === "string" ? c.interpretation.trim() : "";
-        const action = typeof c.action === "string" ? c.action.trim() : "";
+        const consequence = typeof c.consequence === "string" ? c.consequence.trim() : (typeof c.action === "string" ? c.action.trim() : null);
+        const conditionalMechanism = typeof c.conditionalMechanism === "string" ? c.conditionalMechanism.trim() : null;
+        let mentalModelShift = undefined;
+        if (c.mentalModelShift && typeof c.mentalModelShift === "object") {
+            const ms = c.mentalModelShift;
+            if (typeof ms.surface === "string" && typeof ms.observed === "string" && ms.surface.trim() && ms.observed.trim()) {
+                mentalModelShift = { surface: ms.surface.trim(), observed: ms.observed.trim() };
+            }
+        }
         const confidence = typeof c.confidence === "string" ? c.confidence.toLowerCase().trim() : "";
-        const skillIds = Array.isArray(c.skillIds)
-            ? c.skillIds.filter((id) => typeof id === "string")
-            : [];
         const rawEvidence = Array.isArray(c.evidence) ? c.evidence : [];
-        if (!id || !title || !claim || !interpretation || !action) {
-            errors.push(`Insight ${id || "unnamed"} missing required prose fields.`);
+        // Validation of mandatory fields: Observation + Contrast + Interpretation
+        if (!id || !title || !observation || !contrast || !interpretation) {
+            errors.push(`Insight ${id || "unnamed"} missing required core prose (observation, contrast, or interpretation).`);
             unsupportedClaimsDropped++;
             continue;
         }
-        if (!ALLOWED_INSIGHT_TYPES.has(type)) {
-            errors.push(`Insight ${id} has invalid type: ${type}`);
+        // Must have at least one of MentalModelShift or Consequence
+        if (!mentalModelShift && !consequence) {
+            errors.push(`Insight ${id} must have at least one of mentalModelShift or consequence.`);
             unsupportedClaimsDropped++;
             continue;
         }
-        // Causal wording check
-        const fullText = [title, claim, interpretation, action].join(" ");
-        if (CAUSAL_REGEX.test(fullText)) {
-            errors.push(`Insight ${id} rejected: contains forbidden causal wording.`);
+        if (!ALLOWED_SCOPES.has(scope)) {
+            errors.push(`Insight ${id} has invalid scope: ${scope}`);
             unsupportedClaimsDropped++;
             continue;
         }
-        // Repeated prompt injection check
-        if (REPEATED_INJECTION_REGEX.test(fullText)) {
-            errors.push(`Insight ${id} rejected: falsely claims repeated prompt injection.`);
+        // Fake injection check
+        const fullText = [title, observation, contrast, interpretation, consequence ?? "", conditionalMechanism ?? ""].join(" ");
+        if (REPEATED_INJECTION_ASSERTION_REGEX.test(fullText)) {
+            errors.push(`Insight ${id} rejected: asserts prompt injection without trace evidence.`);
             unsupportedClaimsDropped++;
             continue;
         }
-        // Confidence filtering: drop low confidence
+        // Unconditional causality check (Level 4 discipline)
+        if (UNCONDITIONAL_CAUSAL_REGEX.test(fullText)) {
+            const isConditional = CONDITIONAL_INDICATOR_REGEX.test(fullText) && UNCONFIRMED_INDICATOR_REGEX.test(fullText);
+            if (!isConditional) {
+                errors.push(`Insight ${id} rejected: contains unconditional causal assertion.`);
+                unsupportedClaimsDropped++;
+                continue;
+            }
+        }
+        // Confidence filter: drop low
         if (confidence === "low") {
             unsupportedClaimsDropped++;
             continue;
@@ -514,51 +521,93 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
             unsupportedClaimsDropped++;
             continue;
         }
-        // Family overlap check
-        if (type === "skill_family_overlap" && skillIds.length < 2) {
-            errors.push(`Insight ${id} of type skill_family_overlap requires at least 2 skillIds.`);
-            unsupportedClaimsDropped++;
-            continue;
+        // Subject resolution
+        let subject = undefined;
+        if (c.subject && typeof c.subject === "object") {
+            const subj = c.subject;
+            subject = {
+                familyId: typeof subj.familyId === "string" ? subj.familyId.trim() : undefined,
+                skillId: typeof subj.skillId === "string" ? subj.skillId.trim() : undefined,
+                skillIds: Array.isArray(subj.skillIds) ? subj.skillIds.filter((x) => typeof x === "string") : undefined,
+            };
         }
-        // Evidence validation
+        else if (Array.isArray(c.skillIds)) {
+            subject = { skillIds: c.skillIds.filter((x) => typeof x === "string") };
+        }
+        // Evidence validation and deterministic metric lookup
         const validEvidence = [];
-        let hasValidContentEvidence = false;
         for (const ev of rawEvidence) {
             if (!ev || typeof ev !== "object")
                 continue;
             const evObj = ev;
             const kind = evObj.kind;
-            if (kind === "usage_metric") {
+            if (kind === "global_metric") {
                 const metric = typeof evObj.metric === "string" ? evObj.metric.trim() : "";
-                if (ALLOWED_METRICS.has(metric)) {
+                if (activeGlobal && metric in activeGlobal) {
+                    const val = activeGlobal[metric];
                     validEvidence.push({
-                        kind: "usage_metric",
+                        kind,
                         metric,
-                        value: typeof evObj.value === "number" || typeof evObj.value === "string" ? evObj.value : undefined,
+                        value: typeof val === "number" || typeof val === "string" ? val : undefined,
                     });
                 }
             }
-            else if (kind === "skill_content") {
-                const skillId = typeof evObj.skillId === "string" ? evObj.skillId.trim() : "";
+            else if (kind === "distribution_metric") {
+                const metric = typeof evObj.metric === "string" ? evObj.metric.trim() : "";
+                if (activeDist && metric in activeDist) {
+                    const val = activeDist[metric];
+                    validEvidence.push({
+                        kind,
+                        metric,
+                        value: typeof val === "number" || typeof val === "string" ? val : undefined,
+                    });
+                }
+            }
+            else if (kind === "family_metric") {
+                const metric = typeof evObj.metric === "string" ? evObj.metric.trim() : "";
+                const domFam = activeGlobal?.dominantFamily;
+                if (domFam && (metric === "callShare" || metric === "dominantFamilyCallShare" || metric === "memberCount")) {
+                    const val = metric === "memberCount" ? domFam.memberSkillIds.length : domFam.callShare;
+                    validEvidence.push({
+                        kind,
+                        metric,
+                        familyId: domFam.groupId,
+                        value: val,
+                    });
+                }
+            }
+            else if (kind === "skill_metric" || kind === "usage_metric") {
+                const metric = typeof evObj.metric === "string" ? evObj.metric.trim() : "";
+                const skillId = typeof evObj.skillId === "string" ? evObj.skillId.trim() : (subject?.skillId || "");
+                const cand = candidateMap.get(skillId);
+                const sigVal = cand?.signals ? cand.signals[metric] : undefined;
+                validEvidence.push({
+                    kind: "skill_metric",
+                    metric,
+                    skillId: skillId || undefined,
+                    value: typeof sigVal === "number" || typeof sigVal === "string" ? sigVal : undefined,
+                });
+            }
+            else if (kind === "skill_content" || kind === "cross_skill_content") {
+                const skillId = typeof evObj.skillId === "string" ? evObj.skillId.trim() : (subject?.skillId || "");
                 const excerpt = typeof evObj.evidenceExcerpt === "string" ? evObj.evidenceExcerpt.trim() : "";
-                const category = typeof evObj.category === "string" ? evObj.category.trim() : undefined;
-                if (!skillId || !excerpt || excerpt.length > 200) {
+                const role = typeof evObj.role === "string" && ALLOWED_ROLES.has(evObj.role) ? evObj.role : undefined;
+                const loadingScope = typeof evObj.loadingScope === "string" && ALLOWED_LOADING_SCOPES.has(evObj.loadingScope) ? evObj.loadingScope : undefined;
+                if (!skillId || !excerpt || excerpt.length > 200)
                     continue;
-                }
                 const skillSnapshot = snapshotSkillsMap.get(skillId);
-                if (!skillSnapshot || skillSnapshot.contentState !== "available" || !skillSnapshot.skillMdContent) {
+                if (!skillSnapshot || skillSnapshot.contentState !== "available" || !skillSnapshot.skillMdContent)
                     continue;
-                }
                 const normalizedDoc = normalizeText(skillSnapshot.skillMdContent);
                 const normalizedExcerpt = normalizeText(excerpt);
                 if (normalizedDoc.includes(normalizedExcerpt)) {
                     validEvidence.push({
-                        kind: "skill_content",
+                        kind,
                         skillId,
-                        category,
+                        role,
+                        loadingScope,
                         evidenceExcerpt: excerpt,
                     });
-                    hasValidContentEvidence = true;
                 }
             }
         }
@@ -567,35 +616,25 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
             unsupportedClaimsDropped++;
             continue;
         }
-        // Types that require content analysis must have at least one valid content evidence
-        const requiresContent = [
-            "high_frequency_generic_procedure",
-            "high_frequency_strong_capability_delta",
-            "rare_thick_skill",
-            "cross_skill_generic_duplication",
-            "progressive_disclosure_opportunity",
-        ].includes(type);
-        if (requiresContent && !hasValidContentEvidence) {
-            errors.push(`Insight ${id} rejected: requires verified skill_content excerpt.`);
-            unsupportedClaimsDropped++;
-            continue;
-        }
         acceptedInsights.push({
             id,
-            type,
+            scope,
+            subject,
             title,
-            claim,
+            mentalModelShift,
+            observation,
+            contrast,
             interpretation,
-            action,
+            conditionalMechanism,
+            consequence,
             confidence: confidence,
-            skillIds,
             evidence: validEvidence,
         });
     }
-    // Deduplicate by type and primary skillId
+    // Deduplicate by scope + title
     const dedupedMap = new Map();
     for (const item of acceptedInsights) {
-        const key = item.type + ":" + (item.skillIds[0] || "global");
+        const key = item.scope + ":" + item.title;
         const existing = dedupedMap.get(key);
         if (!existing || (existing.confidence === "medium" && item.confidence === "high")) {
             dedupedMap.set(key, item);
