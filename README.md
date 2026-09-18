@@ -57,3 +57,11 @@ $where-tokens-went
 - `skills/where-tokens-went/references/`：运行时参考 Prompt
 - `skills/where-tokens-went/.claude-plugin/`：Claude Code 插件清单
 - `skills/where-tokens-went/.codex-plugin/`：Codex 插件清单
+
+## 开发与贡献
+
+- 唯一真理源 (Source of Truth)：业务源码位于 `src/`，Prompt 位于 `prompts/`。
+- 构建并同步分发包：`npm run package-skills`（自动将 `src/` 与 `prompts/` 编译同步至 `skills/where-tokens-went/`）。
+- 运行测试：`npm test`
+- 校验一致性：`npm run verify-sync`（确认分发包与源码完全一致无遗漏）。
+- 私人开发资料：handoff、临时 spec、草稿等由 `.gitignore` 严格隔离在本地，请勿提交。

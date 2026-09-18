@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+
+const { main } = require('../dist/src/cli.js');
+
+void main().then((code) => {
+  process.exitCode = code;
+});

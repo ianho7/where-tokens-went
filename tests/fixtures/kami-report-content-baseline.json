@@ -1,0 +1,2696 @@
+{
+  "en-US": {
+    "visibleText": "09.08 PROJECT DIAGNOSTIC project diagnostic report AI overview unavailable 1K As of 2026.09.08 2 tasks 3 model calls 0% cache-read rate 0% priced Usage coverage 01 · Orient Primary answer Largest Token destination Large 990 tokens share: 99% Supported mechanism No specific mechanism is supported by the available task and round evidence. Usage scope Harness codex Usage scope current project since 2026.09.01 08:00 Data completeness files 1 records 4 skipped 0 partial tasks 0 coverage warnings 0 History parsed without coverage warnings. Estimated values are for reference only and do not represent an actual bill; “—” means data is unavailable. 02 · Diagnose Findings A direct explanation was unavailable or could not be verified; the following deterministic checks are shown as fallback evidence. The report remains usable, but this section is limited to deterministic evidence. Warning One task accounts for 99% of observed tokens 2 model-call records; 990 observed tokens. Method: The largest complete task accounts for at least 40% with at least two model-call records. Notice 990 accounts for 99% of observed tokens 2 model-call records. Method: The largest complete model contribution accounts for at least 60% when more than one model is observed. Pass History parsed without coverage warnings 4 records from 1 files; no skipped or partial tasks. Method: At least one record was observed with no skipped records, partial task records, or warnings. Cache economics Cache efficiency cache-read rate 0% cache-write rate 0% cache composition coverage 100% priced Usage coverage 0% Cost impact observed API-equivalent cost — all-uncached counterfactual cost — estimated cache savings — estimated cache savings percentage — Cache ratios sum mutually exclusive Token buckets before division; currency is an API-equivalent estimate, not a subscription bill. Method: Cache-read Token total divided by its denominator and rounded to two decimals; Currency requires at least one selected model call with an exact source/model match and compatible non-zero price dimensions. Amounts use only usage with an exact price match; some models remain unmatched, so the estimate may understate the cost of the full observed usage. First-request burden median first request (Tokens) 455 first-request Usage share 91% first-request coverage 100% first-request composition coverage 100% cold first-request rate 100% task identity coverage 0% This is the observed burden in Tokens of each task's earliest valid request, not an exact decomposable startup tax. Comparing top-level and subagent task groups requires source-proven identity for every selected task. First-request usage is an observed earliest request size, not an exact removable startup cost. Skill evidence The selected history has no verifiable Skill listing, invocation, or resource-use evidence. 03 · Patterns Time distribution Daily token trend Each curve and hover value is the raw Token value of that component; components are not stacked. date total tokens share ordinary input cached input cache write output unclassified remainder 2026.09.08 1K 100% 970 0 0 30 0 Hourly activity heatmap Cell color reflects observed Tokens in each local hour; hover to inspect Tokens, model calls, audit share, and average Tokens per call. View hourly details ↓ Local time tokens calls share 2026.09.08 16:00 1K 3 100% Locally observed rolling activity Local observation This is activity observed in local history, not Provider quota. <rolling-window> calls 0 Latest 5h tokens 0 Highest rolling 5h in selected range 1K Model distribution model tokens share calls gpt-4.1 990 99% 2 other-model 10 1% 1 Tool context impact The injected estimate is the tool-result size added to context; the carry-forward estimate is an uncapped exposure heuristic for how much it may be carried by later calls in the same active context. It is not a bill, actual new Token usage, or additive to total tokens. Tool calls paired results injected estimate carry-forward estimate (uncapped) share read 1 1 about 10 about 0 — Largest tasks by Token use task tokens share calls Large (large) 990 99% 2 Small (small) 10 1% 1 04 · Trace Usage diagnosis · codex Key task analysis Enter one task from the Token ranking and follow concentration, process events, and real user messages by round. Local full HTML Tooltips may include the complete first user message for displayed rounds; share, JSON, and text outputs exclude Prompts. Unavailable Large large · 0 rounds open by default Key task analysis unavailable: The task explanation could not be verified. TOKEN rank 01 of 02 · Current task Large A task explanation is unavailable; the deterministic trajectory remains. large · codex 990 Task Tokens — total duration 0 rounds Top 5 round share is unavailable Top 5 round Token share Core judgment State the evidence-backed judgment first, then separate the improvement proposal and verification. Mechanism explanation Key task analysis unavailable: The task explanation could not be verified. The deterministic round trajectory remains available. Round Token trajectory Bars show Token share and the line shows round duration. Dark points mark hotspots; the same Tooltip gives evidence first, then the round's first real user message. 0 rounds · Token share and round duration Click or hover a point to inspect the complete real Prompt Token hotspots Other rounds round duration Focus: Top 5 round share is unavailable. Missing first user messages remain explicitly unavailable. The chart needs JavaScript; expand the complete round details below for the equivalent data. View all 0 round details Audit appendix · collapsed by default · missing values remain — No round Evidence is available. Unavailable Small small · 0 rounds collapsed Key task analysis unavailable: The task explanation could not be verified. TOKEN rank 02 of 02 · Current task Small A task explanation is unavailable; the deterministic trajectory remains. small · codex 10 Task Tokens — total duration 0 rounds Top 5 round share is unavailable Top 5 round Token share Core judgment State the evidence-backed judgment first, then separate the improvement proposal and verification. Mechanism explanation Key task analysis unavailable: The task explanation could not be verified. The deterministic round trajectory remains available. Round Token trajectory Bars show Token share and the line shows round duration. Dark points mark hotspots; the same Tooltip gives evidence first, then the round's first real user message. 0 rounds · Token share and round duration Click or hover a point to inspect the complete real Prompt Token hotspots Other rounds round duration Focus: Top 5 round share is unavailable. Missing first user messages remain explicitly unavailable. The chart needs JavaScript; expand the complete round details below for the equivalent data. View all 0 round details Audit appendix · collapsed by default · missing values remain — No round Evidence is available. 05 · Caveats Limitations and missing data No data is available for this panel. Privacy and methods The report keeps safe metadata, sizes, hashes, aggregates, and methods; it excludes prompts, source, responses, tool results, arguments, credentials, and absolute paths.",
+    "sectionOrder": [
+      {
+        "headings": [
+          "Largest Token destination",
+          "Supported mechanism"
+        ],
+        "text": "Primary answer Largest Token destination Large 990 tokens share: 99% Supported mechanism No specific mechanism is supported by the available task and round evidence."
+      },
+      {
+        "headings": [
+          "Usage scope",
+          "Data completeness"
+        ],
+        "text": "Usage scope Harness codex Usage scope current project since 2026.09.01 08:00 Data completeness files 1 records 4 skipped 0 partial tasks 0 coverage warnings 0 History parsed without coverage warnings. Estimated values are for reference only and do not represent an actual bill; “—” means data is unavailable."
+      },
+      {
+        "headings": [
+          "Findings"
+        ],
+        "text": "Findings A direct explanation was unavailable or could not be verified; the following deterministic checks are shown as fallback evidence. The report remains usable, but this section is limited to deterministic evidence. Warning One task accounts for 99% of observed tokens 2 model-call records; 990 observed tokens. Method: The largest complete task accounts for at least 40% with at least two model-call records. Notice 990 accounts for 99% of observed tokens 2 model-call records. Method: The largest complete model contribution accounts for at least 60% when more than one model is observed. Pass History parsed without coverage warnings 4 records from 1 files; no skipped or partial tasks. Method: At least one record was observed with no skipped records, partial task records, or warnings."
+      },
+      {
+        "headings": [
+          "Cache economics",
+          "Cache efficiency",
+          "Cost impact"
+        ],
+        "text": "Cache economics Cache efficiency cache-read rate 0% cache-write rate 0% cache composition coverage 100% priced Usage coverage 0% Cost impact observed API-equivalent cost — all-uncached counterfactual cost — estimated cache savings — estimated cache savings percentage — Cache ratios sum mutually exclusive Token buckets before division; currency is an API-equivalent estimate, not a subscription bill. Method: Cache-read Token total divided by its denominator and rounded to two decimals; Currency requires at least one selected model call with an exact source/model match and compatible non-zero price dimensions. Amounts use only usage with an exact price match; some models remain unmatched, so the estimate may understate the cost of the full observed usage."
+      },
+      {
+        "headings": [
+          "First-request burden"
+        ],
+        "text": "First-request burden median first request (Tokens) 455 first-request Usage share 91% first-request coverage 100% first-request composition coverage 100% cold first-request rate 100% task identity coverage 0% This is the observed burden in Tokens of each task's earliest valid request, not an exact decomposable startup tax. Comparing top-level and subagent task groups requires source-proven identity for every selected task. First-request usage is an observed earliest request size, not an exact removable startup cost."
+      },
+      {
+        "headings": [
+          "Skill evidence"
+        ],
+        "text": "Skill evidence The selected history has no verifiable Skill listing, invocation, or resource-use evidence."
+      },
+      {
+        "headings": [
+          "Time distribution",
+          "Daily token trend",
+          "Hourly activity heatmap",
+          "Locally observed rolling activity"
+        ],
+        "text": "Time distribution Daily token trend Each curve and hover value is the raw Token value of that component; components are not stacked. date total tokens share ordinary input cached input cache write output unclassified remainder 2026.09.08 1K 100% 970 0 0 30 0 Hourly activity heatmap Cell color reflects observed Tokens in each local hour; hover to inspect Tokens, model calls, audit share, and average Tokens per call. View hourly details ↓ Local time tokens calls share 2026.09.08 16:00 1K 3 100% Locally observed rolling activity Local observation This is activity observed in local history, not Provider quota. <rolling-window> calls 0 Latest 5h tokens 0 Highest rolling 5h in selected range 1K"
+      },
+      {
+        "headings": [
+          "Model distribution"
+        ],
+        "text": "Model distribution model tokens share calls gpt-4.1 990 99% 2 other-model 10 1% 1"
+      },
+      {
+        "headings": [
+          "Tool context impact"
+        ],
+        "text": "Tool context impact The injected estimate is the tool-result size added to context; the carry-forward estimate is an uncapped exposure heuristic for how much it may be carried by later calls in the same active context. It is not a bill, actual new Token usage, or additive to total tokens. Tool calls paired results injected estimate carry-forward estimate (uncapped) share read 1 1 about 10 about 0 —"
+      },
+      {
+        "headings": [
+          "Largest tasks by Token use"
+        ],
+        "text": "Largest tasks by Token use task tokens share calls Large (large) 990 99% 2 Small (small) 10 1% 1"
+      },
+      {
+        "headings": [
+          "Key task analysis",
+          "Large"
+        ],
+        "text": "Usage diagnosis · codex Key task analysis Enter one task from the Token ranking and follow concentration, process events, and real user messages by round. Local full HTML Tooltips may include the complete first user message for displayed rounds; share, JSON, and text outputs exclude Prompts. Unavailable Large large · 0 rounds open by default Key task analysis unavailable: The task explanation could not be verified. TOKEN rank 01 of 02 · Current task Large A task explanation is unavailable; the deterministic trajectory remains. large · codex 990 Task Tokens — total duration 0 rounds Top 5 round share is unavailable Top 5 round Token share Core judgment State the evidence-backed judgment first, then separate the improvement proposal and verification. Mechanism explanation Key task analysis unavailable: The task explanation could not be verified. The deterministic round trajectory remains available."
+      },
+      {
+        "headings": [],
+        "text": "Round Token trajectory Bars show Token share and the line shows round duration. Dark points mark hotspots; the same Tooltip gives evidence first, then the round's first real user message. 0 rounds · Token share and round duration Click or hover a point to inspect the complete real Prompt Token hotspots Other rounds round duration Focus: Top 5 round share is unavailable. Missing first user messages remain explicitly unavailable. The chart needs JavaScript; expand the complete round details below for the equivalent data. View all 0 round details Audit appendix · collapsed by default · missing values remain — No round Evidence is available."
+      },
+      {
+        "headings": [],
+        "text": "Core judgment State the evidence-backed judgment first, then separate the improvement proposal and verification. Mechanism explanation Key task analysis unavailable: The task explanation could not be verified. The deterministic round trajectory remains available."
+      },
+      {
+        "headings": [],
+        "text": "Round Token trajectory Bars show Token share and the line shows round duration. Dark points mark hotspots; the same Tooltip gives evidence first, then the round's first real user message. 0 rounds · Token share and round duration Click or hover a point to inspect the complete real Prompt Token hotspots Other rounds round duration Focus: Top 5 round share is unavailable. Missing first user messages remain explicitly unavailable. The chart needs JavaScript; expand the complete round details below for the equivalent data. View all 0 round details Audit appendix · collapsed by default · missing values remain — No round Evidence is available."
+      },
+      {
+        "headings": [
+          "Limitations and missing data"
+        ],
+        "text": "Limitations and missing data No data is available for this panel."
+      }
+    ],
+    "tables": [
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "date",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "total tokens",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "share",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "ordinary input",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "cached input",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "cache write",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "output",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "unclassified remainder",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "2026.09.08",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "1K",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "100%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "970",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "0",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "0",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "30",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "0",
+              "attributes": {}
+            }
+          ]
+        ]
+      },
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "Local time",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "tokens",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "calls",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "share",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "2026.09.08 16:00",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "1K",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "3",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "100%",
+              "attributes": {}
+            }
+          ]
+        ]
+      },
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "model",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "tokens",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "share",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "calls",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "gpt-4.1",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "990",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "99%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "2",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "other-model",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "10",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1",
+              "attributes": {}
+            }
+          ]
+        ]
+      },
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "Tool",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "calls",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "paired results",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "injected estimate",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "carry-forward estimate (uncapped)",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "share",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "read",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "1",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "about 10",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "about 0",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "—",
+              "attributes": {}
+            }
+          ]
+        ]
+      },
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "task",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "tokens",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "share",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "calls",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "Large (large)",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "990",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "99%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "2",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "Small (small)",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "10",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1",
+              "attributes": {}
+            }
+          ]
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "text": "1K",
+        "attributes": {
+          "aria-label": "exact value: 1,000; Provenance: reported",
+          "data-provenance": "reported",
+          "data-sort": "1000"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "exact value: 2; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "3",
+        "attributes": {
+          "aria-label": "exact value: 3; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "3"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "exact value: 0%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "exact value: 0%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "exact value: 1; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "4",
+        "attributes": {
+          "aria-label": "exact value: 4; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "4"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "exact value: 0; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "exact value: 0; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "exact value: 0; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "99%",
+        "attributes": {
+          "aria-label": "exact value: 99%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "99"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "exact value: 2; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "990",
+        "attributes": {
+          "aria-label": "exact value: 990; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "990"
+        }
+      },
+      {
+        "text": "990",
+        "attributes": {
+          "aria-label": "exact value: 990; Provenance: reported",
+          "data-provenance": "reported",
+          "data-sort": "990"
+        }
+      },
+      {
+        "text": "99%",
+        "attributes": {
+          "aria-label": "exact value: 99%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "99"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "exact value: 2; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "4",
+        "attributes": {
+          "aria-label": "exact value: 4; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "4"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "exact value: 1; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "exact value: 0%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "exact value: 0%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "exact value: 100%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "exact value: 0%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "Provenance: unavailable",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "Provenance: unavailable",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "Provenance: unavailable",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "Provenance: unavailable",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "455",
+        "attributes": {
+          "aria-label": "exact value: 455; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "455"
+        }
+      },
+      {
+        "text": "91%",
+        "attributes": {
+          "aria-label": "exact value: 91%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "91"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "exact value: 100%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "exact value: 100%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "exact value: 100%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "exact value: 0%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "1K",
+        "attributes": {
+          "aria-label": "exact value: 1,000; Provenance: reported",
+          "data-provenance": "reported",
+          "data-sort": "1000"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "exact value: 100%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "970",
+        "attributes": {
+          "aria-label": "exact value: 970; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "970"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "exact value: 0; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "exact value: 0; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "30",
+        "attributes": {
+          "aria-label": "exact value: 30; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "30"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "exact value: 0; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "1K",
+        "attributes": {
+          "aria-label": "exact value: 1,000; Provenance: reported",
+          "data-provenance": "reported",
+          "data-sort": "1000"
+        }
+      },
+      {
+        "text": "3",
+        "attributes": {
+          "aria-label": "exact value: 3; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "3"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "exact value: 100%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "exact value: 0; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "exact value: 0; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "1K",
+        "attributes": {
+          "aria-label": "exact value: 1,000; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "1000"
+        }
+      },
+      {
+        "text": "990",
+        "attributes": {
+          "aria-label": "exact value: 990; Provenance: reported",
+          "data-provenance": "reported",
+          "data-sort": "990"
+        }
+      },
+      {
+        "text": "99%",
+        "attributes": {
+          "aria-label": "exact value: 99%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "99"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "exact value: 2; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "10",
+        "attributes": {
+          "aria-label": "exact value: 10; Provenance: reported",
+          "data-provenance": "reported",
+          "data-sort": "10"
+        }
+      },
+      {
+        "text": "1%",
+        "attributes": {
+          "aria-label": "exact value: 1%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "exact value: 1; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "exact value: 1; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "exact value: 1; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "about 10",
+        "attributes": {
+          "aria-label": "exact value: 10; Provenance: estimated",
+          "data-provenance": "estimated",
+          "data-sort": "10"
+        }
+      },
+      {
+        "text": "about 0",
+        "attributes": {
+          "aria-label": "exact value: 0; Provenance: estimated",
+          "data-provenance": "estimated",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "Provenance: unavailable",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "990",
+        "attributes": {
+          "aria-label": "exact value: 990; Provenance: reported",
+          "data-provenance": "reported",
+          "data-sort": "990"
+        }
+      },
+      {
+        "text": "99%",
+        "attributes": {
+          "aria-label": "exact value: 99%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "99"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "exact value: 2; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "10",
+        "attributes": {
+          "aria-label": "exact value: 10; Provenance: reported",
+          "data-provenance": "reported",
+          "data-sort": "10"
+        }
+      },
+      {
+        "text": "1%",
+        "attributes": {
+          "aria-label": "exact value: 1%; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "exact value: 1; Provenance: derived",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "data-sort": "0"
+        }
+      }
+    ],
+    "chartData": [
+      {
+        "rows": [
+          {
+            "time": "09.08",
+            "total": 1000,
+            "input": 970,
+            "cached": 0,
+            "cacheWrite": 0,
+            "output": 30,
+            "unclassified": 0,
+            "cost": null
+          }
+        ],
+        "models": [
+          {
+            "name": "gpt-4.1",
+            "value": 990,
+            "share": 99
+          },
+          {
+            "name": "other-model",
+            "value": 10,
+            "share": 1
+          }
+        ],
+        "tools": [
+          {
+            "name": "read",
+            "value": 10
+          }
+        ],
+        "hourly": {
+          "dates": [
+            {
+              "key": "2026-09-08",
+              "label": "09.08"
+            }
+          ],
+          "cells": [
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 0,
+              "label": "09.08 00:00–01:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 1,
+              "label": "09.08 01:00–02:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 2,
+              "label": "09.08 02:00–03:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 3,
+              "label": "09.08 03:00–04:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 4,
+              "label": "09.08 04:00–05:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 5,
+              "label": "09.08 05:00–06:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 6,
+              "label": "09.08 06:00–07:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 7,
+              "label": "09.08 07:00–08:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 8,
+              "label": "09.08 08:00–09:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 9,
+              "label": "09.08 09:00–10:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 10,
+              "label": "09.08 10:00–11:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 11,
+              "label": "09.08 11:00–12:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 12,
+              "label": "09.08 12:00–13:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 13,
+              "label": "09.08 13:00–14:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 14,
+              "label": "09.08 14:00–15:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 15,
+              "label": "09.08 15:00–16:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 16,
+              "label": "09.08 16:00–17:00",
+              "hasRecord": true,
+              "tokens": 1000,
+              "calls": 3,
+              "share": 100,
+              "average": 333.3333333333333
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 17,
+              "label": "09.08 17:00–18:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 18,
+              "label": "09.08 18:00–19:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 19,
+              "label": "09.08 19:00–20:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 20,
+              "label": "09.08 20:00–21:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 21,
+              "label": "09.08 21:00–22:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 22,
+              "label": "09.08 22:00–23:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 23,
+              "label": "09.08 23:00–24:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            }
+          ],
+          "max": 1000
+        },
+        "keySessions": [
+          {
+            "chartId": "key-session-chart-0",
+            "turns": []
+          },
+          {
+            "chartId": "key-session-chart-1",
+            "turns": []
+          }
+        ],
+        "locale": "en-US",
+        "labels": {
+          "input": "ordinary input",
+          "cached": "cached input",
+          "cacheWrite": "cache write",
+          "output": "output",
+          "unclassified": "unclassified remainder",
+          "cost": "API-equivalent estimate (USD)",
+          "tokens": "tokens",
+          "calls": "calls",
+          "share": "Share of audit period",
+          "hourly": {
+            "description": "Hourly activity by local date and hour; hover each cell to inspect observed Tokens, model calls, audit share, and average Tokens per call. The table below provides equivalent data.",
+            "average": "Avg Tokens / call (derived)",
+            "noActivity": "No model call observed in this hour.",
+            "noTokenData": "Token total unavailable for this hour."
+          },
+          "unavailable": "unavailable"
+        },
+        "costVisible": false
+      }
+    ],
+    "svgText": [],
+    "semantics": [
+      {
+        "tag": "",
+        "text": "Unavailable Large large · 0 rounds open by default Key task analysis unavailable: The task explanation could not be verified.",
+        "attributes": {
+          "aria-controls": "key-session-title-0"
+        }
+      },
+      {
+        "tag": "",
+        "text": "Unavailable Small small · 0 rounds collapsed Key task analysis unavailable: The task explanation could not be verified.",
+        "attributes": {
+          "aria-controls": "key-session-title-1"
+        }
+      }
+    ]
+  },
+  "zh-CN": {
+    "visibleText": "09.08 项目诊断 project 诊断报告 AI 概览不可用 1000 2026.09.08 截止 2 任务记录 3 模型调用 0% 缓存读取率 0% 已定价用量占比 01 · 概览 主要答案 最大 Token 去向 Large 990 Token 占比： 99% 证据支持的机制 具体机制未知：现有任务和轮次证据不足，无法确认是上下文重复、工具结果、重试还是其他机制。 本次统计范围 数据来源 codex 本次统计范围 当前项目 起始时间 2026.09.01 08:00 数据完整度 文件 1 记录 4 跳过 0 不完整任务记录 0 覆盖异常·警告级 0 历史记录解析完成，未发现覆盖异常。 估算值仅作参考，不代表实际账单；“—”表示暂时没有数据。 02 · 诊断 补充发现 直接解释不可用或未通过核对；以下展示确定性检查作为降级证据。 报告其他部分仍可使用，但这一节只保留确定性证据。 警告 一个任务占已观测 Token 的 99% 2 次模型调用； 990 个已观测 Token。 方法：至少有两个模型调用记录时，最大完整任务占比至少为 40% 提示 990 占已观测 Token 的 99% 2 次模型调用。 方法：观测到多个模型时，最大完整模型贡献占比至少为 60% 通过 历史记录未发现覆盖异常 4 条记录来自 1 个文件；没有跳过或不完整任务。 方法：至少有一条记录，且没有跳过记录、不完整任务或异常 缓存经济性 缓存效率 缓存读取率 0% 缓存写入率 0% 缓存构成可分解比例 100% 已定价用量占比 0% 成本影响 已观测的 API 折算金额 — 不缓存情况下的 API 折算金额 — 缓存带来的估算节省 — 估算节省比例 — 缓存比例的算法：先把各类 Token 分别汇总，再计算比例；金额按 API 单价折算，只作估算，不是订阅账单。方法：缓存读取 Token 总量除以分母，换算为百分比并四舍五入到两位小数；按所选历史记录和支持字段计算。 金额仅按能匹配精确单价的用量估算；仍有部分模型无法匹配价格，因此金额可能低于完整用量对应成本。 首次请求 Token 量 首次请求 Token 中位数 455 首次请求 Token 占比 91% 首次请求完整度 100% 首次请求 Token 构成完整度 100% 首次请求未命中缓存的比例 100% 任务身份可信度 0% 这是每个任务最早有效请求的 Token 量，不是可以精确剥离的启动成本。 要比较顶层和子任务的首次请求，必须确认每个所选任务的身份 首次请求 Token 量是观测到的最早请求大小，不是可以精确剥离的启动成本 Skill 使用证据 所选历史中没有足够证据确认 Skill 列表、调用或资源使用情况。 03 · 模式 时间分布 每日 Token 趋势 每条线的纵坐标和悬停值都是该 Token 分量自身的值；各分量不堆叠。 日期 总 Token 占比 普通输入 缓存读取 缓存写入 输出 未分类部分 2026.09.08 1000 100% 970 0 0 30 0 小时活动热图 颜色表示每个本地小时观测到的 Token；悬停查看 Token、模型调用、占审计周期比例和平均每次调用 Token。 查看小时明细 ↓ 本地时间 Token 调用 占比 2026.09.08 16:00 1000 3 100% 最近一段时间的本地活动 本地活动 只表示本地历史中观察到的活动，不是该工具官方提供的额度。 <rolling-window> 调用 0 最近 5 小时 Token 0 所选范围内最高滚动 5 小时 Token 1000 模型分布 模型 Token 占比 调用 gpt-4.1 990 99% 2 other-model 10 1% 1 工具上下文影响 注入估算表示工具结果被算入上下文的大小；后续暴露估算（无上限）表示同一段对话中，后续调用可能再次带上的上下文量。这个估算不是账单，也不是真实新增 Token，不能与总 Token 相加。 工具 调用 配对结果 工具结果注入量（估算） 后续暴露估算（无上限） 占比 read 1 1 约 10 约 0 — 高用量任务记录 任务记录 Token 占比 调用 Large (large) 990 99% 2 Small (small) 10 1% 1 04 · 追踪 用量诊断 · codex 关键任务分析 从 Token 排名进入单个任务，按轮次追踪消耗集中、过程事件与真实用户消息。 本地完整 HTML 的 Tooltip 可包含展示轮次的完整首条用户消息；分享稿、JSON 和文本不含 Prompt。 不可用 Large large · 0 轮 默认展开 关键任务分析不可用：未生成可核对的任务解读。 TOKEN 排名 01，共 02 个 · 当前任务 Large 任务解读不可用；保留确定性轮次轨迹。 large · codex 990 任务 Token — 总耗时 0 轮次 前 5 轮合计占比不可用 前 5 轮 Token 占比 核心判断 先陈述证据支持的判断，再单独给出改善提议与验证。 机制解释 关键任务分析不可用：未生成可核对的任务解读。 确定性轮次轨迹仍保留。 轮次轨迹 柱形表示 Token 占比，折线表示本轮耗时。深色高点可直接点按或悬停；同一个 Tooltip 先给出证据，再显示该轮第一条真实用户消息。 0 个轮次 · Token 占比和本轮耗时 点击或悬停数据点，查看完整真实 Prompt 高用量轮次 其他轮次 本轮耗时 重点： 前 5 轮合计占比不可用。 首条用户消息不可用时会保留诚实的缺失说明。 图表需要 JavaScript；请展开下方完整轮次明细查看相同数据。 查看全部 0 个轮次明细 审计附录 · 默认折叠 · 缺失值保留为 — 没有可用的轮次证据。 不可用 Small small · 0 轮 折叠 关键任务分析不可用：未生成可核对的任务解读。 TOKEN 排名 02，共 02 个 · 当前任务 Small 任务解读不可用；保留确定性轮次轨迹。 small · codex 10 任务 Token — 总耗时 0 轮次 前 5 轮合计占比不可用 前 5 轮 Token 占比 核心判断 先陈述证据支持的判断，再单独给出改善提议与验证。 机制解释 关键任务分析不可用：未生成可核对的任务解读。 确定性轮次轨迹仍保留。 轮次轨迹 柱形表示 Token 占比，折线表示本轮耗时。深色高点可直接点按或悬停；同一个 Tooltip 先给出证据，再显示该轮第一条真实用户消息。 0 个轮次 · Token 占比和本轮耗时 点击或悬停数据点，查看完整真实 Prompt 高用量轮次 其他轮次 本轮耗时 重点： 前 5 轮合计占比不可用。 首条用户消息不可用时会保留诚实的缺失说明。 图表需要 JavaScript；请展开下方完整轮次明细查看相同数据。 查看全部 0 个轮次明细 审计附录 · 默认折叠 · 缺失值保留为 — 没有可用的轮次证据。 05 · 限制 限制与缺失 没有可展示的数据。 隐私说明与统计方法 报告只保留脱敏后的元数据、大小、哈希、聚合结果和计算方法；不包含 prompt、源代码、回复、工具结果、参数、凭据或绝对路径。",
+    "sectionOrder": [
+      {
+        "headings": [
+          "最大 Token 去向",
+          "证据支持的机制"
+        ],
+        "text": "主要答案 最大 Token 去向 Large 990 Token 占比： 99% 证据支持的机制 具体机制未知：现有任务和轮次证据不足，无法确认是上下文重复、工具结果、重试还是其他机制。"
+      },
+      {
+        "headings": [
+          "本次统计范围",
+          "数据完整度"
+        ],
+        "text": "本次统计范围 数据来源 codex 本次统计范围 当前项目 起始时间 2026.09.01 08:00 数据完整度 文件 1 记录 4 跳过 0 不完整任务记录 0 覆盖异常·警告级 0 历史记录解析完成，未发现覆盖异常。 估算值仅作参考，不代表实际账单；“—”表示暂时没有数据。"
+      },
+      {
+        "headings": [
+          "补充发现"
+        ],
+        "text": "补充发现 直接解释不可用或未通过核对；以下展示确定性检查作为降级证据。 报告其他部分仍可使用，但这一节只保留确定性证据。 警告 一个任务占已观测 Token 的 99% 2 次模型调用； 990 个已观测 Token。 方法：至少有两个模型调用记录时，最大完整任务占比至少为 40% 提示 990 占已观测 Token 的 99% 2 次模型调用。 方法：观测到多个模型时，最大完整模型贡献占比至少为 60% 通过 历史记录未发现覆盖异常 4 条记录来自 1 个文件；没有跳过或不完整任务。 方法：至少有一条记录，且没有跳过记录、不完整任务或异常"
+      },
+      {
+        "headings": [
+          "缓存经济性",
+          "缓存效率",
+          "成本影响"
+        ],
+        "text": "缓存经济性 缓存效率 缓存读取率 0% 缓存写入率 0% 缓存构成可分解比例 100% 已定价用量占比 0% 成本影响 已观测的 API 折算金额 — 不缓存情况下的 API 折算金额 — 缓存带来的估算节省 — 估算节省比例 — 缓存比例的算法：先把各类 Token 分别汇总，再计算比例；金额按 API 单价折算，只作估算，不是订阅账单。方法：缓存读取 Token 总量除以分母，换算为百分比并四舍五入到两位小数；按所选历史记录和支持字段计算。 金额仅按能匹配精确单价的用量估算；仍有部分模型无法匹配价格，因此金额可能低于完整用量对应成本。"
+      },
+      {
+        "headings": [
+          "首次请求 Token 量"
+        ],
+        "text": "首次请求 Token 量 首次请求 Token 中位数 455 首次请求 Token 占比 91% 首次请求完整度 100% 首次请求 Token 构成完整度 100% 首次请求未命中缓存的比例 100% 任务身份可信度 0% 这是每个任务最早有效请求的 Token 量，不是可以精确剥离的启动成本。 要比较顶层和子任务的首次请求，必须确认每个所选任务的身份 首次请求 Token 量是观测到的最早请求大小，不是可以精确剥离的启动成本"
+      },
+      {
+        "headings": [
+          "Skill 使用证据"
+        ],
+        "text": "Skill 使用证据 所选历史中没有足够证据确认 Skill 列表、调用或资源使用情况。"
+      },
+      {
+        "headings": [
+          "时间分布",
+          "每日 Token 趋势",
+          "小时活动热图",
+          "最近一段时间的本地活动"
+        ],
+        "text": "时间分布 每日 Token 趋势 每条线的纵坐标和悬停值都是该 Token 分量自身的值；各分量不堆叠。 日期 总 Token 占比 普通输入 缓存读取 缓存写入 输出 未分类部分 2026.09.08 1000 100% 970 0 0 30 0 小时活动热图 颜色表示每个本地小时观测到的 Token；悬停查看 Token、模型调用、占审计周期比例和平均每次调用 Token。 查看小时明细 ↓ 本地时间 Token 调用 占比 2026.09.08 16:00 1000 3 100% 最近一段时间的本地活动 本地活动 只表示本地历史中观察到的活动，不是该工具官方提供的额度。 <rolling-window> 调用 0 最近 5 小时 Token 0 所选范围内最高滚动 5 小时 Token 1000"
+      },
+      {
+        "headings": [
+          "模型分布"
+        ],
+        "text": "模型分布 模型 Token 占比 调用 gpt-4.1 990 99% 2 other-model 10 1% 1"
+      },
+      {
+        "headings": [
+          "工具上下文影响"
+        ],
+        "text": "工具上下文影响 注入估算表示工具结果被算入上下文的大小；后续暴露估算（无上限）表示同一段对话中，后续调用可能再次带上的上下文量。这个估算不是账单，也不是真实新增 Token，不能与总 Token 相加。 工具 调用 配对结果 工具结果注入量（估算） 后续暴露估算（无上限） 占比 read 1 1 约 10 约 0 —"
+      },
+      {
+        "headings": [
+          "高用量任务记录"
+        ],
+        "text": "高用量任务记录 任务记录 Token 占比 调用 Large (large) 990 99% 2 Small (small) 10 1% 1"
+      },
+      {
+        "headings": [
+          "关键任务分析",
+          "Large"
+        ],
+        "text": "用量诊断 · codex 关键任务分析 从 Token 排名进入单个任务，按轮次追踪消耗集中、过程事件与真实用户消息。 本地完整 HTML 的 Tooltip 可包含展示轮次的完整首条用户消息；分享稿、JSON 和文本不含 Prompt。 不可用 Large large · 0 轮 默认展开 关键任务分析不可用：未生成可核对的任务解读。 TOKEN 排名 01，共 02 个 · 当前任务 Large 任务解读不可用；保留确定性轮次轨迹。 large · codex 990 任务 Token — 总耗时 0 轮次 前 5 轮合计占比不可用 前 5 轮 Token 占比 核心判断 先陈述证据支持的判断，再单独给出改善提议与验证。 机制解释 关键任务分析不可用：未生成可核对的任务解读。 确定性轮次轨迹仍保留。"
+      },
+      {
+        "headings": [],
+        "text": "轮次轨迹 柱形表示 Token 占比，折线表示本轮耗时。深色高点可直接点按或悬停；同一个 Tooltip 先给出证据，再显示该轮第一条真实用户消息。 0 个轮次 · Token 占比和本轮耗时 点击或悬停数据点，查看完整真实 Prompt 高用量轮次 其他轮次 本轮耗时 重点： 前 5 轮合计占比不可用。 首条用户消息不可用时会保留诚实的缺失说明。 图表需要 JavaScript；请展开下方完整轮次明细查看相同数据。 查看全部 0 个轮次明细 审计附录 · 默认折叠 · 缺失值保留为 — 没有可用的轮次证据。"
+      },
+      {
+        "headings": [],
+        "text": "核心判断 先陈述证据支持的判断，再单独给出改善提议与验证。 机制解释 关键任务分析不可用：未生成可核对的任务解读。 确定性轮次轨迹仍保留。"
+      },
+      {
+        "headings": [],
+        "text": "轮次轨迹 柱形表示 Token 占比，折线表示本轮耗时。深色高点可直接点按或悬停；同一个 Tooltip 先给出证据，再显示该轮第一条真实用户消息。 0 个轮次 · Token 占比和本轮耗时 点击或悬停数据点，查看完整真实 Prompt 高用量轮次 其他轮次 本轮耗时 重点： 前 5 轮合计占比不可用。 首条用户消息不可用时会保留诚实的缺失说明。 图表需要 JavaScript；请展开下方完整轮次明细查看相同数据。 查看全部 0 个轮次明细 审计附录 · 默认折叠 · 缺失值保留为 — 没有可用的轮次证据。"
+      },
+      {
+        "headings": [
+          "限制与缺失"
+        ],
+        "text": "限制与缺失 没有可展示的数据。"
+      }
+    ],
+    "tables": [
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "日期",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "总 Token",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "占比",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "普通输入",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "缓存读取",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "缓存写入",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "输出",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "未分类部分",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "2026.09.08",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "1000",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "100%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "970",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "0",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "0",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "30",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "0",
+              "attributes": {}
+            }
+          ]
+        ]
+      },
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "本地时间",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "Token",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "调用",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "占比",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "2026.09.08 16:00",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "1000",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "3",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "100%",
+              "attributes": {}
+            }
+          ]
+        ]
+      },
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "模型",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "Token",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "占比",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "调用",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "gpt-4.1",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "990",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "99%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "2",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "other-model",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "10",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1",
+              "attributes": {}
+            }
+          ]
+        ]
+      },
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "工具",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "调用",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "配对结果",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "工具结果注入量（估算）",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "后续暴露估算（无上限）",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "占比",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "read",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "1",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "约 10",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "约 0",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "—",
+              "attributes": {}
+            }
+          ]
+        ]
+      },
+      {
+        "attributes": {},
+        "rows": [
+          [
+            {
+              "tag": "th",
+              "text": "任务记录",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "Token",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "占比",
+              "attributes": {}
+            },
+            {
+              "tag": "th",
+              "text": "调用",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "Large (large)",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "990",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "99%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "2",
+              "attributes": {}
+            }
+          ],
+          [
+            {
+              "tag": "th",
+              "text": "Small (small)",
+              "attributes": {
+                "scope": "row"
+              }
+            },
+            {
+              "tag": "td",
+              "text": "10",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1%",
+              "attributes": {}
+            },
+            {
+              "tag": "td",
+              "text": "1",
+              "attributes": {}
+            }
+          ]
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "text": "1000",
+        "attributes": {
+          "aria-label": "精确值：1,000；证据来源：记录值",
+          "data-provenance": "reported",
+          "data-sort": "1000"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "精确值：2；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "3",
+        "attributes": {
+          "aria-label": "精确值：3；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "3"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "精确值：0%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "精确值：0%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "精确值：1；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "4",
+        "attributes": {
+          "aria-label": "精确值：4；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "4"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "精确值：0；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "精确值：0；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "精确值：0；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "99%",
+        "attributes": {
+          "aria-label": "精确值：99%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "99"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "精确值：2；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "990",
+        "attributes": {
+          "aria-label": "精确值：990；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "990"
+        }
+      },
+      {
+        "text": "990",
+        "attributes": {
+          "aria-label": "精确值：990；证据来源：记录值",
+          "data-provenance": "reported",
+          "data-sort": "990"
+        }
+      },
+      {
+        "text": "99%",
+        "attributes": {
+          "aria-label": "精确值：99%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "99"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "精确值：2；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "4",
+        "attributes": {
+          "aria-label": "精确值：4；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "4"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "精确值：1；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "精确值：0%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "精确值：0%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "精确值：100%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "精确值：0%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "证据来源：无数据",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "证据来源：无数据",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "证据来源：无数据",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "证据来源：无数据",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "455",
+        "attributes": {
+          "aria-label": "精确值：455；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "455"
+        }
+      },
+      {
+        "text": "91%",
+        "attributes": {
+          "aria-label": "精确值：91%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "91"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "精确值：100%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "精确值：100%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "精确值：100%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "0%",
+        "attributes": {
+          "aria-label": "精确值：0%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "1000",
+        "attributes": {
+          "aria-label": "精确值：1,000；证据来源：记录值",
+          "data-provenance": "reported",
+          "data-sort": "1000"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "精确值：100%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "970",
+        "attributes": {
+          "aria-label": "精确值：970；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "970"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "精确值：0；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "精确值：0；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "30",
+        "attributes": {
+          "aria-label": "精确值：30；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "30"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "精确值：0；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "1000",
+        "attributes": {
+          "aria-label": "精确值：1,000；证据来源：记录值",
+          "data-provenance": "reported",
+          "data-sort": "1000"
+        }
+      },
+      {
+        "text": "3",
+        "attributes": {
+          "aria-label": "精确值：3；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "3"
+        }
+      },
+      {
+        "text": "100%",
+        "attributes": {
+          "aria-label": "精确值：100%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "100"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "精确值：0；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "aria-label": "精确值：0；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "1000",
+        "attributes": {
+          "aria-label": "精确值：1,000；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "1000"
+        }
+      },
+      {
+        "text": "990",
+        "attributes": {
+          "aria-label": "精确值：990；证据来源：记录值",
+          "data-provenance": "reported",
+          "data-sort": "990"
+        }
+      },
+      {
+        "text": "99%",
+        "attributes": {
+          "aria-label": "精确值：99%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "99"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "精确值：2；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "10",
+        "attributes": {
+          "aria-label": "精确值：10；证据来源：记录值",
+          "data-provenance": "reported",
+          "data-sort": "10"
+        }
+      },
+      {
+        "text": "1%",
+        "attributes": {
+          "aria-label": "精确值：1%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "精确值：1；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "精确值：1；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "精确值：1；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "约 10",
+        "attributes": {
+          "aria-label": "精确值：10；证据来源：估算值",
+          "data-provenance": "estimated",
+          "data-sort": "10"
+        }
+      },
+      {
+        "text": "约 0",
+        "attributes": {
+          "aria-label": "精确值：0；证据来源：估算值",
+          "data-provenance": "estimated",
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "—",
+        "attributes": {
+          "aria-label": "证据来源：无数据",
+          "data-provenance": "unavailable"
+        }
+      },
+      {
+        "text": "990",
+        "attributes": {
+          "aria-label": "精确值：990；证据来源：记录值",
+          "data-provenance": "reported",
+          "data-sort": "990"
+        }
+      },
+      {
+        "text": "99%",
+        "attributes": {
+          "aria-label": "精确值：99%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "99"
+        }
+      },
+      {
+        "text": "2",
+        "attributes": {
+          "aria-label": "精确值：2；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "2"
+        }
+      },
+      {
+        "text": "10",
+        "attributes": {
+          "aria-label": "精确值：10；证据来源：记录值",
+          "data-provenance": "reported",
+          "data-sort": "10"
+        }
+      },
+      {
+        "text": "1%",
+        "attributes": {
+          "aria-label": "精确值：1%；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "1",
+        "attributes": {
+          "aria-label": "精确值：1；证据来源：计算值",
+          "data-provenance": "derived",
+          "data-sort": "1"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "data-sort": "0"
+        }
+      },
+      {
+        "text": "0",
+        "attributes": {
+          "data-sort": "0"
+        }
+      }
+    ],
+    "chartData": [
+      {
+        "rows": [
+          {
+            "time": "09.08",
+            "total": 1000,
+            "input": 970,
+            "cached": 0,
+            "cacheWrite": 0,
+            "output": 30,
+            "unclassified": 0,
+            "cost": null
+          }
+        ],
+        "models": [
+          {
+            "name": "gpt-4.1",
+            "value": 990,
+            "share": 99
+          },
+          {
+            "name": "other-model",
+            "value": 10,
+            "share": 1
+          }
+        ],
+        "tools": [
+          {
+            "name": "read",
+            "value": 10
+          }
+        ],
+        "hourly": {
+          "dates": [
+            {
+              "key": "2026-09-08",
+              "label": "09.08"
+            }
+          ],
+          "cells": [
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 0,
+              "label": "09.08 00:00–01:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 1,
+              "label": "09.08 01:00–02:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 2,
+              "label": "09.08 02:00–03:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 3,
+              "label": "09.08 03:00–04:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 4,
+              "label": "09.08 04:00–05:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 5,
+              "label": "09.08 05:00–06:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 6,
+              "label": "09.08 06:00–07:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 7,
+              "label": "09.08 07:00–08:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 8,
+              "label": "09.08 08:00–09:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 9,
+              "label": "09.08 09:00–10:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 10,
+              "label": "09.08 10:00–11:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 11,
+              "label": "09.08 11:00–12:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 12,
+              "label": "09.08 12:00–13:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 13,
+              "label": "09.08 13:00–14:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 14,
+              "label": "09.08 14:00–15:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 15,
+              "label": "09.08 15:00–16:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 16,
+              "label": "09.08 16:00–17:00",
+              "hasRecord": true,
+              "tokens": 1000,
+              "calls": 3,
+              "share": 100,
+              "average": 333.3333333333333
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 17,
+              "label": "09.08 17:00–18:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 18,
+              "label": "09.08 18:00–19:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 19,
+              "label": "09.08 19:00–20:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 20,
+              "label": "09.08 20:00–21:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 21,
+              "label": "09.08 21:00–22:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 22,
+              "label": "09.08 22:00–23:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            },
+            {
+              "dateKey": "2026-09-08",
+              "dateLabel": "09.08",
+              "dateIndex": 0,
+              "hour": 23,
+              "label": "09.08 23:00–24:00",
+              "hasRecord": false,
+              "tokens": null,
+              "calls": null,
+              "share": null,
+              "average": null
+            }
+          ],
+          "max": 1000
+        },
+        "keySessions": [
+          {
+            "chartId": "key-session-chart-0",
+            "turns": []
+          },
+          {
+            "chartId": "key-session-chart-1",
+            "turns": []
+          }
+        ],
+        "locale": "zh-CN",
+        "labels": {
+          "input": "普通输入",
+          "cached": "缓存读取",
+          "cacheWrite": "缓存写入",
+          "output": "输出",
+          "unclassified": "未分类部分",
+          "cost": "按 API 单价折算的估算金额（USD）",
+          "tokens": "Token",
+          "calls": "调用",
+          "share": "占审计周期",
+          "hourly": {
+            "description": "按本地日期和小时展示活动；悬停每个方块查看观测 Token、模型调用、占审计周期比例和平均每次调用 Token。下方表格提供等价数据。",
+            "average": "平均每次调用 Token（计算值）",
+            "noActivity": "该小时未观察到模型调用。",
+            "noTokenData": "该小时 Token 总量不可用。"
+          },
+          "unavailable": "无数据"
+        },
+        "costVisible": false
+      }
+    ],
+    "svgText": [],
+    "semantics": [
+      {
+        "tag": "",
+        "text": "不可用 Large large · 0 轮 默认展开 关键任务分析不可用：未生成可核对的任务解读。",
+        "attributes": {
+          "aria-controls": "key-session-title-0"
+        }
+      },
+      {
+        "tag": "",
+        "text": "不可用 Small small · 0 轮 折叠 关键任务分析不可用：未生成可核对的任务解读。",
+        "attributes": {
+          "aria-controls": "key-session-title-1"
+        }
+      }
+    ]
+  }
+}

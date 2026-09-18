@@ -12,6 +12,7 @@ The formal external project name and current CLI/Skill/plugin namespace is `wher
 
 ## Report generation hard boundary
 
+- Treat `src/` and `prompts/` as the sole Source of Truth. Never edit `skills/where-tokens-went/scripts/runtime/` directly; always update `src/` and run `npm run package-skills` to keep the distribution package in sync. Run `npm run verify-sync` before committing.
 - When the user asks to generate and show a report or invokes `$where-tokens-went`, treat the Skill as the user-facing entry and run its complete workflow internally. Do not substitute or expose a direct Node command or low-level `inspect --html` invocation.
 - For full/report views, use `inspect` only for data acquisition without `--html`; then read both bundled authoritative Prompts—`references/report-synthesis.md` and `references/key-session-analysis.md`—in full, generate and validate their outputs, call `compose-report` once with the validated envelope, and open only that final HTML.
 - Any implementation plan that changes report synthesis, Key Session Analysis, Content Evidence, validation, composition, or report fallback must name both source Prompts in `prompts/`, require reading them before edits, and preserve their packaging into both Harness Skills.
@@ -51,3 +52,4 @@ Build the smallest end-to-end path that improves the Aha moment in [docs/MVP.md]
 - Prefer one Reader function and one shared analysis path over registries, factories, services, databases, or extension frameworks.
 
 Repository scripts and configuration are the source of truth for commands and dependencies; keep this file focused on behavior that is not obvious from the tree.
+

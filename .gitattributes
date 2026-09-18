@@ -1,0 +1,4 @@
+# Mark bundled skill runtime and vendor assets as generated
+skills/where-tokens-went/scripts/runtime/** linguist-generated=true
+skills/where-tokens-went/scripts/where-tokens-went.js linguist-generated=true
+skills/where-tokens-went/references/** linguist-generated=true

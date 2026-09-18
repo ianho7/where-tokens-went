@@ -1,54 +1,41 @@
+# Dependencies & build outputs
 node_modules/
 dist/
 
-# The public Skill vendors the small runtime needed to subset fonts.
+# Vendor runtime dependencies in skill package must remain tracked
 !/skills/where-tokens-went/scripts/runtime/node_modules/
 !/skills/where-tokens-went/scripts/runtime/node_modules/**
 
-# Source and development files are maintained outside the public Skill package.
-/src/
-/tests/
-/scripts/
-/prompts/
-/docs/
-/assets/
-/bin/
-/package.json
-/package-lock.json
-/tsconfig.json
-/CONTEXT.md
-/.baoyu-skills/
-/skills/where-tokens-went-claude/
-/skills/where-tokens-went-codex/
-
-# Local caches and editor metadata.
+# Local caches and editor metadata
 /.uv-cache/
 .DS_Store
 .idea/
 .vscode/
 
-# Generated HTML reports; keep local copies out of repository language stats.
+# Generated HTML reports; keep local diagnostic copies out of git
 /*.html
 
-# Generated project-native Skill copies; canonical sources live under skills/.
-.agents/skills/where-tokens-went-deepseek/
-.agents/skills/where-tokens-went/
-.claude/skills/where-tokens-went/
-# Legacy generated copies from the suffixed Skill layout.
-.agents/skills/where-tokens-went-codex/
-.claude/skills/where-tokens-went-claude/
-.pi/skills/where-tokens-went-pi/
+# Local skill installations & tool caches
+.agents/skills/
+.claude/
+.pi/
+/.baoyu-skills/
+/skills/where-tokens-went-claude/
+/skills/where-tokens-went-codex/
 
-# Legacy copies produced before the namespace migration remain user-owned and ignored.
-.agents/skills/agent-audit-deepseek/
-.agents/skills/agent-audit-codex/
-.claude/skills/agent-audit-claude/
-.pi/skills/agent-audit-pi/
-
-# Local Session and task work
-/.scratch/
+# Private development context (local-only, never committed)
+/docs/handoff/
+/docs/plans/
+/docs/specs/
+/docs/prototypes/
+/docs/research/
+/docs/*_RESEARCH.md
+/docs/*_AUDIT.md
+/docs/*_PROMPT.md
 /issues/
-/where-tokens-went-项目中文文案修改清单.md
+/.scratch/
+/where-tokens-went-*.md
+/.dev/
 
-# Local-only font experiment
+# Local-only font experiments
 /assets/fonts/仓耳今楷02-W02.ttf
