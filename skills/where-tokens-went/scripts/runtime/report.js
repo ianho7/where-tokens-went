@@ -656,17 +656,28 @@ function summaryEvidenceLabel(key, locale) {
     };
     return known[key] ?? labels.findingEvidence;
 }
+function checkName(checkId, locale) {
+    const labels = labelsFor(locale);
+    if (checkId === "long_session")
+        return labels.kindLongSession;
+    if (checkId === "tool_amplification")
+        return labels.kindToolAmplification;
+    if (checkId === "extra_calls")
+        return labels.kindExtraCalls;
+    return labels.automatedCheckEvidence;
+}
 function reportFindingEvidence(result, reference, locale) {
     const labels = labelsFor(locale);
     const match = (0, key_session_analysis_1.resolveReportEvidence)(result, reference);
     if (!match)
-        return labels.findingEvidence + labels.exactSeparator + labels.unavailable;
+        return labels.unavailable;
     if (match.kind === "check") {
-        const outcome = result.checks.find((check) => check.id === match.key.split(":", 1)[0])?.outcome;
         const checkId = match.key.split(":", 1)[0];
+        const outcome = result.checks.find((c) => c.id === checkId)?.outcome;
         const valueLabels = checkEvidenceLabels(checkId, locale);
         const facts = match.evidence.map((value, index) => reportEvidenceFact(value, valueLabels[index]?.[0] ?? labels.findingEvidence, locale, valueLabels[index]?.[1] ?? "metric"));
-        return labels.automatedCheckEvidence + labels.exactSeparator + (outcome ? outcomeLabel(outcome, locale) + proseSeparator(locale) : "") + facts.join(proseSeparator(locale));
+        const factText = (outcome ? outcomeLabel(outcome, locale) + proseSeparator(locale) : "") + facts.join(proseSeparator(locale));
+        return checkName(checkId, locale) + "（" + factText + "）";
     }
     if (match.kind === "ranking") {
         const row = match.dimension ? result.rankings[match.dimension].find((entry) => entry.key === match.key) : undefined;
@@ -680,14 +691,14 @@ function reportFindingEvidence(result, reference, locale) {
             [labels.share, "percentage"],
             [match.dimension === "sessions" ? labels.modelCalls : labels.calls, "metric"],
         ];
-        return labels.findingEvidence + labels.exactSeparator + name + "（" + match.evidence.map((value, index) => reportEvidenceFact(value, facts[index]?.[0] ?? labels.findingEvidence, locale, facts[index]?.[1] ?? "metric")).join(proseSeparator(locale)) + "）";
+        return name + "（" + match.evidence.map((value, index) => reportEvidenceFact(value, facts[index]?.[0] ?? labels.findingEvidence, locale, facts[index]?.[1] ?? "metric")).join(proseSeparator(locale)) + "）";
     }
     if (match.kind === "turn") {
         const turn = result.turns.find((candidate) => candidate.evidenceId === reference);
         const facts = [[labels.tokens, "metric"], [labels.share, "percentage"], [labels.modelCalls, "metric"]];
-        return labels.findingEvidence + labels.exactSeparator + (turn ? roundLabel(turn, locale) : labels.unavailable) + "（" + match.evidence.map((value, index) => reportEvidenceFact(value, facts[index]?.[0] ?? labels.findingEvidence, locale, facts[index]?.[1] ?? "metric")).join(proseSeparator(locale)) + "）";
+        return (turn ? roundLabel(turn, locale) : labels.unavailable) + "（" + match.evidence.map((value, index) => reportEvidenceFact(value, facts[index]?.[0] ?? labels.findingEvidence, locale, facts[index]?.[1] ?? "metric")).join(proseSeparator(locale)) + "）";
     }
-    return labels.findingEvidence + labels.exactSeparator + match.evidence.map((value) => reportEvidenceFact(value, labels.findingEvidence, locale)).join(proseSeparator(locale));
+    return match.evidence.map((value) => reportEvidenceFact(value, summaryEvidenceLabel(match.key, locale), locale)).join(proseSeparator(locale));
 }
 function renderReportFinding(result, finding, locale) {
     const labels = labelsFor(locale);
