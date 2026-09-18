@@ -2,6 +2,7 @@ import {
   readFile,
   readdir,
 } from "node:fs/promises";
+import { statSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import type {
@@ -610,6 +611,55 @@ function inScope(value: string | null, scope: ReadScope): boolean {
   return scope.until === undefined || time < scope.until.getTime();
 }
 
+
+interface SerializedPendingSession extends Omit<PendingSession, "turnTokenSnapshots" | "firstUserMessages"> {
+  turnTokenSnapshots: Array<[string, UsageValues]>;
+  firstUserMessages: Array<[string, string | null]>;
+}
+
+interface CachedFileParseResult {
+  size: number;
+  mtimeMs: number;
+  recordsRead: number;
+  recordsSkipped: number;
+  pendingSessions: SerializedPendingSession[];
+}
+
+function getSessionIndexPath(): string {
+  if (process.env.SESSION_INDEX_FILE) return process.env.SESSION_INDEX_FILE;
+  return path.join(process.cwd(), ".scratch", "session-index.json");
+}
+
+function loadSessionIndex(): Map<string, CachedFileParseResult> {
+  const indexPath = getSessionIndexPath();
+  const map = new Map<string, CachedFileParseResult>();
+  try {
+    const raw = readFileSync(indexPath, "utf8");
+    const parsed = JSON.parse(raw);
+    for (const [key, val] of Object.entries(parsed)) {
+      if (val && typeof (val as any).size === "number" && typeof (val as any).mtimeMs === "number") {
+        map.set(key, val as CachedFileParseResult);
+      }
+    }
+  } catch {
+    // Index file absent or unreadable
+  }
+  return map;
+}
+
+function saveSessionIndex(map: Map<string, CachedFileParseResult>): void {
+  const indexPath = getSessionIndexPath();
+  try {
+    mkdirSync(path.dirname(indexPath), { recursive: true });
+    const obj: Record<string, CachedFileParseResult> = {};
+    for (const [k, v] of map.entries()) {
+      obj[k] = v;
+    }
+    writeFileSync(indexPath, JSON.stringify(obj), "utf8");
+  } catch {
+    // Best effort write
+  }
+}
 export async function readCodex(scope: ReadScope): Promise<ReadResult> {
   const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
   const files = await rolloutFiles(path.join(codexHome, "sessions"), scope);
@@ -623,9 +673,38 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
   const pendingById = new Map<string, PendingSession>();
   let fallbackIndex = 0;
   const sessionTitles = await readSessionTitles(codexHome, coverage.warnings);
+  const sessionIndex = loadSessionIndex();
+  let indexUpdated = false;
 
   for (const file of files) {
     coverage.filesRead += 1;
+    let st;
+    try {
+      st = statSync(file);
+    } catch {
+      coverage.recordsSkipped += 1;
+      coverage.warnings.push("A Codex rollout could not be read and was skipped.");
+      continue;
+    }
+
+    const cached = sessionIndex.get(file);
+    if (cached && cached.size === st.size && cached.mtimeMs === Math.floor(st.mtimeMs)) {
+      coverage.recordsRead += cached.recordsRead;
+      coverage.recordsSkipped += cached.recordsSkipped;
+      for (const p of cached.pendingSessions) {
+        const restored: PendingSession = {
+          ...p,
+          turnTokenSnapshots: new Map(p.turnTokenSnapshots),
+          firstUserMessages: new Map(p.firstUserMessages),
+        };
+        pendingById.set(p.session.sessionId, restored);
+      }
+      continue;
+    }
+
+    const recordsBefore = coverage.recordsRead;
+    const skippedBefore = coverage.recordsSkipped;
+
     let text: string;
     try {
       text = await readFile(file, "utf8");
@@ -947,6 +1026,24 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
         }
       }
     }
+
+    const filePending = [...pendingById.values()].filter((p) => p.session.filePath === file);
+    sessionIndex.set(file, {
+      size: st.size,
+      mtimeMs: Math.floor(st.mtimeMs),
+      recordsRead: coverage.recordsRead - recordsBefore,
+      recordsSkipped: coverage.recordsSkipped - skippedBefore,
+      pendingSessions: filePending.map((p) => ({
+        ...p,
+        turnTokenSnapshots: [...p.turnTokenSnapshots.entries()],
+        firstUserMessages: [...p.firstUserMessages.entries()],
+      })),
+    });
+    indexUpdated = true;
+  }
+
+  if (indexUpdated) {
+    saveSessionIndex(sessionIndex);
   }
 
   const sessions: SessionRecord[] = [];
