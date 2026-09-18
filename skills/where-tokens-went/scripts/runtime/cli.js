@@ -628,10 +628,33 @@ async function reportRunComposeMain(args) {
                 run.manifest.warnings.push("The Report Prompt or runtime changed; previous AI outputs were invalidated without rescanning the Audit.");
                 await (0, report_run_1.setRunPromptHashes)(run, currentContract.promptHashes, currentContract.runtimeHash);
             }
-            synthesisCandidate = parsed.reportSynthesis === null || parsed.reportSynthesis === undefined ? null : parsed.reportSynthesis;
-            const suppliedAnalyses = Array.isArray(parsed.keySessionAnalyses) ? parsed.keySessionAnalyses : [];
-            analyses = suppliedAnalyses.slice(0, 3);
-            if (suppliedAnalyses.length > 3)
+            if (parsed.reportSynthesis === undefined) {
+                const fileCandidate = path.join(run.runDir, "report-synthesis.json");
+                try {
+                    synthesisCandidate = JSON.parse(await fs.readFile(fileCandidate, "utf8"));
+                }
+                catch {
+                    synthesisCandidate = null;
+                }
+            }
+            else {
+                synthesisCandidate = parsed.reportSynthesis === null ? null : parsed.reportSynthesis;
+            }
+            if (parsed.keySessionAnalyses === undefined) {
+                const fileCandidate = path.join(run.runDir, "key-session-analyses.json");
+                try {
+                    const loaded = JSON.parse(await fs.readFile(fileCandidate, "utf8"));
+                    analyses = (Array.isArray(loaded) ? loaded : []).slice(0, 3);
+                }
+                catch {
+                    analyses = [];
+                }
+            }
+            else {
+                const suppliedAnalyses = Array.isArray(parsed.keySessionAnalyses) ? parsed.keySessionAnalyses : [];
+                analyses = suppliedAnalyses.slice(0, 3);
+            }
+            if (analyses.length > 3)
                 run.manifest.warnings.push("More than three Key Session Analyses were supplied; only the Token-ranked Top 3 are eligible.");
             if (analyses.length > 0 && packets === undefined)
                 throw new Error("Key Session Analysis requires the run-scoped Evidence artifact.");

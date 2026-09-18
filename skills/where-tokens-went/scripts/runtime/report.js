@@ -10,6 +10,7 @@ exports.renderText = renderText;
 exports.renderWeekText = renderWeekText;
 exports.renderShare = renderShare;
 const node_fs_1 = require("node:fs");
+const node_crypto_1 = require("node:crypto");
 const node_path_1 = require("node:path");
 const key_session_analysis_1 = require("./key-session-analysis");
 const report_messages_1 = require("./report-messages");
@@ -653,6 +654,9 @@ function summaryEvidenceLabel(key, locale) {
         keySessionTokenAccountingStatus: labels.primaryLimitation,
         responseUsageTotal: labels.modelCalls,
         cumulativeTurnTotal: labels.totalTokens,
+        estimatedToolAmplifiedTokens: labels.amplified,
+        toolCallCount: labels.tools,
+        pairedToolResultCount: labels.pairedResults,
     };
     return known[key] ?? labels.findingEvidence;
 }
@@ -705,7 +709,9 @@ function renderReportFinding(result, finding, locale) {
     const support = labels.findingSupport[finding.support];
     const evidence = finding.evidenceRefs.map((reference) => reportFindingEvidence(result, reference, locale)).join(proseSeparator(locale));
     const uncertainty = finding.uncertainty === null ? "" : labels.findingUncertainty + labels.exactSeparator + completeSentence(finding.uncertainty, locale);
-    const method = [labels.findingEvidence + labels.exactSeparator + evidence, labels.findingSupport[finding.support], uncertainty].filter(Boolean).join(proseSeparator(locale));
+    const evidencePrefix = labels.findingEvidence + labels.exactSeparator;
+    const evidenceSection = evidence.startsWith(evidencePrefix) ? evidence : evidencePrefix + evidence;
+    const method = [evidenceSection, labels.findingSupport[finding.support], uncertainty].filter(Boolean).join(proseSeparator(locale));
     return "<li class=\"editorial-item\" data-evidence-refs=\"" + escapeHtml(finding.evidenceRefs.join(" ")) + "\"><div class=\"editorial-tags\" aria-label=\"" + escapeHtml(support) + "\">" + tagHtml(support) + "</div><strong class=\"editorial-title\">" + escapeHtml(finding.title) + "</strong><p class=\"editorial-detail\">" + escapeHtml(finding.analysis) + "</p><small class=\"editorial-method\">" + escapeHtml(method) + "</small></li>";
 }
 function renderChecks(result, locale, note = labelsFor(locale).checksNote) {
@@ -1439,6 +1445,75 @@ function collectReportFontCharacters(html) {
 function warnFontSubsettingFailure() {
     console.warn("[where-tokens-went] Font subsetting was unavailable; keeping the full embedded font data.");
 }
+function getFontCacheDir() {
+    if (process.env.FONT_CACHE_DIR)
+        return process.env.FONT_CACHE_DIR;
+    return (0, node_path_1.join)(process.cwd(), ".scratch", "font-cache");
+}
+function loadCachedFontEntries(fontFingerprint, weight) {
+    const cacheDir = getFontCacheDir();
+    const entries = [];
+    try {
+        const files = (0, node_fs_1.readdirSync)(cacheDir);
+        const prefix = fontFingerprint + "-" + weight + "-";
+        for (const file of files) {
+            if (file.startsWith(prefix) && file.endsWith(".json")) {
+                const jsonPath = (0, node_path_1.join)(cacheDir, file);
+                const woff2Path = (0, node_path_1.join)(cacheDir, file.replace(/\.json$/, ".woff2"));
+                if (!(0, node_fs_1.existsSync)(woff2Path))
+                    continue;
+                const meta = JSON.parse((0, node_fs_1.readFileSync)(jsonPath, "utf8"));
+                if (typeof meta.chars === "string") {
+                    const charSet = new Set(meta.chars);
+                    entries.push({
+                        file: woff2Path,
+                        charSet,
+                        charsCount: charSet.size,
+                    });
+                }
+            }
+        }
+    }
+    catch {
+        // Cache directory absent or unreadable
+    }
+    entries.sort((a, b) => a.charsCount - b.charsCount);
+    return entries;
+}
+function findSupersetFont(entries, requiredCharacters) {
+    for (const entry of entries) {
+        let coversAll = true;
+        for (const char of requiredCharacters) {
+            if (!entry.charSet.has(char)) {
+                coversAll = false;
+                break;
+            }
+        }
+        if (coversAll) {
+            try {
+                const buf = (0, node_fs_1.readFileSync)(entry.file);
+                if (buf.length >= 4 && buf.subarray(0, 4).toString("ascii") === "wOF2") {
+                    return buf;
+                }
+            }
+            catch { }
+        }
+    }
+    return null;
+}
+function saveCachedFont(fontFingerprint, weight, chars, woff2Buffer) {
+    const cacheDir = getFontCacheDir();
+    try {
+        (0, node_fs_1.mkdirSync)(cacheDir, { recursive: true });
+        const subsetHash = (0, node_crypto_1.createHash)("sha256").update(chars).digest("hex").slice(0, 12);
+        const baseName = fontFingerprint + "-" + weight + "-" + subsetHash;
+        (0, node_fs_1.writeFileSync)((0, node_path_1.join)(cacheDir, baseName + ".woff2"), woff2Buffer);
+        (0, node_fs_1.writeFileSync)((0, node_path_1.join)(cacheDir, baseName + ".json"), JSON.stringify({ chars }), "utf8");
+    }
+    catch {
+        // Best effort caching
+    }
+}
 async function subsetReportFonts(html) {
     FONT_FACE_SOURCE_PATTERN.lastIndex = 0;
     const sources = [...html.matchAll(FONT_FACE_SOURCE_PATTERN)];
@@ -1452,10 +1527,21 @@ async function subsetReportFonts(html) {
         const characters = collectReportFontCharacters(html);
         const replacements = [];
         for (const source of sources) {
+            const weight = source[3];
             const input = Buffer.from(source[1].split(",")[1], "base64");
-            const subset = Buffer.from(await subsetFont(input, characters, { targetFormat: "woff2" }));
-            if (subset.length < 4 || subset.subarray(0, 4).toString("ascii") !== "wOF2")
-                throw new Error("The subset font was not WOFF2.");
+            const fontFingerprint = (0, node_crypto_1.createHash)("sha256").update(input).digest("hex").slice(0, 12);
+            const cachedEntries = loadCachedFontEntries(fontFingerprint, weight);
+            let subset = findSupersetFont(cachedEntries, characters);
+            if (!subset) {
+                const largestCached = cachedEntries.length > 0 ? cachedEntries[cachedEntries.length - 1].charSet : null;
+                const targetCharacters = largestCached && largestCached.size < 6000
+                    ? [...new Set([...characters, ...largestCached])].sort().join("")
+                    : characters;
+                subset = Buffer.from(await subsetFont(input, targetCharacters, { targetFormat: "woff2" }));
+                if (subset.length < 4 || subset.subarray(0, 4).toString("ascii") !== "wOF2")
+                    throw new Error("The subset font was not WOFF2.");
+                saveCachedFont(fontFingerprint, weight, targetCharacters, subset);
+            }
             replacements.push({
                 start: source.index ?? 0,
                 end: (source.index ?? 0) + source[0].length,

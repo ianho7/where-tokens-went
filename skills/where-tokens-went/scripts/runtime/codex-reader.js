@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.readCodex = readCodex;
 const promises_1 = require("node:fs/promises");
+const node_fs_1 = require("node:fs");
 const path = __importStar(require("node:path"));
 const os = __importStar(require("node:os"));
 const prompt_projection_1 = require("./prompt-projection");
@@ -559,6 +560,42 @@ function inScope(value, scope) {
         return false;
     return scope.until === undefined || time < scope.until.getTime();
 }
+function getSessionIndexPath() {
+    if (process.env.SESSION_INDEX_FILE)
+        return process.env.SESSION_INDEX_FILE;
+    return path.join(process.cwd(), ".scratch", "session-index.json");
+}
+function loadSessionIndex() {
+    const indexPath = getSessionIndexPath();
+    const map = new Map();
+    try {
+        const raw = (0, node_fs_1.readFileSync)(indexPath, "utf8");
+        const parsed = JSON.parse(raw);
+        for (const [key, val] of Object.entries(parsed)) {
+            if (val && typeof val.size === "number" && typeof val.mtimeMs === "number") {
+                map.set(key, val);
+            }
+        }
+    }
+    catch {
+        // Index file absent or unreadable
+    }
+    return map;
+}
+function saveSessionIndex(map) {
+    const indexPath = getSessionIndexPath();
+    try {
+        (0, node_fs_1.mkdirSync)(path.dirname(indexPath), { recursive: true });
+        const obj = {};
+        for (const [k, v] of map.entries()) {
+            obj[k] = v;
+        }
+        (0, node_fs_1.writeFileSync)(indexPath, JSON.stringify(obj), "utf8");
+    }
+    catch {
+        // Best effort write
+    }
+}
 async function readCodex(scope) {
     const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
     const files = await rolloutFiles(path.join(codexHome, "sessions"), scope);
@@ -572,8 +609,35 @@ async function readCodex(scope) {
     const pendingById = new Map();
     let fallbackIndex = 0;
     const sessionTitles = await readSessionTitles(codexHome, coverage.warnings);
+    const sessionIndex = loadSessionIndex();
+    let indexUpdated = false;
     for (const file of files) {
         coverage.filesRead += 1;
+        let st;
+        try {
+            st = (0, node_fs_1.statSync)(file);
+        }
+        catch {
+            coverage.recordsSkipped += 1;
+            coverage.warnings.push("A Codex rollout could not be read and was skipped.");
+            continue;
+        }
+        const cached = sessionIndex.get(file);
+        if (cached && cached.size === st.size && cached.mtimeMs === Math.floor(st.mtimeMs)) {
+            coverage.recordsRead += cached.recordsRead;
+            coverage.recordsSkipped += cached.recordsSkipped;
+            for (const p of cached.pendingSessions) {
+                const restored = {
+                    ...p,
+                    turnTokenSnapshots: new Map(p.turnTokenSnapshots),
+                    firstUserMessages: new Map(p.firstUserMessages),
+                };
+                pendingById.set(p.session.sessionId, restored);
+            }
+            continue;
+        }
+        const recordsBefore = coverage.recordsRead;
+        const skippedBefore = coverage.recordsSkipped;
         let text;
         try {
             text = await (0, promises_1.readFile)(file, "utf8");
@@ -891,6 +955,22 @@ async function readCodex(scope) {
                 }
             }
         }
+        const filePending = [...pendingById.values()].filter((p) => p.session.filePath === file);
+        sessionIndex.set(file, {
+            size: st.size,
+            mtimeMs: Math.floor(st.mtimeMs),
+            recordsRead: coverage.recordsRead - recordsBefore,
+            recordsSkipped: coverage.recordsSkipped - skippedBefore,
+            pendingSessions: filePending.map((p) => ({
+                ...p,
+                turnTokenSnapshots: [...p.turnTokenSnapshots.entries()],
+                firstUserMessages: [...p.firstUserMessages.entries()],
+            })),
+        });
+        indexUpdated = true;
+    }
+    if (indexUpdated) {
+        saveSessionIndex(sessionIndex);
     }
     const sessions = [];
     const turns = [];
