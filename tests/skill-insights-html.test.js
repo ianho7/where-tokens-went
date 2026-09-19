@@ -21,6 +21,10 @@ test('renderHtml renders skill insights cards when present in composition', () =
           surface: '这只是一个普通辅助工具',
           observed: '它实际上提供了不可缺失的前置环境约束'
         },
+        decisionDelta: {
+          before: '按普通说明处理',
+          after: '保留为常驻硬约束，并把通用流程延后审查',
+        },
         observation: '该 Skill 涉及约 50% 的用量，提供了强制的环境一致性检查。',
         contrast: '全系统中位数为 1.0 calls/task，该 Skill 显著高于基准。',
         interpretation: '若缺失此类约束，模型易产生无边界的文件变更。',
@@ -37,7 +41,9 @@ test('renderHtml renders skill insights cards when present in composition', () =
   const html = renderHtml(audit, 'zh-CN', composition);
   assert.ok(html.includes('<section class="skill-insights">'), 'Should render skill insights section');
   assert.ok(html.includes('核心指导提供关键环境约束'), 'Should render insight title');
-  assert.ok(html.includes('callShare: 0.5'), 'Should render metric badge');
+  assert.ok(html.includes('调用占比：50%'), 'Should render a human-readable metric badge');
+  assert.ok(!html.includes('callShare: 0.5'), 'Should not expose raw metric keys');
+  assert.ok(!html.includes('<span class="kami-badge scope-badge">'), 'Should not expose internal scope labels');
   assert.ok(html.includes('Always check git status before editing.'), 'Should render skill excerpt');
   assert.ok(html.includes('Skill 使用证据'), 'Skill evidence table must still follow');
   assert.ok(!html.includes('证据：证据：'), 'Must not contain double evidence prefix');
@@ -147,6 +153,10 @@ test('report-run compose integrates validated skill insights into HTML report', 
           mentalModelShift: {
             surface: '普通编码流程',
             observed: '执行策略具备严格前置审批硬约束'
+          },
+          decisionDelta: {
+            before: '把它当作一般说明',
+            after: '保留审批边界并单独治理通用流程',
           },
           observation: '该 Skill 提供了明确的执行前置审批要求。',
           contrast: '相比于普通任务入口，该约束在执行前必须常驻生效。',

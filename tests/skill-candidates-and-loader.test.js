@@ -66,6 +66,8 @@ test('deriveSkillMetrics calculates distribution context and global topology rat
   // Top 4 calls: 100 + 20 + 8 + 4 = 132 / 133 = 0.9925
   assert.equal(global.top4CallShare, 0.9925);
   // lowFrequency (<=5 calls): low-freq-1 (4) and low-freq-2 (1) = 2 / 5 = 0.4
+  assert.equal(global.lowFrequencySkillCount, 2);
+  assert.equal(global.lowFrequencyCallCount, 5);
   assert.equal(global.lowFrequencySkillShare, 0.4);
   // lowFrequency calls: (4 + 1) / 133 = 5 / 133 = 0.0376
   assert.equal(global.lowFrequencyCallShare, 0.0376);
@@ -77,6 +79,36 @@ test('deriveSkillMetrics calculates distribution context and global topology rat
   assert.equal(global.dominantFamily.groupId, 'family-a');
   assert.equal(global.dominantFamily.memberSkillIds.length, 2);
   assert.equal(global.dominantFamily.callShare, Math.round((120 / 133) * 10000) / 10000);
+});
+
+test('deriveSkillMetrics computes family metrics from the full population, including the base skill', () => {
+  const skills = [
+    mockSkill('where-tokens-went', 80, 12),
+    mockSkill('where-tokens-went-claude', 10, 4),
+    mockSkill('where-tokens-went-codex', 183, 17),
+    mockSkill('where-tokens-went-codex-codex', 1, 1),
+    mockSkill('unrelated-skill', 189, 30),
+  ];
+
+  const { global } = deriveSkillMetrics(skills, 64);
+  const family = global.familyMetrics.find((entry) => entry.groupId === 'where-tokens-went');
+
+  assert.ok(family, 'The base Skill name must define the canonical family');
+  assert.deepEqual(family.memberSkillIds.sort(), [
+    'where-tokens-went',
+    'where-tokens-went-claude',
+    'where-tokens-went-codex',
+    'where-tokens-went-codex-codex',
+  ].sort());
+  assert.equal(family.totalCalls, 274);
+  assert.equal(family.memberCount, 4);
+  assert.equal(family.callShare, 0.5918);
+  assert.equal(global.dominantFamily.groupId, 'where-tokens-went');
+});
+
+test('deriveSkillMetrics leaves callsPerTask unavailable when tasks are zero', () => {
+  const { perSkill } = deriveSkillMetrics([mockSkill('zero-task', 10, 0)], 10);
+  assert.equal(perSkill.get('zero-task').callsPerTask, null);
 });
 
 test('selectSkillCandidates implements family-aware diverse sampling with quotas and max 5 ceiling', () => {
@@ -102,6 +134,11 @@ test('selectSkillCandidates implements family-aware diverse sampling with quotas
 
   // Must include non-dominant callsPerTask outlier when present
   assert.ok(names.includes('outlier-helper'), 'Must include non-dominant outlier');
+
+  for (const candidate of result.candidates) {
+    assert.equal(typeof candidate.signals.calls, 'number', 'Candidate signals must include calls');
+    assert.equal(typeof candidate.signals.tasks, 'number', 'Candidate signals must include tasks');
+  }
 });
 
 test('selectSkillCandidates does not force fill 5 slots when candidates are sparse', () => {

@@ -603,6 +603,8 @@ async function reportRunComposeMain(args) {
     let validatedSynthesis = null;
     let packets;
     let validatedSkillInsights = [];
+    let skillInsightsStatus = "skipped";
+    let skillInsightsValid = false;
     try {
         const currentContract = await (0, report_run_1.withRunSpan)(run, { phase: "prompt-read", operation: "verify-report-contract", source: "filesystem" }, async () => {
             const metadata = await (0, report_run_1.resolveRunContractMetadata)();
@@ -681,6 +683,9 @@ async function reportRunComposeMain(args) {
             else {
                 rawSkillInsights = parsed.skillInsights;
             }
+            if (rawSkillInsights !== undefined && rawSkillInsights !== null) {
+                skillInsightsStatus = "fallback";
+            }
             if (rawSkillInsights && run.manifest.artifacts.skillSnapshot) {
                 try {
                     const snapshot = await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot");
@@ -688,6 +693,8 @@ async function reportRunComposeMain(args) {
                         const validation = (0, skill_insights_1.validateSkillInsights)(rawSkillInsights, snapshot);
                         if (validation.valid) {
                             validatedSkillInsights = validation.insights;
+                            skillInsightsValid = true;
+                            skillInsightsStatus = "completed";
                         }
                         if (validation.errors.length > 0) {
                             run.manifest.warnings.push(`Skill Insights validation: ${validation.errors.join("; ")}`);
@@ -741,6 +748,17 @@ async function reportRunComposeMain(args) {
                 value: analyses,
                 validCount: validKeyCount,
                 invalidCount: invalidKeyCount,
+            });
+            await (0, report_run_1.writeRunArtifact)(run, "skillInsights", {
+                version: 1,
+                runId: run.manifest.runId,
+                auditFingerprint: runFingerprint,
+                promptHashes: currentPromptHashes,
+                runtimeHash: currentRuntimeHash,
+                attempt: run.manifest.stageStatus["skill-insights"]?.attempt ?? null,
+                status: skillInsightsStatus,
+                value: validatedSkillInsights,
+                valid: skillInsightsValid,
             });
         });
         const composition = await (0, report_run_1.withRunSpan)(run, { phase: "compose", operation: "compose-report", source: "runner" }, async () => (0, key_session_analysis_1.reportComposition)(audit, analyses, validatedSynthesis, packets, validatedSkillInsights));

@@ -331,6 +331,9 @@ export interface ReportMessages {
     claim: string;
     action: string;
     evidence: string;
+    decisionDelta: string;
+    decisionBefore: string;
+    decisionAfter: string;
   };
   skillEvidence: string;
   skillState: string;
@@ -718,6 +721,9 @@ const EN: ReportMessages = {
     claim: "Core Finding",
     action: "Suggested Action",
     evidence: "Key Evidence",
+    decisionDelta: "Decision Change",
+    decisionBefore: "Before",
+    decisionAfter: "Now",
   },
   skillEvidence: "Skill evidence",
   skillState: "state",
@@ -1097,6 +1103,9 @@ const ZH: ReportMessages = {
     claim: "核心发现",
     action: "建议检查方向",
     evidence: "关键证据",
+    decisionDelta: "决策变化",
+    decisionBefore: "原先",
+    decisionAfter: "现在",
   },
   skillEvidence: "Skill 使用证据",
   skillState: "状态",

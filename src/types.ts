@@ -564,7 +564,7 @@ export interface SkillDerivedMetrics {
   calls: number;
   tasks: number;
   callShare: number;
-  callsPerTask: number;
+  callsPerTask: number | null;
   taskCoverage: number;
   rankByCalls: number;
   rankByTasks: number;
@@ -585,16 +585,28 @@ export interface DominantFamilyCandidate {
   callShare: number;
 }
 
+export interface SkillFamilyUsage {
+  groupId: string;
+  memberSkillIds: string[];
+  totalCalls: number;
+  totalTasks: number;
+  callShare: number;
+  memberCount: number;
+}
+
 export interface GlobalSkillUsage {
   totalSkillsUsed: number;
   totalSkillCalls: number;
   totalTasks: number;
   callsPerTaskDistribution: CallsPerTaskDistribution;
   top4CallShare: number;
+  lowFrequencySkillCount: number;
+  lowFrequencyCallCount: number;
   lowFrequencySkillShare: number;
   lowFrequencyCallShare: number;
   singleUseSkillShare: number;
   dominantFamily: DominantFamilyCandidate | null;
+  familyMetrics?: SkillFamilyUsage[];
 }
 
 export type SkillCandidateType =
@@ -607,6 +619,8 @@ export interface SkillCandidate {
   skillName: string;
   candidateTypes: SkillCandidateType[];
   signals: {
+    calls?: number;
+    tasks?: number;
     callShare?: number;
     callsPerTask?: number;
     rankByCalls?: number;
@@ -683,6 +697,11 @@ export interface MentalModelShift {
   observed: string;
 }
 
+export interface DecisionDelta {
+  before: string;
+  after: string;
+}
+
 export interface ValidatedSkillInsight {
   id: string;
   scope: SkillInsightScope;
@@ -692,7 +711,8 @@ export interface ValidatedSkillInsight {
     skillIds?: string[];
   };
   title: string;
-  mentalModelShift?: MentalModelShift;
+  mentalModelShift: MentalModelShift;
+  decisionDelta: DecisionDelta;
   observation: string;
   contrast: string;
   interpretation: string;

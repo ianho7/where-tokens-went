@@ -80,10 +80,13 @@ function deriveSkillMetrics(skills, totalTasks) {
                 totalTasks: Math.max(0, totalTasks),
                 callsPerTaskDistribution: { median: 0, p75: 0, p90: 0, max: 0 },
                 top4CallShare: 0,
+                lowFrequencySkillCount: 0,
+                lowFrequencyCallCount: 0,
                 lowFrequencySkillShare: 0,
                 lowFrequencyCallShare: 0,
                 singleUseSkillShare: 0,
                 dominantFamily: null,
+                familyMetrics: [],
             },
             perSkill,
         };
@@ -98,7 +101,7 @@ function deriveSkillMetrics(skills, totalTasks) {
         const calls = skillCalls(skill);
         const tasks = skillTasks(skill);
         const callShare = totalSkillCalls > 0 ? calls / totalSkillCalls : 0;
-        const callsPerTask = tasks > 0 ? calls / tasks : (calls > 0 ? calls : 0);
+        const callsPerTask = tasks > 0 ? calls / tasks : null;
         const taskCoverage = effectiveTotalTasks > 0 ? Math.min(1, tasks / effectiveTotalTasks) : 0;
         perSkill.set(skill.name, {
             calls,
@@ -133,55 +136,75 @@ function deriveSkillMetrics(skills, totalTasks) {
     const lowFrequencyCallShare = totalSkillCalls > 0 ? Math.round((lowFrequencyCalls / totalSkillCalls) * 10000) / 10000 : 0;
     const singleUseSkills = activeSkills.filter((s) => skillCalls(s) === 1);
     const singleUseSkillShare = totalSkillsUsed > 0 ? Math.round((singleUseSkills.length / totalSkillsUsed) * 10000) / 10000 : 0;
-    // Sampling Group / Family candidate grouping
+    // Family metrics always use the full active population. Candidate sampling happens later.
     const samplingGroups = detectSamplingGroups(activeSkills);
-    let dominantFamily = null;
-    let highestFamilyCalls = 0;
-    for (const [stem, members] of samplingGroups.entries()) {
-        const familyCalls = members.reduce((sum, name) => sum + (perSkill.get(name)?.calls ?? 0), 0);
-        if (familyCalls > highestFamilyCalls && familyCalls > 0) {
-            highestFamilyCalls = familyCalls;
-            dominantFamily = {
-                groupId: stem,
-                memberSkillIds: members,
-                callShare: totalSkillCalls > 0 ? Math.round((familyCalls / totalSkillCalls) * 10000) / 10000 : 0,
-            };
+    const familyMetrics = [...samplingGroups.entries()]
+        .map(([groupId, members]) => {
+        const totalCalls = members.reduce((sum, name) => sum + (perSkill.get(name)?.calls ?? 0), 0);
+        const totalTasks = members.reduce((sum, name) => sum + (perSkill.get(name)?.tasks ?? 0), 0);
+        return {
+            groupId,
+            memberSkillIds: members,
+            totalCalls,
+            totalTasks,
+            callShare: totalSkillCalls > 0 ? Math.round((totalCalls / totalSkillCalls) * 10000) / 10000 : 0,
+            memberCount: members.length,
+        };
+    })
+        .filter((family) => family.totalCalls > 0)
+        .sort((a, b) => b.totalCalls - a.totalCalls || a.groupId.localeCompare(b.groupId));
+    const dominantFamily = familyMetrics[0]
+        ? {
+            groupId: familyMetrics[0].groupId,
+            memberSkillIds: familyMetrics[0].memberSkillIds,
+            callShare: familyMetrics[0].callShare,
         }
-    }
+        : null;
     const global = {
         totalSkillsUsed,
         totalSkillCalls,
         totalTasks: Math.max(0, totalTasks),
         callsPerTaskDistribution,
         top4CallShare,
+        lowFrequencySkillCount: lowFrequencySkills.length,
+        lowFrequencyCallCount: lowFrequencyCalls,
         lowFrequencySkillShare,
         lowFrequencyCallShare,
         singleUseSkillShare,
         dominantFamily,
+        familyMetrics,
     };
     return { global, perSkill };
 }
 function detectSamplingGroups(skills) {
-    const groups = new Map();
-    for (const skill of skills) {
-        const name = skill.name;
-        if (!name || name === "<unknown-skill>")
-            continue;
-        const parts = name.split(/[-_]/);
-        if (parts.length >= 2) {
-            const stem = parts.slice(0, -1).join("-");
-            if (stem.length >= 3) {
-                const list = groups.get(stem) ?? [];
-                list.push(name);
-                groups.set(stem, list);
-            }
+    const names = [...new Set(skills.map((skill) => skill.name).filter((name) => Boolean(name) && name !== "<unknown-skill>"))];
+    const nameSet = new Set(names);
+    const stems = new Set();
+    for (const name of names) {
+        const parts = name.split(/[-_]+/);
+        for (let length = 1; length < parts.length; length += 1) {
+            const stem = parts.slice(0, length).join("-");
+            if (stem.length >= 3)
+                stems.add(stem);
         }
+        stems.add(name);
     }
+    const candidates = [...stems]
+        .map((stem) => ({
+        stem,
+        members: names.filter((name) => name === stem || name.startsWith(stem + "-") || name.startsWith(stem + "_")),
+        isNamedBase: nameSet.has(stem),
+    }))
+        .filter((candidate) => candidate.members.length >= 2)
+        .sort((a, b) => Number(b.isNamedBase) - Number(a.isNamedBase) || b.members.length - a.members.length || b.stem.length - a.stem.length || a.stem.localeCompare(b.stem));
     const result = new Map();
-    for (const [stem, members] of groups.entries()) {
-        if (members.length >= 2) {
-            result.set(stem, [...new Set(members)]);
-        }
+    const claimed = new Set();
+    for (const candidate of candidates) {
+        const availableMembers = candidate.members.filter((member) => !claimed.has(member));
+        if (availableMembers.length < 2)
+            continue;
+        result.set(candidate.stem, candidate.members);
+        candidate.members.forEach((member) => claimed.add(member));
     }
     return result;
 }
@@ -222,8 +245,10 @@ function selectSkillCandidates(skills, totalTasks) {
                 continue;
             addCandidate(member, "skill_family", {
                 familyGroup: global.dominantFamily.groupId,
+                calls: m.calls,
+                tasks: m.tasks,
                 callShare: m.callShare,
-                callsPerTask: m.callsPerTask,
+                callsPerTask: m.callsPerTask ?? undefined,
                 rankByCalls: m.rankByCalls,
             });
         }
@@ -234,8 +259,10 @@ function selectSkillCandidates(skills, totalTasks) {
         const topNonDom = nonDominantByCalls[0];
         const m = perSkill.get(topNonDom.name);
         addCandidate(topNonDom.name, "high_frequency", {
+            calls: m.calls,
+            tasks: m.tasks,
             callShare: m.callShare,
-            callsPerTask: m.callsPerTask,
+            callsPerTask: m.callsPerTask ?? undefined,
             rankByCalls: m.rankByCalls,
         });
     }
@@ -245,6 +272,7 @@ function selectSkillCandidates(skills, totalTasks) {
         const m = perSkill.get(s.name);
         return (m &&
             m.calls >= 3 &&
+            m.callsPerTask !== null &&
             m.callsPerTask >= global.callsPerTaskDistribution.p75 &&
             !selectedMap.has(s.name));
     })
@@ -253,7 +281,9 @@ function selectSkillCandidates(skills, totalTasks) {
         const topOutlier = outlierCandidates[0];
         const m = perSkill.get(topOutlier.name);
         addCandidate(topOutlier.name, "high_calls_per_task", {
-            callsPerTask: m.callsPerTask,
+            calls: m.calls,
+            tasks: m.tasks,
+            callsPerTask: m.callsPerTask ?? undefined,
             isOutlier: true,
             rankByCalls: m.rankByCalls,
         });
@@ -265,8 +295,10 @@ function selectSkillCandidates(skills, totalTasks) {
             const extra = remainingCandidates[0];
             const m = perSkill.get(extra.name);
             addCandidate(extra.name, "high_frequency", {
+                calls: m.calls,
+                tasks: m.tasks,
                 callShare: m.callShare,
-                callsPerTask: m.callsPerTask,
+                callsPerTask: m.callsPerTask ?? undefined,
                 rankByCalls: m.rankByCalls,
             });
         }
@@ -395,10 +427,14 @@ function calculateSkillSnapshotBudget(snapshot) {
         isOversized: total > exports.SKILL_CONTENT_BUDGET_TOKENS,
     };
 }
-const UNCONDITIONAL_CAUSAL_REGEX = /\b(cause|caused|causing|causes|responsible for|waste|wasted|cost you)\b|导致了|造成了|浪费了|花掉了|因为这个\s*Skill\s*消耗/i;
-const CONDITIONAL_INDICATOR_REGEX = /\b(if|assuming|hypothesis|potential|whether)\b|如果|若|假设|视乎|是否/i;
-const UNCONFIRMED_INDICATOR_REGEX = /\b(cannot confirm|unconfirmed|missing trace|cannot prove|unverified)\b|当前缺少|尚未证实|尚无法确认|不能证明/i;
-const REPEATED_INJECTION_ASSERTION_REGEX = /证明(?:完整)?(?:SKILL\.md|Prompt)被重复注入|proves (?:that )?(?:the )?(?:entire |full )?prompt was repeatedly injected/i;
+const UNCONDITIONAL_CAUSAL_REGEX = /\b(cause|caused|causing|causes|responsible for|waste|wasted|cost you|lead(?:s|ing)? to|result(?:s|ing)? in|amplif(?:y|ies|ied|ying))\b|导致|造成|浪费|花掉|因为这个\s*Skill\s*消耗/i;
+const CONDITIONAL_INDICATOR_REGEX = /\b(if|assuming|hypothesis|potential|whether)\b|如果|若|假设|视乎|是否|可能|或许|潜在/i;
+const UNCONFIRMED_INDICATOR_REGEX = /\b(cannot confirm|unconfirmed|missing trace|cannot prove|unverified|needs? (?:content )?confirmation)\b|当前缺少|尚未证实|尚无法确认|不能证明|需要(?:内容)?确认|待确认/i;
+const REPEATED_INJECTION_ASSERTION_REGEX = /(?:完整|整个|full|entire|complete)\s*(?:SKILL\.md|Prompt|prompt).{0,40}(?:重复|反复|再次|repeated|re-?injected|injected)/i;
+const SEMANTIC_FAMILY_ASSERTION_REGEX = /\b(shared|same capability|same core|common core|identical|equivalent|overlap(?:ping)?)\b|共享(?:能力|核心)|同一(?:能力|核心)|共同(?:能力|核心)|内容重叠/i;
+const MIXED_ROLE_ASSERTION_REGEX = /(?:generic|general|通用).{0,80}(?:hard constraint|strict constraint|约束|硬约束)|(?:hard constraint|strict constraint|硬约束).{0,80}(?:generic|general|通用)|same (?:level|layer)|同一层/i;
+const USER_BELIEF_ASSERTION_REGEX = /\b(?:you|your)\s+(?:think|assume|believe)|你(?:以为|认为|相信)/i;
+const GENERIC_DECISION_DELTA_REGEX = /^(?:review|check|inspect|optimize|monitor|continue to observe|继续观察|建议(?:进一步)?(?:检查|优化)|继续优化)[。.!！?？\s]*$/i;
 function normalizeText(text) {
     return text.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();
 }
@@ -417,6 +453,33 @@ const ALLOWED_LOADING_SCOPES = new Set([
     "reference_candidate",
     "unclear",
 ]);
+function insightFamilyKey(insight, families, candidates) {
+    if (insight.subject?.familyId)
+        return insight.subject.familyId;
+    const subjectSkillIds = [
+        ...(insight.subject?.skillId ? [insight.subject.skillId] : []),
+        ...(insight.subject?.skillIds ?? []),
+    ];
+    for (const skillId of subjectSkillIds) {
+        const candidateFamily = candidates.get(skillId)?.signals.familyGroup;
+        if (candidateFamily)
+            return candidateFamily;
+        const family = families.find((entry) => entry.memberSkillIds.includes(skillId));
+        if (family)
+            return family.groupId;
+    }
+    return null;
+}
+function evidenceSignature(evidence) {
+    return [evidence.kind, evidence.metric ?? "", evidence.skillId ?? "", evidence.familyId ?? "", evidence.evidenceExcerpt ?? ""].join("|");
+}
+function allowsSecondFamilyInsight(existing, candidate) {
+    const existingEvidence = new Set(existing.evidence.map(evidenceSignature));
+    const sharesEvidence = candidate.evidence.some((evidence) => existingEvidence.has(evidenceSignature(evidence)));
+    const hasDistinctDelta = normalizeText(existing.mentalModelShift.observed) !== normalizeText(candidate.mentalModelShift.observed) &&
+        normalizeText(existing.decisionDelta.after) !== normalizeText(candidate.decisionDelta.after);
+    return hasDistinctDelta && !sharesEvidence;
+}
 function validateSkillInsights(raw, snapshot, globalUsage) {
     const errors = [];
     let unsupportedClaimsDropped = 0;
@@ -453,6 +516,14 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
     }
     const activeGlobal = snapshot.globalUsage || globalUsage;
     const activeDist = snapshot.distributionContext || activeGlobal?.callsPerTaskDistribution;
+    const familyMetrics = activeGlobal?.familyMetrics ?? (activeGlobal?.dominantFamily ? [{
+            groupId: activeGlobal.dominantFamily.groupId,
+            memberSkillIds: activeGlobal.dominantFamily.memberSkillIds,
+            totalCalls: 0,
+            totalTasks: 0,
+            callShare: activeGlobal.dominantFamily.callShare,
+            memberCount: activeGlobal.dominantFamily.memberSkillIds.length,
+        }] : []);
     const acceptedInsights = [];
     for (const item of rawList) {
         if (!item || typeof item !== "object") {
@@ -476,6 +547,13 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
                 mentalModelShift = { surface: ms.surface.trim(), observed: ms.observed.trim() };
             }
         }
+        let decisionDelta;
+        if (c.decisionDelta && typeof c.decisionDelta === "object") {
+            const delta = c.decisionDelta;
+            if (typeof delta.before === "string" && typeof delta.after === "string" && delta.before.trim() && delta.after.trim()) {
+                decisionDelta = { before: delta.before.trim(), after: delta.after.trim() };
+            }
+        }
         const confidence = typeof c.confidence === "string" ? c.confidence.toLowerCase().trim() : "";
         const rawEvidence = Array.isArray(c.evidence) ? c.evidence : [];
         // Validation of mandatory fields: Observation + Contrast + Interpretation
@@ -484,9 +562,19 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
             unsupportedClaimsDropped++;
             continue;
         }
-        // Must have at least one of MentalModelShift or Consequence
-        if (!mentalModelShift && !consequence) {
-            errors.push(`Insight ${id} must have at least one of mentalModelShift or consequence.`);
+        // A complete Aha must change both understanding and the next decision.
+        if (!mentalModelShift || normalizeText(mentalModelShift.surface) === normalizeText(mentalModelShift.observed)) {
+            errors.push(`Insight ${id} must contain a non-trivial cognitive delta in mentalModelShift.`);
+            unsupportedClaimsDropped++;
+            continue;
+        }
+        if (!decisionDelta || normalizeText(decisionDelta.before) === normalizeText(decisionDelta.after)) {
+            errors.push(`Insight ${id} must contain a non-trivial decision delta.`);
+            unsupportedClaimsDropped++;
+            continue;
+        }
+        if (USER_BELIEF_ASSERTION_REGEX.test(mentalModelShift.surface) || GENERIC_DECISION_DELTA_REGEX.test(normalizeText(decisionDelta.after))) {
+            errors.push(`Insight ${id} must derive its cognitive delta from observed data and name a concrete decision change.`);
             unsupportedClaimsDropped++;
             continue;
         }
@@ -496,20 +584,15 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
             continue;
         }
         // Fake injection check
-        const fullText = [title, observation, contrast, interpretation, consequence ?? "", conditionalMechanism ?? ""].join(" ");
-        if (REPEATED_INJECTION_ASSERTION_REGEX.test(fullText)) {
-            errors.push(`Insight ${id} rejected: asserts prompt injection without trace evidence.`);
+        const claimSegments = [title, observation, contrast, interpretation, consequence ?? "", conditionalMechanism ?? ""];
+        const unsupportedMechanism = claimSegments.some((segment) => {
+            const isConditional = CONDITIONAL_INDICATOR_REGEX.test(segment) && UNCONFIRMED_INDICATOR_REGEX.test(segment);
+            return (UNCONDITIONAL_CAUSAL_REGEX.test(segment) || REPEATED_INJECTION_ASSERTION_REGEX.test(segment)) && !isConditional;
+        });
+        if (unsupportedMechanism) {
+            errors.push(`Insight ${id} rejected: contains an unsupported causal or prompt-injection assertion.`);
             unsupportedClaimsDropped++;
             continue;
-        }
-        // Unconditional causality check (Level 4 discipline)
-        if (UNCONDITIONAL_CAUSAL_REGEX.test(fullText)) {
-            const isConditional = CONDITIONAL_INDICATOR_REGEX.test(fullText) && UNCONFIRMED_INDICATOR_REGEX.test(fullText);
-            if (!isConditional) {
-                errors.push(`Insight ${id} rejected: contains unconditional causal assertion.`);
-                unsupportedClaimsDropped++;
-                continue;
-            }
         }
         // Confidence filter: drop low
         if (confidence === "low") {
@@ -565,13 +648,14 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
             }
             else if (kind === "family_metric") {
                 const metric = typeof evObj.metric === "string" ? evObj.metric.trim() : "";
-                const domFam = activeGlobal?.dominantFamily;
-                if (domFam && (metric === "callShare" || metric === "dominantFamilyCallShare" || metric === "memberCount")) {
-                    const val = metric === "memberCount" ? domFam.memberSkillIds.length : domFam.callShare;
+                const requestedFamilyId = typeof evObj.familyId === "string" ? evObj.familyId.trim() : (subject?.familyId || "");
+                const family = familyMetrics.find((entry) => entry.groupId === requestedFamilyId) ?? (requestedFamilyId ? undefined : familyMetrics[0]);
+                if (family && (metric === "callShare" || metric === "dominantFamilyCallShare" || metric === "memberCount" || metric === "totalCalls" || metric === "totalTasks")) {
+                    const val = metric === "memberCount" ? family.memberCount : metric === "totalCalls" ? family.totalCalls : metric === "totalTasks" ? family.totalTasks : family.callShare;
                     validEvidence.push({
                         kind,
                         metric,
-                        familyId: domFam.groupId,
+                        familyId: family.groupId,
                         value: val,
                     });
                 }
@@ -580,7 +664,10 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
                 const metric = typeof evObj.metric === "string" ? evObj.metric.trim() : "";
                 const skillId = typeof evObj.skillId === "string" ? evObj.skillId.trim() : (subject?.skillId || "");
                 const cand = candidateMap.get(skillId);
-                const sigVal = cand?.signals ? cand.signals[metric] : undefined;
+                const signals = cand?.signals;
+                const sigVal = signals && metric ? signals[metric] : undefined;
+                if (!cand || !signals || !metric || !(metric in signals) || (typeof sigVal !== "number" && typeof sigVal !== "string"))
+                    continue;
                 validEvidence.push({
                     kind: "skill_metric",
                     metric,
@@ -616,12 +703,32 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
             unsupportedClaimsDropped++;
             continue;
         }
+        const contentEvidence = validEvidence.filter((ev) => ev.kind === "skill_content" || ev.kind === "cross_skill_content");
+        const prose = [title, observation, contrast, interpretation, conditionalMechanism ?? "", consequence ?? ""].join(" ");
+        const semanticAssertion = SEMANTIC_FAMILY_ASSERTION_REGEX.test(prose) && !(CONDITIONAL_INDICATOR_REGEX.test(prose) && UNCONFIRMED_INDICATOR_REGEX.test(prose));
+        if (semanticAssertion && (scope === "family" || scope === "cross_skill")) {
+            const distinctContentSkills = new Set(contentEvidence.map((ev) => ev.skillId).filter((value) => Boolean(value)));
+            if (distinctContentSkills.size < 2) {
+                errors.push(`Insight ${id} rejected: a direct family-semantic claim requires content evidence from at least two Skills.`);
+                unsupportedClaimsDropped++;
+                continue;
+            }
+        }
+        if (MIXED_ROLE_ASSERTION_REGEX.test(prose)) {
+            const roles = new Set(contentEvidence.map((ev) => ev.role));
+            if (!roles.has("hardConstraint") || !roles.has("genericProcedure")) {
+                errors.push(`Insight ${id} rejected: a mixed hard-constraint/generic-procedure claim needs evidence for both roles.`);
+                unsupportedClaimsDropped++;
+                continue;
+            }
+        }
         acceptedInsights.push({
             id,
             scope,
             subject,
             title,
             mentalModelShift,
+            decisionDelta,
             observation,
             contrast,
             interpretation,
@@ -631,22 +738,38 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
             evidence: validEvidence,
         });
     }
-    // Deduplicate by scope + title
-    const dedupedMap = new Map();
-    for (const item of acceptedInsights) {
-        const key = item.scope + ":" + item.title;
-        const existing = dedupedMap.get(key);
-        if (!existing || (existing.confidence === "medium" && item.confidence === "high")) {
-            dedupedMap.set(key, item);
-        }
-    }
-    const finalInsights = [...dedupedMap.values()].sort((a, b) => {
+    // Keep the model's order as the primary ranking, but prefer high confidence and enforce subject diversity.
+    const rankedInsights = [...acceptedInsights].sort((a, b) => {
         if (a.confidence === "high" && b.confidence === "medium")
             return -1;
         if (a.confidence === "medium" && b.confidence === "high")
             return 1;
         return 0;
-    }).slice(0, 5);
+    });
+    const dedupedMap = new Map();
+    const familySelections = new Map();
+    const finalInsights = [];
+    for (const item of rankedInsights) {
+        const duplicateKey = item.scope + ":" + item.title;
+        if (dedupedMap.has(duplicateKey))
+            continue;
+        const familyKey = insightFamilyKey(item, familyMetrics, candidateMap);
+        if ((item.scope === "family" || item.scope === "skill") && familyKey) {
+            const existing = familySelections.get(familyKey) ?? [];
+            if (existing.length >= 2 || (existing.length === 1 && !allowsSecondFamilyInsight(existing[0], item))) {
+                unsupportedClaimsDropped++;
+                continue;
+            }
+        }
+        dedupedMap.set(duplicateKey, item);
+        if (item.scope === "family" || item.scope === "skill") {
+            if (familyKey)
+                familySelections.set(familyKey, [...(familySelections.get(familyKey) ?? []), item]);
+        }
+        finalInsights.push(item);
+        if (finalInsights.length >= 5)
+            break;
+    }
     return {
         valid: true,
         insights: finalInsights,

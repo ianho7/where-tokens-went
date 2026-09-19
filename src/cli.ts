@@ -641,6 +641,8 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
   let validatedSynthesis: ReportSynthesis | null = null;
   let packets: ContentEvidencePacket[] | undefined;
   let validatedSkillInsights: ValidatedSkillInsight[] = [];
+  let skillInsightsStatus: RunAiArtifact<ValidatedSkillInsight[]>["status"] = "skipped";
+  let skillInsightsValid = false;
   try {
       const currentContract = await withRunSpan(run, { phase: "prompt-read", operation: "verify-report-contract", source: "filesystem" }, async () => {
         const metadata = await resolveRunContractMetadata();
@@ -706,6 +708,9 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
         rawSkillInsights = parsed.skillInsights;
       }
 
+      if (rawSkillInsights !== undefined && rawSkillInsights !== null) {
+        skillInsightsStatus = "fallback";
+      }
       if (rawSkillInsights && run.manifest.artifacts.skillSnapshot) {
         try {
           const snapshot = await readRunArtifact(run.runDir, "skillSnapshot") as SkillSnapshotArtifact;
@@ -713,6 +718,8 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
             const validation = validateSkillInsights(rawSkillInsights, snapshot);
             if (validation.valid) {
               validatedSkillInsights = validation.insights;
+              skillInsightsValid = true;
+              skillInsightsStatus = "completed";
             }
             if (validation.errors.length > 0) {
               run.manifest.warnings.push(`Skill Insights validation: ${validation.errors.join("; ")}`);
@@ -764,6 +771,17 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
         validCount: validKeyCount,
         invalidCount: invalidKeyCount,
       } satisfies RunAiArtifact<KeySessionAnalysis[]>);
+      await writeRunArtifact(run, "skillInsights", {
+        version: 1,
+        runId: run.manifest.runId,
+        auditFingerprint: runFingerprint,
+        promptHashes: currentPromptHashes,
+        runtimeHash: currentRuntimeHash,
+        attempt: run.manifest.stageStatus["skill-insights"]?.attempt ?? null,
+        status: skillInsightsStatus,
+        value: validatedSkillInsights,
+        valid: skillInsightsValid,
+      } satisfies RunAiArtifact<ValidatedSkillInsight[]>);
     });
     const composition = await withRunSpan(run, { phase: "compose", operation: "compose-report", source: "runner" }, async () => reportComposition(audit, analyses, validatedSynthesis, packets, validatedSkillInsights));
     await writeRunArtifact(run, "composition", {

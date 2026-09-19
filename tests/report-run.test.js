@@ -186,6 +186,10 @@ test('report-run reuses one frozen Audit and completes fallback HTML without lar
     assert.equal(composed.code, 0, composed.stderr);
     assert.equal(JSON.parse(composed.stdout).reportStatus, 'fallback');
     assert.match(await readFile(htmlPath, 'utf8'), /直接解释不可用或未通过核对/);
+    const composedManifest = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.ok(composedManifest.artifacts.skillInsights, 'Compose must archive Skill Insights independently');
+    const skillInsightsArtifact = JSON.parse(await readFile(path.join(runDir, 'skill-insights.json'), 'utf8'));
+    assert.deepEqual(skillInsightsArtifact.value, []);
 
     const event = async (value) => {
       const result = await runCli(['report-run', 'event', '--run-dir', runDir], env, JSON.stringify(value));

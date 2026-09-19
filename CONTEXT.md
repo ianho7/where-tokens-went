@@ -131,7 +131,7 @@ The repeated inclusion of earlier content, especially tool results, in later mod
 _Avoid_: Exact billed tokens
 
 **Skill 洞察**:
-Host Agent 结合 Skill 历史使用数据与选定 Skill 的 `SKILL.md` 内容生成的证据化解读。用于揭示核心集中度、真实能力增量、通用流程冗余或渐进披露机会；必须区分事实、解读与建议，不作质量评分，也不推导虚假因果。
+Host Agent 结合完整 Skill 使用分布与选定 Skill 的 `SKILL.md` 内容生成的证据化解读。用于揭示核心集中度、真实能力增量、通用流程冗余或渐进披露机会；每条保留洞察都必须带来可验证的认知变化与维护/调查决策变化，必须区分事实、解读与建议，不作质量评分，也不推导虚假因果。
 _Avoid_: Skill lint, Skill 排行榜, 质量评级, 自动审查员
 
 **Capability Delta**:

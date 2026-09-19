@@ -1135,6 +1135,58 @@ function renderFirstRequestHtml(result, locale) {
     const comparison = comparisonGroups ? "<div class=\"comparison-grid\">" + comparisonGroups + "</div>" : "";
     return "<section class=\"first-request\"><h2>" + escapeHtml(labels.firstRequestBurden) + "</h2>" + renderMetrics(metrics, locale, "first-request") + "<p class=\"coverage-note\">" + escapeHtml(labels.firstRequestNote) + "</p>" + comparison + limitations + "</section>";
 }
+function skillMetricLabel(metric, locale) {
+    const labels = locale === "zh-CN"
+        ? {
+            top4CallShare: "前 4 个 Skill 调用占比",
+            lowFrequencySkillCount: "低频 Skill 数",
+            lowFrequencyCallCount: "低频调用数",
+            lowFrequencySkillShare: "低频 Skill 占比",
+            lowFrequencyCallShare: "低频调用占比",
+            callShare: "调用占比",
+            calls: "调用次数",
+            tasks: "相关任务数",
+            callsPerTask: "每个任务的调用次数",
+            median: "全体中位数",
+            p75: "全体 P75",
+            p90: "全体 P90",
+            max: "全体最大值",
+            totalCalls: "家族调用数",
+            totalTasks: "家族相关任务数",
+            memberCount: "家族成员数",
+        }
+        : {
+            top4CallShare: "Top 4 call share",
+            lowFrequencySkillCount: "low-frequency Skills",
+            lowFrequencyCallCount: "low-frequency calls",
+            lowFrequencySkillShare: "low-frequency Skill share",
+            lowFrequencyCallShare: "low-frequency call share",
+            callShare: "call share",
+            calls: "calls",
+            tasks: "related tasks",
+            callsPerTask: "calls per task",
+            median: "population median",
+            p75: "population P75",
+            p90: "population P90",
+            max: "population maximum",
+            totalCalls: "family calls",
+            totalTasks: "family tasks",
+            memberCount: "family members",
+        };
+    return metric && metric in labels ? labels[metric] : locale === "zh-CN" ? "证据" : "Evidence";
+}
+function formatSkillMetricValue(metric, value, locale) {
+    if (value === undefined || value === null)
+        return "—";
+    if (typeof value !== "number" || !Number.isFinite(value))
+        return String(value);
+    const percentageMetrics = new Set(["top4CallShare", "lowFrequencySkillShare", "lowFrequencyCallShare", "callShare"]);
+    if (percentageMetrics.has(metric ?? "")) {
+        return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(value);
+    }
+    const rounded = Math.abs(value) >= 10 ? Math.round(value * 10) / 10 : Math.round(value * 100) / 100;
+    return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(rounded);
+}
 function renderSkillInsightsHtml(composition, locale) {
     const insights = composition?.skillInsights;
     if (!insights || insights.length === 0)
@@ -1143,26 +1195,27 @@ function renderSkillInsightsHtml(composition, locale) {
     const cards = insights.map((item) => {
         const evidenceItems = item.evidence.map((ev) => {
             if (ev.kind.includes("metric")) {
-                const valStr = ev.value !== undefined ? ": " + escapeHtml(String(ev.value)) : "";
-                return "<span class=\"kami-badge metric-badge\">" + escapeHtml(ev.metric || "") + valStr + "</span>";
+                const separator = locale === "zh-CN" ? "：" : ": ";
+                const valStr = separator + formatSkillMetricValue(ev.metric, ev.value, locale);
+                return "<span class=\"kami-badge metric-badge\">" + escapeHtml(skillMetricLabel(ev.metric, locale) + valStr) + "</span>";
             }
-            const roleStr = ev.role ? " [" + escapeHtml(ev.role) + "]" : "";
-            const scopeStr = ev.loadingScope ? " (" + escapeHtml(ev.loadingScope) + ")" : "";
-            return "<blockquote class=\"skill-excerpt\" title=\"" + escapeHtml((ev.role || "") + (ev.loadingScope ? " - " + ev.loadingScope : "")) + "\">&ldquo;" + escapeHtml(ev.evidenceExcerpt || "") + "&rdquo;<span class=\"excerpt-tags\">" + roleStr + scopeStr + "</span></blockquote>";
+            return "<blockquote class=\"skill-excerpt\">&ldquo;" + escapeHtml(ev.evidenceExcerpt || "") + "&rdquo;</blockquote>";
         }).join("");
         const shiftHtml = item.mentalModelShift
             ? "<div class=\"insight-shift\"><span class=\"shift-tag\">" + escapeHtml(labels.skillInsightLabels.shiftSurface) + "：</span>" + escapeHtml(item.mentalModelShift.surface) + "<br><span class=\"shift-tag shift-tag--highlight\">" + escapeHtml(labels.skillInsightLabels.shiftObserved) + "：</span>" + escapeHtml(item.mentalModelShift.observed) + "</div>"
             : "";
+        const decisionDeltaHtml = item.decisionDelta
+            ? "<div class=\"insight-decision-delta\"><span class=\"shift-tag\">" + escapeHtml(labels.skillInsightLabels.decisionDelta) + "：</span><span class=\"decision-before\">" + escapeHtml(labels.skillInsightLabels.decisionBefore + " " + item.decisionDelta.before) + "</span> → <span class=\"decision-after\">" + escapeHtml(labels.skillInsightLabels.decisionAfter + " " + item.decisionDelta.after) + "</span></div>"
+            : "";
         return ("<div class=\"quiet-card skill-insight-card\">" +
             "<div class=\"card-header\">" +
             "<div class=\"card-title-group\">" +
-            "<span class=\"kami-badge scope-badge\">" + escapeHtml(item.scope) + "</span>" +
             "<h3 class=\"card-title\">" + escapeHtml(item.title) + "</h3>" +
             "</div>" +
-            "<span class=\"kami-badge confidence-badge\">" + escapeHtml(item.confidence) + "</span>" +
             "</div>" +
             "<div class=\"card-body\">" +
             shiftHtml +
+            decisionDeltaHtml +
             "<p class=\"insight-observation\"><strong>" + escapeHtml(labels.skillInsightLabels.observation) + "：</strong>" + escapeHtml(item.observation) + "</p>" +
             (item.contrast ? "<p class=\"insight-contrast\"><strong>" + escapeHtml(labels.skillInsightLabels.contrast) + "：</strong>" + escapeHtml(item.contrast) + "</p>" : "") +
             (evidenceItems ? "<div class=\"insight-evidence\">" + evidenceItems + "</div>" : "") +
