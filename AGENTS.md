@@ -18,6 +18,9 @@ The formal external project name and current CLI/Skill/plugin namespace is `wher
 - Any implementation plan that changes report synthesis, Key Session Analysis, Content Evidence, validation, composition, or report fallback must name both source Prompts in `prompts/`, require reading them before edits, and preserve their packaging into both Harness Skills.
 - For the final report header, carry a local-only `projectName` outside `AuditResult`, resolved in this order: remote repository name, package/project name, directory basename, then `project`; never derive it from the sanitized `<current-project>` placeholder.
 - A report request is complete only after the composed final HTML is opened. A deterministic `inspect --html` file without Host Agent composition is a fallback artifact, not the requested final report.
+- Before any real report or test report creates a Report Run, scans history, or requests pricing, run the installed Skill bundle preflight. A failed preflight has one recovery path: run `npm run install-local`, then verify again; do not leave a partial Run artifact behind.
+- The `package.json` version is the only `productVersion` source. Every Run manifest must retain one `bundleVersion` from prepare through Evidence, AI acceptance, compose, finalize, and UI dispatch; if it changes, stop the Run and never silently rewrite the contract.
+- A real or test report is complete only when the final HTML is written and opened, AI output is valid or an explicit fallback is recorded, and UI dispatch is observed as `completed` or `queued`; version-preflight failure, install recovery, or Run-version drift is reported as a failed/incomplete outcome.
 
 ## Simple Task Fast Path
 

@@ -40,6 +40,7 @@ const fs = __importStar(require("node:fs/promises"));
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
+const bundle_version_1 = require("./bundle-version");
 const analysis_1 = require("./analysis");
 const claude_reader_1 = require("./claude-reader");
 const codex_reader_1 = require("./codex-reader");
@@ -336,6 +337,7 @@ function runSummary(run) {
         status: run.manifest.status,
         scope: run.manifest.scope,
         auditFingerprint: run.manifest.auditFingerprint,
+        bundleVersion: run.manifest.bundleVersion,
         topSessions: run.manifest.topSessions,
         artifacts: run.manifest.artifacts,
         stageStatus: run.manifest.stageStatus,
@@ -470,6 +472,7 @@ async function reportRunPrepareMain(args) {
         throw new Error("report-run prepare only supports the full report workflow.");
     if (options.htmlPath || options.sharePath)
         throw new Error("report-run prepare does not write HTML or share output.");
+    const installedBundle = await (0, bundle_version_1.verifyInstalledSkill)();
     const scope = {
         harness: options.harness,
         cwd: options.cwd,
@@ -477,6 +480,7 @@ async function reportRunPrepareMain(args) {
         since: options.since,
         until: new Date(frozenNow),
         locale: options.locale,
+        bundleVersion: installedBundle.bundleVersion,
     };
     let run = null;
     try {
@@ -486,6 +490,8 @@ async function reportRunPrepareMain(args) {
             const metadata = await (0, report_run_1.resolveRunContractMetadata)();
             if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis || !metadata.promptHashes.skillInsights)
                 throw new Error("Authoritative Report Prompts are unavailable for this run.");
+            if (!metadata.bundleVersion || metadata.bundleVersion.bundleVersion !== installedBundle.bundleVersion)
+                throw new Error("The packaged bundle changed before Report Run preparation completed. Run npm run install-local.");
             return metadata;
         });
         await (0, report_run_1.setRunPromptHashes)(run, contract.promptHashes, contract.runtimeHash);
@@ -509,6 +515,8 @@ async function reportRunPrepareMain(args) {
         const snapshot = await (0, report_run_1.withRunSpan)(run, { phase: "skill-snapshot", operation: "load-skill-snapshot", source: "filesystem" }, async () => {
             return (0, skill_insights_1.loadSkillSnapshot)(scope.harness, scope.cwd, candidatesResult.candidates, (0, key_session_analysis_1.auditFingerprint)(audit), candidatesResult.global);
         });
+        const finalBundle = await (0, bundle_version_1.verifyInstalledSkill)();
+        (0, report_run_1.assertRunBundleVersion)(run, finalBundle.bundleVersion);
         await (0, report_run_1.writeRunArtifact)(run, "skillSnapshot", snapshot);
         await (0, report_run_1.setReportRunStatus)(run, "prepared");
         outputRunSummary(run, { next: ["evidence", "report-synthesis", "key-session-analysis", "skill-insights", "compose", "finalize"] });
@@ -524,7 +532,9 @@ async function reportRunEvidenceMain(args) {
     const { runDir, rest } = extractRunDirectory(args);
     if (rest.length > 0)
         throw new Error(`Unknown report-run evidence argument: ${rest[0]}.\n${usage()}`);
+    const installedBundle = await (0, bundle_version_1.verifyInstalledSkill)();
     const run = await (0, report_run_1.openReportRun)(requireRunDirectory(runDir));
+    (0, report_run_1.assertRunBundleVersion)(run, installedBundle.bundleVersion);
     const audit = await readCanonicalAudit(run);
     const input = await (0, report_run_1.withRunSpan)(run, { phase: "content-selection", operation: "parse-evidence-selection", source: "runner" }, async () => parseEvidenceInput(await readStdin()));
     const maxItemsPerSession = input.maxItemsPerSession ?? 24;
@@ -590,7 +600,9 @@ function validTerminalStatus(value) {
 }
 async function reportRunComposeMain(args) {
     const options = parseRunComposeArgs(args);
+    const installedBundle = await (0, bundle_version_1.verifyInstalledSkill)();
     const run = await (0, report_run_1.openReportRun)(options.runDir);
+    (0, report_run_1.assertRunBundleVersion)(run, installedBundle.bundleVersion);
     if (options.locale !== run.manifest.scope.locale)
         throw new Error("Report Run locale does not match the compose request.");
     const audit = await readCanonicalAudit(run);
@@ -612,6 +624,8 @@ async function reportRunComposeMain(args) {
             const metadata = await (0, report_run_1.resolveRunContractMetadata)();
             if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis || !metadata.promptHashes.skillInsights || !metadata.runtimeHash)
                 throw new Error("Authoritative Report Prompts or runtime contract is unavailable.");
+            if (!metadata.bundleVersion || metadata.bundleVersion.bundleVersion !== run.manifest.bundleVersion)
+                throw new Error("Report Run bundle version changed during execution. Run npm run install-local.");
             return metadata;
         });
         const currentPromptHashes = {
@@ -639,10 +653,8 @@ async function reportRunComposeMain(args) {
                 throw new Error("AI output must not carry a second AuditResult; use the canonical Report Run artifact.");
             if (!isRecord(parsed.promptHashes) || parsed.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || parsed.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || parsed.promptHashes.skillInsights !== currentContract.promptHashes.skillInsights || parsed.runtimeHash !== currentContract.runtimeHash)
                 throw new Error("AI output Prompt or runtime contract does not match the current Report Run.");
-            if (run.manifest.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || run.manifest.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || run.manifest.promptHashes.skillInsights !== currentContract.promptHashes.skillInsights || run.manifest.runtimeHash !== currentContract.runtimeHash) {
-                run.manifest.warnings.push("The Report Prompt or runtime changed; previous AI outputs were invalidated without rescanning the Audit.");
-                await (0, report_run_1.setRunPromptHashes)(run, currentContract.promptHashes, currentContract.runtimeHash);
-            }
+            if (run.manifest.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || run.manifest.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || run.manifest.promptHashes.skillInsights !== currentContract.promptHashes.skillInsights || run.manifest.runtimeHash !== currentContract.runtimeHash)
+                throw new Error("Report Prompt or runtime contract changed during execution; the Run cannot continue. Run npm run install-local.");
             if (parsed.reportSynthesis === undefined) {
                 const fileCandidate = path.join(run.runDir, "report-synthesis.json");
                 try {
@@ -811,6 +823,7 @@ async function reportRunEventMain(args) {
     const { runDir, rest } = extractRunDirectory(args);
     if (rest.length > 0)
         throw new Error(`Unknown report-run event argument: ${rest[0]}.\n${usage()}`);
+    const installedBundle = await (0, bundle_version_1.verifyInstalledSkill)();
     const input = await readStdin();
     if (!input.trim())
         throw new Error("report-run event requires one JSON event object on stdin.");
@@ -845,6 +858,9 @@ async function reportRunEventMain(args) {
     if (event.endedAt && (event.endedAt.length > 64 || /[\r\n]/.test(event.endedAt)))
         throw new Error("report-run event endedAt is invalid.");
     const resolvedRunDir = requireRunDirectory(runDir);
+    const currentRun = await (0, report_run_1.openReportRun)(resolvedRunDir);
+    if (currentRun.manifest.bundleVersion)
+        (0, report_run_1.assertRunBundleVersion)(currentRun, installedBundle.bundleVersion);
     const manifest = await (0, report_run_1.recordRunSpan)(resolvedRunDir, event);
     process.stdout.write(JSON.stringify({ runId: manifest.runId, runDir: resolvedRunDir, status: manifest.status, phase: event.phase, traceCompleteness: manifest.traceCompleteness }) + "\n");
     return 0;
@@ -869,7 +885,9 @@ async function reportRunFinalizeMain(args) {
             throw new Error("--status must be completed, failed, or incomplete.");
         requested = value;
     }
+    const installedBundle = await (0, bundle_version_1.verifyInstalledSkill)();
     const run = await (0, report_run_1.openReportRun)(requireRunDirectory(runDir));
+    (0, report_run_1.assertRunBundleVersion)(run, installedBundle.bundleVersion);
     await (0, report_run_1.finalizeReportRun)(run, requested);
     outputRunSummary(run);
     return requested === "completed" && run.manifest.status !== "completed" ? 2 : 0;
@@ -921,6 +939,7 @@ async function main(args = process.argv.slice(2)) {
         if (args[0] === "compose-report")
             return await composeReportMain(args.slice(1));
         const options = parseArgs(args);
+        await (0, bundle_version_1.verifyInstalledSkill)();
         let result;
         let localFirstUserMessages = [];
         if (options.view === "week") {

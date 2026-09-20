@@ -55,11 +55,13 @@ exports.recordRunSpanInProcess = recordRunSpanInProcess;
 exports.recordCompletedRunSpan = recordCompletedRunSpan;
 exports.captureSourceInventory = captureSourceInventory;
 exports.resolveRunContractMetadata = resolveRunContractMetadata;
+exports.assertRunBundleVersion = assertRunBundleVersion;
 const promises_1 = require("node:fs/promises");
 const os = __importStar(require("node:os"));
 const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
 const node_perf_hooks_1 = require("node:perf_hooks");
+const bundle_version_1 = require("./bundle-version");
 exports.DEFAULT_RUN_STAGES = [
     "scope-freeze",
     "skill-read",
@@ -182,6 +184,7 @@ function initialManifest(scope, runId) {
             until: scope.until.toISOString(),
             locale: scope.locale,
         },
+        bundleVersion: scope.bundleVersion ?? null,
         auditFingerprint: null,
         topSessions: [],
         artifacts: {},
@@ -223,7 +226,8 @@ async function createReportRun(scope, requestedDirectory) {
         }
         throw error;
     });
-    const manifest = initialManifest(scope, (0, node_crypto_1.randomUUID)());
+    const bundleVersion = scope.bundleVersion ?? (await (0, bundle_version_1.readCurrentBundleVersion)())?.bundleVersion ?? null;
+    const manifest = initialManifest({ ...scope, bundleVersion: bundleVersion ?? undefined }, (0, node_crypto_1.randomUUID)());
     const run = {
         runId: manifest.runId,
         runDir,
@@ -648,13 +652,13 @@ async function resolveRunContractMetadata() {
             .sort();
     }
     catch {
-        return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null };
+        return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null, bundleVersion: await (0, bundle_version_1.readCurrentBundleVersion)() };
     }
     const runtimeHashes = [];
     for (const file of runtimeFiles) {
         const hash = await hashFile(file);
         if (!hash)
-            return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null };
+            return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null, bundleVersion: await (0, bundle_version_1.readCurrentBundleVersion)() };
         runtimeHashes.push(hash);
     }
     return {
@@ -664,5 +668,13 @@ async function resolveRunContractMetadata() {
             skillInsights: await findPrompt("skill-insights.md"),
         },
         runtimeHash: hashBytes(Buffer.from(runtimeHashes.join("|"), "utf8")),
+        bundleVersion: await (0, bundle_version_1.readCurrentBundleVersion)(),
     };
+}
+function assertRunBundleVersion(run, current) {
+    if (!run.manifest.bundleVersion)
+        return;
+    if (run.manifest.bundleVersion !== current) {
+        throw new Error(`Report Run bundle version changed during execution; the Run cannot continue. ${"Run npm run install-local."}`);
+    }
 }

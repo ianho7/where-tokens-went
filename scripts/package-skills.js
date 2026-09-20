@@ -2,6 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { writeBundleVersion } = require('./bundle-version');
 
 const repoRoot = path.resolve(__dirname, '..');
 const compiledRoot = path.join(repoRoot, 'dist', 'src');
@@ -100,5 +101,6 @@ for (const name of skillNames) {
   copyIfChanged(keySessionAnalysisPrompt, path.join(referencesRoot, 'key-session-analysis.md'));
   copyIfChanged(skillInsightsPrompt, path.join(referencesRoot, 'skill-insights.md'));
   fs.writeFileSync(path.join(scriptsRoot, 'where-tokens-went.js'), launcher, 'utf8');
-  console.log(`packaged ${name}`);
+  const bundle = writeBundleVersion(repoRoot);
+  console.log(`packaged ${name} ${bundle.bundleVersion}`);
 }

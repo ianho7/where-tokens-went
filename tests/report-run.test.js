@@ -167,7 +167,9 @@ test('report-run reuses one frozen Audit and completes fallback HTML without lar
     assert.equal(prepared.code, 0, prepared.stderr);
     const preparedSummary = JSON.parse(prepared.stdout);
     assert.equal(Object.hasOwn(preparedSummary, 'audit'), false);
+    assert.match(preparedSummary.bundleVersion, /^0\.1\.0\+/);
     assert.ok(preparedSummary.artifacts.audit);
+    assert.equal(JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8')).bundleVersion, preparedSummary.bundleVersion);
     assert.equal(preparedSummary.scope.until, JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8')).scope.until);
 
     const audit = JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8'));

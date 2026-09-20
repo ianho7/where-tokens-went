@@ -9,11 +9,12 @@
   },
   "scripts": {
     "build": "node scripts/build-echarts.js && tsc -p tsconfig.json && node scripts/copy-report-styles.js",
-    "test": "npm run package-skills && node --test tests/codex-inspect.test.js",
+    "test": "npm run package-skills && npm run install-skills && node --test tests/codex-inspect.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "package-skills": "npm run build && node scripts/package-skills.js",
     "install-skills": "node scripts/install-skills.js",
     "install-local": "npm run package-skills && npm link && npm run install-skills",
+    "verify-installed-skill": "node scripts/verify-installed-skill.js",
     "verify-sync": "npm run package-skills && git diff --exit-code skills/where-tokens-went"
   },
   "devDependencies": {

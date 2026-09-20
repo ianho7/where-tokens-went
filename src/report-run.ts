@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import type { Harness, ReportLocale, SessionRecord } from "./types";
+import { readCurrentBundleVersion, type BundleVersion } from "./bundle-version";
 
 export type ReportRunStatus =
   | "started"
@@ -47,6 +48,7 @@ export interface ReportRunScope {
   since: Date;
   until: Date;
   locale: ReportLocale;
+  bundleVersion?: string;
 }
 
 export interface ArtifactRef {
@@ -83,6 +85,7 @@ export interface ReportRunManifest {
     until: string;
     locale: ReportLocale;
   };
+  bundleVersion: string | null;
   auditFingerprint: string | null;
   topSessions: Array<{ sessionId: string; rank: number; tokens: number | null; filePath?: string | null }>;
   artifacts: Partial<Record<RunArtifactName, ArtifactRef>>;
@@ -267,6 +270,7 @@ function initialManifest(scope: ReportRunScope, runId: string): ReportRunManifes
       until: scope.until.toISOString(),
       locale: scope.locale,
     },
+    bundleVersion: scope.bundleVersion ?? null,
     auditFingerprint: null,
     topSessions: [],
     artifacts: {},
@@ -306,7 +310,8 @@ export async function createReportRun(scope: ReportRunScope, requestedDirectory?
     }
     throw error;
   });
-  const manifest = initialManifest(scope, randomUUID());
+  const bundleVersion = scope.bundleVersion ?? (await readCurrentBundleVersion())?.bundleVersion ?? null;
+  const manifest = initialManifest({ ...scope, bundleVersion: bundleVersion ?? undefined }, randomUUID());
   const run: ReportRun = {
     runId: manifest.runId,
     runDir,
@@ -752,6 +757,7 @@ export async function captureSourceInventory(harness: Harness): Promise<SourceIn
 export async function resolveRunContractMetadata(): Promise<{
   promptHashes: ReportRunManifest["promptHashes"];
   runtimeHash: string | null;
+  bundleVersion: BundleVersion | null;
 }> {
   const referenceRoots = [
     path.resolve(__dirname, "../../prompts"),
@@ -773,12 +779,12 @@ export async function resolveRunContractMetadata(): Promise<{
       .map((entry) => path.join(__dirname, entry.name))
       .sort();
   } catch {
-    return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null };
+    return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null, bundleVersion: await readCurrentBundleVersion() };
   }
   const runtimeHashes: string[] = [];
   for (const file of runtimeFiles) {
     const hash = await hashFile(file);
-    if (!hash) return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null };
+    if (!hash) return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null, bundleVersion: await readCurrentBundleVersion() };
     runtimeHashes.push(hash);
   }
   return {
@@ -788,5 +794,13 @@ export async function resolveRunContractMetadata(): Promise<{
       skillInsights: await findPrompt("skill-insights.md"),
     },
     runtimeHash: hashBytes(Buffer.from(runtimeHashes.join("|"), "utf8")),
+    bundleVersion: await readCurrentBundleVersion(),
   };
+}
+
+export function assertRunBundleVersion(run: ReportRun, current: string): void {
+  if (!run.manifest.bundleVersion) return;
+  if (run.manifest.bundleVersion !== current) {
+    throw new Error(`Report Run bundle version changed during execution; the Run cannot continue. ${"Run npm run install-local."}`);
+  }
 }
