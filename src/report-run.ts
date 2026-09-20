@@ -152,6 +152,7 @@ export const DEFAULT_RUN_STAGES = [
   "content-read",
   "skill-candidate-select",
   "skill-snapshot",
+  "skill-insights",
   "report-synthesis",
   "key-session-analysis",
   "validation",
@@ -772,18 +773,19 @@ export async function resolveRunContractMetadata(): Promise<{
       .map((entry) => path.join(__dirname, entry.name))
       .sort();
   } catch {
-    return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null }, runtimeHash: null };
+    return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null };
   }
   const runtimeHashes: string[] = [];
   for (const file of runtimeFiles) {
     const hash = await hashFile(file);
-    if (!hash) return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null }, runtimeHash: null };
+    if (!hash) return { promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null }, runtimeHash: null };
     runtimeHashes.push(hash);
   }
   return {
     promptHashes: {
       reportSynthesis: await findPrompt("report-synthesis.md"),
       keySessionAnalysis: await findPrompt("key-session-analysis.md"),
+      skillInsights: await findPrompt("skill-insights.md"),
     },
     runtimeHash: hashBytes(Buffer.from(runtimeHashes.join("|"), "utf8")),
   };

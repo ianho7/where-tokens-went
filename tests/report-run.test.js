@@ -200,6 +200,7 @@ test('report-run reuses one frozen Audit and completes fallback HTML without lar
       await event({ event: 'end', spanId, phase, operation, source, startedAt: timestamp, endedAt: timestamp, durationMs: 0, status });
     };
     await timedEvent('skill-read-1', 'skill-read', 'read-installed-skill', 'skill', 'completed');
+    await timedEvent('skill-insights-1', 'skill-insights', 'host-agent-skill-insights', 'host-agent', 'skipped');
     await timedEvent('synthesis-1', 'report-synthesis', 'host-agent-report-synthesis', 'host-agent', 'fallback');
     await timedEvent('key-analysis-1', 'key-session-analysis', 'host-agent-key-session-analysis', 'host-agent', 'skipped');
     await event({ event: 'start', spanId: 'open-1', phase: 'codex-open', operation: 'open-final-html', source: 'ui', startedAt: timestamp });

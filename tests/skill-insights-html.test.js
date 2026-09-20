@@ -9,14 +9,21 @@ test('renderHtml renders skill insights cards when present in composition', () =
   const composition = {
     auditFingerprint: 'test-fingerprint',
     audit,
+    skillInsightsSnapshotId: 'test-snapshot',
     reportSynthesis: null,
     keySessionAnalyses: [],
     skillInsights: [
       {
+        snapshotId: 'test-snapshot',
         id: 'insight-alpha',
         scope: 'skill',
         subject: { skillId: 'core-skill' },
         title: '核心指导提供关键环境约束',
+        reveal: {
+          semantic: '这个 Skill 的调用与普通流程承担不同角色',
+          pattern: 'content_contrast',
+          evidenceRefs: ['skill:core-skill:callShare', 'content:core-skill'],
+        },
         mentalModelShift: {
           surface: '这只是一个普通辅助工具',
           observed: '它实际上提供了不可缺失的前置环境约束'
@@ -25,13 +32,13 @@ test('renderHtml renders skill insights cards when present in composition', () =
           before: '按普通说明处理',
           after: '保留为常驻硬约束，并把通用流程延后审查',
         },
-        observation: '该 Skill 涉及约 50% 的用量，提供了强制的环境一致性检查。',
-        contrast: '全系统中位数为 1.0 calls/task，该 Skill 显著高于基准。',
+        observation: '该 Skill 提供了强制的环境一致性检查。',
+        contrast: '它与普通流程承担不同角色。',
         interpretation: '若缺失此类约束，模型易产生无边界的文件变更。',
         consequence: '建议作为核心规则保留。',
         confidence: 'high',
         evidence: [
-          { kind: 'skill_metric', metric: 'callShare', value: 0.5 },
+          { kind: 'skill_metric', skillId: 'core-skill', metric: 'callShare', value: 0.5 },
           { kind: 'skill_content', skillId: 'core-skill', role: 'hardConstraint', loadingScope: 'always', evidenceExcerpt: 'Always check git status before editing.' }
         ]
       }
@@ -40,13 +47,46 @@ test('renderHtml renders skill insights cards when present in composition', () =
 
   const html = renderHtml(audit, 'zh-CN', composition);
   assert.ok(html.includes('<section class="skill-insights">'), 'Should render skill insights section');
-  assert.ok(html.includes('核心指导提供关键环境约束'), 'Should render insight title');
+  assert.ok(html.includes('这个 Skill 的调用与普通流程承担不同角色'), 'Should render the Reveal instead of internal title');
   assert.ok(html.includes('调用占比：50%'), 'Should render a human-readable metric badge');
   assert.ok(!html.includes('callShare: 0.5'), 'Should not expose raw metric keys');
   assert.ok(!html.includes('<span class="kami-badge scope-badge">'), 'Should not expose internal scope labels');
   assert.ok(html.includes('Always check git status before editing.'), 'Should render skill excerpt');
+  assert.ok(!html.includes('核心观察'), 'Should not expose internal analysis scaffolding');
+  assert.ok(!html.includes('核心指导提供关键环境约束'), 'Should not render the internal title');
   assert.ok(html.includes('Skill 使用证据'), 'Skill evidence table must still follow');
   assert.ok(!html.includes('证据：证据：'), 'Must not contain double evidence prefix');
+});
+
+test('renderHtml refuses Skill Insights bound to a different snapshot', () => {
+  const audit = makeResult();
+  const html = renderHtml(audit, 'zh-CN', {
+    auditFingerprint: 'test-fingerprint',
+    audit,
+    skillInsightsSnapshotId: 'current-snapshot',
+    reportSynthesis: null,
+    keySessionAnalyses: [],
+    skillInsights: [{
+      snapshotId: 'older-snapshot',
+      id: 'stale-insight',
+      scope: 'global',
+      title: '旧洞察',
+      reveal: {
+        semantic: '旧快照的结构结论',
+        pattern: 'content_contrast',
+        evidenceRefs: ['content:core-skill'],
+      },
+      mentalModelShift: { surface: '旧表面', observed: '旧现实' },
+      decisionDelta: { before: '旧决策', after: '旧新决策' },
+      observation: '旧观察',
+      contrast: '旧对照',
+      interpretation: '旧解释',
+      confidence: 'high',
+      evidence: [{ kind: 'skill_content', skillId: 'core-skill', evidenceExcerpt: 'old' }],
+    }],
+  });
+
+  assert.ok(!html.includes('<section class="skill-insights">'), 'Stale insights must not render');
 });
 
 test('renderHtml renders cleanly without placeholder when skill insights are absent', () => {
@@ -90,7 +130,7 @@ test('report-run compose integrates validated skill insights into HTML report', 
     const runDir = path.join(tmp, 'run');
     const skillDir = path.join(tmp, '.codex', 'skills', 'verified-skill');
     await mkdir(skillDir, { recursive: true });
-    await writeFile(path.join(skillDir, 'SKILL.md'), '# Verified Skill\nExecution policy requires explicit approval.');
+    await writeFile(path.join(skillDir, 'SKILL.md'), '# Verified Skill\nExecution policy requires explicit approval.\nSummarize the task before editing.');
 
     const prepared = await runCli([
       'report-run', 'prepare',
@@ -106,11 +146,33 @@ test('report-run compose integrates validated skill insights into HTML report', 
     const htmlPath = path.join(tmp, 'final-report.html');
 
     const crypto = require('node:crypto');
-    const skillContent = '# Verified Skill\nExecution policy requires explicit approval.';
+    const skillContent = '# Verified Skill\nExecution policy requires explicit approval.\nSummarize the task before editing.';
     const skillHash = crypto.createHash('sha256').update(skillContent).digest('hex');
     const customSnapshot = {
+      snapshotId: 'test-snapshot',
       auditFingerprint: manifest.auditFingerprint,
       createdAt: new Date().toISOString(),
+      distributionContext: { median: 1, p75: 1.5, p90: 2.5, max: 10 },
+      globalUsage: {
+        totalSkillsUsed: 1,
+        totalSkillCalls: 10,
+        totalTasks: 2,
+        callsPerTaskDistribution: { median: 1, p75: 1.5, p90: 2.5, max: 10 },
+        top4CallShare: 1,
+        lowFrequencySkillCount: 0,
+        lowFrequencyCallCount: 0,
+        lowFrequencySkillShare: 0,
+        lowFrequencyCallShare: 0,
+        singleUseSkillShare: 0,
+        dominantFamily: null,
+        familyMetrics: [],
+      },
+      selectedCandidates: [{
+        skillId: 'verified-skill',
+        skillName: 'verified-skill',
+        candidateTypes: ['high_frequency'],
+        signals: { calls: 10, tasks: 2, callShare: 1, callsPerTask: 5 },
+      }],
       selectedSkills: [
         {
           skillId: 'verified-skill',
@@ -144,12 +206,19 @@ test('report-run compose integrates validated skill insights into HTML report', 
       runtimeHash: manifest.runtimeHash,
       reportSynthesis: null,
       keySessionAnalyses: [],
-      skillInsights: [
-        {
+      skillInsights: {
+        snapshotId: 'test-snapshot',
+        insights: [{
           id: 'test-insight-1',
+          kind: 'capability',
           scope: 'skill',
           subject: { skillId: 'verified-skill' },
           title: '执行策略具备强硬约束',
+          reveal: {
+            semantic: '执行策略的硬约束需要与通用流程分开理解',
+            pattern: 'content_contrast',
+            evidenceRefs: ['skill:verified-skill:calls', 'content:verified-skill:hardConstraint', 'content:verified-skill:genericProcedure'],
+          },
           mentalModelShift: {
             surface: '普通编码流程',
             observed: '执行策略具备严格前置审批硬约束'
@@ -162,13 +231,19 @@ test('report-run compose integrates validated skill insights into HTML report', 
           contrast: '相比于普通任务入口，该约束在执行前必须常驻生效。',
           interpretation: '若缺失此类约束，环境可能发生未经审核的高危操作。',
           consequence: '建议作为核心硬约束保留。',
+          counterfactual: {
+            ifRemoved: '删除整个 Skill 会失去执行前置审批边界。',
+            withoutGenericScaffold: '删除通用脚手架后仍保留执行前置审批边界。',
+          },
+          claimStrength: 'coexistence',
           confidence: 'high',
           evidence: [
-            { kind: 'skill_metric', metric: 'calls' },
-            { kind: 'skill_content', skillId: 'verified-skill', role: 'hardConstraint', loadingScope: 'always', evidenceExcerpt: 'Execution policy requires explicit approval.' }
+            { kind: 'skill_metric', skillId: 'verified-skill', metric: 'calls' },
+            { kind: 'skill_content', skillId: 'verified-skill', role: 'hardConstraint', loadingScope: 'always', evidenceExcerpt: 'Execution policy requires explicit approval.' },
+            { kind: 'skill_content', skillId: 'verified-skill', role: 'genericProcedure', loadingScope: 'task_scoped', evidenceExcerpt: 'Summarize the task before editing.' }
           ]
-        }
-      ]
+        }]
+      }
     });
 
     const composed = await runCli([
@@ -181,7 +256,7 @@ test('report-run compose integrates validated skill insights into HTML report', 
     assert.equal(composed.code, 0, composed.stderr);
     const html = await readFile(htmlPath, 'utf8');
     assert.ok(html.includes('<section class="skill-insights">'), 'Composed HTML must contain skill-insights section');
-    assert.ok(html.includes('执行策略具备强硬约束'), 'Composed HTML must contain insight title');
+    assert.ok(html.includes('执行策略的硬约束需要与通用流程分开理解'), 'Composed HTML must contain the Reveal');
     assert.ok(html.includes('Execution policy requires explicit approval.'), 'Composed HTML must contain verified excerpt');
   } finally {
     await rm(tmp, { recursive: true, force: true });

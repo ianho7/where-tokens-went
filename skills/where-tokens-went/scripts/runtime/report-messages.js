@@ -377,6 +377,9 @@ const EN = {
     skillInsightsTitle: "Skill Insights",
     skillInsightsNote: "Evidence-backed patterns derived from usage and selected SKILL.md content; focused on capability delta and workflow core.",
     skillInsightLabels: {
+        reveal: "Reveal",
+        proof: "Proof",
+        soWhat: "So what",
         observation: "Observation",
         contrast: "Contrast Baseline",
         interpretation: "Why It Matters",
@@ -767,6 +770,9 @@ const ZH = {
     skillInsightsTitle: "Skill 洞察",
     skillInsightsNote: "结合 Skill 使用数据与选定 SKILL.md 内容生成的模式解读；重点关注能力增量与工作流核心。",
     skillInsightLabels: {
+        reveal: "认知反差",
+        proof: "关键对照",
+        soWhat: "这意味着",
         observation: "核心观察",
         contrast: "基准对照",
         interpretation: "为什么重要",

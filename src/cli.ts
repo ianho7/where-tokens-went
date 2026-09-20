@@ -340,9 +340,11 @@ interface RunAiArtifact<T> {
   attempt: number | null;
   status: "completed" | "fallback" | "skipped";
   value: T;
+  snapshotId?: string | null;
   valid?: boolean;
   validCount?: number;
   invalidCount?: number;
+  rejectionReasons?: string[];
 }
 
 function extractRunDirectory(args: string[]): { runDir: string | null; rest: string[] } {
@@ -520,7 +522,7 @@ async function reportRunPrepareMain(args: string[]): Promise<number> {
     await withRunSpan(run, { phase: "scope-freeze", operation: "freeze-report-scope", source: "runner" }, async () => undefined);
     const contract = await withRunSpan(run, { phase: "prompt-read", operation: "resolve-report-contract", source: "filesystem" }, async () => {
       const metadata = await resolveRunContractMetadata();
-      if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis) throw new Error("Authoritative Report Prompts are unavailable for this run.");
+      if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis || !metadata.promptHashes.skillInsights) throw new Error("Authoritative Report Prompts are unavailable for this run.");
       return metadata;
     });
     await setRunPromptHashes(run, contract.promptHashes, contract.runtimeHash);
@@ -641,17 +643,20 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
   let validatedSynthesis: ReportSynthesis | null = null;
   let packets: ContentEvidencePacket[] | undefined;
   let validatedSkillInsights: ValidatedSkillInsight[] = [];
+  let skillInsightsSnapshotId: string | null = null;
   let skillInsightsStatus: RunAiArtifact<ValidatedSkillInsight[]>["status"] = "skipped";
   let skillInsightsValid = false;
+  let skillInsightsRejectionReasons: string[] = [];
   try {
       const currentContract = await withRunSpan(run, { phase: "prompt-read", operation: "verify-report-contract", source: "filesystem" }, async () => {
         const metadata = await resolveRunContractMetadata();
-        if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis || !metadata.runtimeHash) throw new Error("Authoritative Report Prompts or runtime contract is unavailable.");
+        if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis || !metadata.promptHashes.skillInsights || !metadata.runtimeHash) throw new Error("Authoritative Report Prompts or runtime contract is unavailable.");
         return metadata;
       });
       const currentPromptHashes = {
         reportSynthesis: currentContract.promptHashes.reportSynthesis!,
         keySessionAnalysis: currentContract.promptHashes.keySessionAnalysis!,
+        skillInsights: currentContract.promptHashes.skillInsights!,
       };
       const currentRuntimeHash = currentContract.runtimeHash!;
     if (run.manifest.artifacts.evidence) {
@@ -666,8 +671,8 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
       if (!isRecord(parsed)) throw new Error("report-run compose requires a JSON object.");
       if (parsed.runId !== run.manifest.runId || parsed.auditFingerprint !== run.manifest.auditFingerprint) throw new Error("AI output runId or Audit fingerprint does not match the Report Run.");
       if ("audit" in parsed) throw new Error("AI output must not carry a second AuditResult; use the canonical Report Run artifact.");
-      if (!isRecord(parsed.promptHashes) || parsed.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || parsed.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || parsed.runtimeHash !== currentContract.runtimeHash) throw new Error("AI output Prompt or runtime contract does not match the current Report Run.");
-      if (run.manifest.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || run.manifest.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || run.manifest.runtimeHash !== currentContract.runtimeHash) {
+      if (!isRecord(parsed.promptHashes) || parsed.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || parsed.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || parsed.promptHashes.skillInsights !== currentContract.promptHashes.skillInsights || parsed.runtimeHash !== currentContract.runtimeHash) throw new Error("AI output Prompt or runtime contract does not match the current Report Run.");
+      if (run.manifest.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || run.manifest.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || run.manifest.promptHashes.skillInsights !== currentContract.promptHashes.skillInsights || run.manifest.runtimeHash !== currentContract.runtimeHash) {
         run.manifest.warnings.push("The Report Prompt or runtime changed; previous AI outputs were invalidated without rescanning the Audit.");
         await setRunPromptHashes(run, currentContract.promptHashes, currentContract.runtimeHash);
       }
@@ -711,18 +716,24 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
       if (rawSkillInsights !== undefined && rawSkillInsights !== null) {
         skillInsightsStatus = "fallback";
       }
-      if (rawSkillInsights && run.manifest.artifacts.skillSnapshot) {
+      if (run.manifest.artifacts.skillSnapshot) {
         try {
           const snapshot = await readRunArtifact(run.runDir, "skillSnapshot") as SkillSnapshotArtifact;
           if (snapshot) {
-            const validation = validateSkillInsights(rawSkillInsights, snapshot);
-            if (validation.valid) {
-              validatedSkillInsights = validation.insights;
-              skillInsightsValid = true;
-              skillInsightsStatus = "completed";
-            }
-            if (validation.errors.length > 0) {
-              run.manifest.warnings.push(`Skill Insights validation: ${validation.errors.join("; ")}`);
+            skillInsightsSnapshotId = snapshot.snapshotId;
+            if (rawSkillInsights) {
+              const validation = validateSkillInsights(rawSkillInsights, snapshot);
+              skillInsightsRejectionReasons = validation.rejectionReasons;
+              if (validation.valid) {
+                validatedSkillInsights = validation.insights;
+                skillInsightsValid = true;
+                skillInsightsStatus = "completed";
+              }
+              if (validation.errors.length > 0) {
+                run.manifest.warnings.push(`Skill Insights validation: ${validation.errors.join("; ")}`);
+              }
+            } else if (snapshot.selectedSkills.some((skill) => skill.contentState === "available" && Boolean(skill.skillMdContent))) {
+              skillInsightsRejectionReasons = ["usage_content_relation_unclear"];
             }
           }
         } catch {
@@ -778,18 +789,21 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
         promptHashes: currentPromptHashes,
         runtimeHash: currentRuntimeHash,
         attempt: run.manifest.stageStatus["skill-insights"]?.attempt ?? null,
+        snapshotId: skillInsightsSnapshotId,
         status: skillInsightsStatus,
         value: validatedSkillInsights,
         valid: skillInsightsValid,
+        rejectionReasons: skillInsightsRejectionReasons,
       } satisfies RunAiArtifact<ValidatedSkillInsight[]>);
     });
-    const composition = await withRunSpan(run, { phase: "compose", operation: "compose-report", source: "runner" }, async () => reportComposition(audit, analyses, validatedSynthesis, packets, validatedSkillInsights));
+    const composition = await withRunSpan(run, { phase: "compose", operation: "compose-report", source: "runner" }, async () => reportComposition(audit, analyses, validatedSynthesis, packets, validatedSkillInsights, skillInsightsSnapshotId ?? undefined));
     await writeRunArtifact(run, "composition", {
       runId: run.manifest.runId,
       auditFingerprint: run.manifest.auditFingerprint,
       reportSynthesis: composition.reportSynthesis,
       keySessionAnalyses: composition.keySessionAnalyses,
       skillInsights: composition.skillInsights,
+      skillInsightsSnapshotId: composition.skillInsightsSnapshotId,
     });
     const firstUserMessages = run.manifest.artifacts.firstUserMessages
       ? await readRunArtifact(run.runDir, "firstUserMessages") as FirstUserMessageRecord[]

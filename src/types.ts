@@ -463,6 +463,7 @@ export interface ReportComposition {
   reportSynthesis: ReportSynthesis | null;
   keySessionAnalyses: KeySessionAnalysis[];
   skillInsights?: ValidatedSkillInsight[];
+  skillInsightsSnapshotId?: string;
   /** Local-only resolved project display name; never part of AuditResult. */
   projectName?: string;
   /** Optional local-only projection used by the full HTML renderer. */
@@ -612,7 +613,13 @@ export interface GlobalSkillUsage {
 export type SkillCandidateType =
   | "high_frequency"
   | "high_calls_per_task"
-  | "skill_family";
+  | "skill_family"
+  | "high_usage_strong_delta"
+  | "high_usage_model_native_scaffold"
+  | "high_usage_task_scoped_content"
+  | "rare_strong_delta"
+  | "family_shared_core"
+  | "behavior_outlier";
 
 export interface SkillCandidate {
   skillId: string;
@@ -649,6 +656,7 @@ export interface SkillContentSnapshot {
 }
 
 export interface SkillSnapshotArtifact {
+  snapshotId: string;
   auditFingerprint: string;
   createdAt: string;
   distributionContext: CallsPerTaskDistribution;
@@ -661,6 +669,7 @@ export type SkillInsightScope = "global" | "family" | "cross_skill" | "skill";
 
 export type SkillSemanticRole =
   | "capability"
+  | "specializedCapability"
   | "localFact"
   | "hardConstraint"
   | "tool"
@@ -680,6 +689,49 @@ export type SkillInsightEvidenceKind =
   | "skill_metric"
   | "skill_content"
   | "cross_skill_content";
+
+export type SkillInsightKind = "usage" | "capability" | "mechanism";
+
+export type SkillInsightClaimStrength = "coexistence" | "scaffold-interpretation" | "primary-delta";
+
+export type SkillInsightRejectionReason =
+  | "missing_unique_capability_evidence"
+  | "missing_model_native_counterevidence"
+  | "insufficient_content_support"
+  | "usage_content_relation_unclear"
+  | "family_content_unavailable"
+  | "duplicate_mental_model_shift";
+
+export interface SkillContentLossIfRemoved {
+  summary: string;
+  role: Extract<SkillSemanticRole, "localFact" | "hardConstraint" | "tool" | "decisionRule" | "capability" | "specializedCapability">;
+  evidenceExcerpt: string;
+  whyModelWouldNotKnowThis: string;
+  loadingScope: SkillLoadingScope;
+}
+
+export interface SkillContentModelNativeScaffold {
+  summary: string;
+  evidenceExcerpt: string;
+  observed: string;
+  interpretation: string;
+  rationale: string;
+  relativeTo: "capable-current-coding-agent";
+}
+
+export interface SkillContentScopedEntry {
+  summary: string;
+  activationCondition: string;
+  evidenceExcerpt: string;
+}
+
+export interface SkillContentProfile {
+  skillId: string;
+  lossIfRemoved: SkillContentLossIfRemoved[];
+  modelNativeScaffold: SkillContentModelNativeScaffold[];
+  scopedContent: SkillContentScopedEntry[];
+  contentSummary: string;
+}
 
 export interface SkillInsightEvidence {
   kind: SkillInsightEvidenceKind;
@@ -702,8 +754,29 @@ export interface DecisionDelta {
   after: string;
 }
 
+export type SkillInsightRevealPattern =
+  | "share_inversion"
+  | "distribution_outlier"
+  | "family_concentration"
+  | "content_contrast";
+
+export interface SkillInsightReveal {
+  semantic: string;
+  pattern: SkillInsightRevealPattern;
+  evidenceRefs: string[];
+}
+
+export interface SkillInsightCounterfactual {
+  ifRemoved: string;
+  withoutGenericScaffold: string;
+}
+
 export interface ValidatedSkillInsight {
+  snapshotId: string;
   id: string;
+  kind: SkillInsightKind;
+  candidateType?: SkillCandidateType;
+  claimStrength?: SkillInsightClaimStrength;
   scope: SkillInsightScope;
   subject?: {
     familyId?: string;
@@ -711,22 +784,28 @@ export interface ValidatedSkillInsight {
     skillIds?: string[];
   };
   title: string;
+  reveal: SkillInsightReveal;
   mentalModelShift: MentalModelShift;
   decisionDelta: DecisionDelta;
   observation: string;
   contrast: string;
   interpretation: string;
+  counterfactual?: SkillInsightCounterfactual;
   conditionalMechanism?: string | null;
   consequence?: string | null;
+  familyDifferences?: string[];
   confidence: "high" | "medium";
   evidence: SkillInsightEvidence[];
 }
 
 export interface SkillInsightsArtifact {
+  snapshotId: string;
   auditFingerprint: string;
   createdAt: string;
   status: "completed" | "insufficient_evidence" | "unavailable";
   insights: ValidatedSkillInsight[];
   unsupportedClaimsDropped: number;
   oversizedFallbackUsed: boolean;
+  rejectionReasons?: SkillInsightRejectionReason[];
+  contentProfiles?: SkillContentProfile[];
 }

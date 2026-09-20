@@ -201,6 +201,7 @@ test('loadSkillSnapshot produces immutable snapshot with distributionContext and
 
     const snapshot = await loadSkillSnapshot('codex', cwd, candidates, 'test-fingerprint', globalUsage);
     assert.equal(snapshot.auditFingerprint, 'test-fingerprint');
+    assert.match(snapshot.snapshotId, /^[a-f0-9]{64}$/);
     assert.equal(snapshot.distributionContext.median, 5);
     assert.equal(snapshot.selectedSkills.length, 1);
     assert.equal(snapshot.selectedCandidates.length, 1);

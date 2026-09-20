@@ -13,6 +13,7 @@ const node_fs_1 = require("node:fs");
 const node_crypto_1 = require("node:crypto");
 const node_path_1 = require("node:path");
 const key_session_analysis_1 = require("./key-session-analysis");
+const skill_insights_1 = require("./skill-insights");
 const report_messages_1 = require("./report-messages");
 function normalizeLocale(value) {
     return value && value.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
@@ -1154,6 +1155,7 @@ function skillMetricLabel(metric, locale) {
             totalCalls: "家族调用数",
             totalTasks: "家族相关任务数",
             memberCount: "家族成员数",
+            totalSkillCalls: "全体 Skill 调用数",
         }
         : {
             top4CallShare: "Top 4 call share",
@@ -1172,6 +1174,7 @@ function skillMetricLabel(metric, locale) {
             totalCalls: "family calls",
             totalTasks: "family tasks",
             memberCount: "family members",
+            totalSkillCalls: "all Skill calls",
         };
     return metric && metric in labels ? labels[metric] : locale === "zh-CN" ? "证据" : "Evidence";
 }
@@ -1187,47 +1190,90 @@ function formatSkillMetricValue(metric, value, locale) {
     const rounded = Math.abs(value) >= 10 ? Math.round(value * 10) / 10 : Math.round(value * 100) / 100;
     return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(rounded);
 }
+function revealEvidence(item) {
+    return item.reveal.evidenceRefs
+        .map((reference) => item.evidence.find((entry) => (0, skill_insights_1.skillInsightEvidenceMatchesReference)(entry, reference)))
+        .filter((entry) => Boolean(entry));
+}
+function revealMetric(item, kind, metric, skillId) {
+    return item.evidence.find((entry) => entry.kind === kind && entry.metric === metric && (!skillId || entry.skillId === skillId));
+}
+function renderSkillInsightReveal(item, locale) {
+    const semantic = item.reveal.semantic;
+    if (item.reveal.pattern === "share_inversion") {
+        const skillShare = revealMetric(item, "global_metric", "lowFrequencySkillShare");
+        const callShare = revealMetric(item, "global_metric", "lowFrequencyCallShare");
+        if (skillShare && callShare) {
+            return locale === "zh-CN"
+                ? `${formatSkillMetricValue("lowFrequencySkillShare", skillShare.value, locale)} 的 Skill，只承担了 ${formatSkillMetricValue("lowFrequencyCallShare", callShare.value, locale)} 的调用`
+                : `${formatSkillMetricValue("lowFrequencySkillShare", skillShare.value, locale)} of Skills account for only ${formatSkillMetricValue("lowFrequencyCallShare", callShare.value, locale)} of calls`;
+        }
+    }
+    if (item.reveal.pattern === "distribution_outlier") {
+        const baseline = revealMetric(item, "distribution_metric", "median") ?? revealMetric(item, "distribution_metric", "p90");
+        const members = revealEvidence(item).filter((entry) => entry.kind === "skill_metric" && entry.metric === "callsPerTask");
+        if (baseline && members.length >= 2) {
+            const values = members.slice(0, 2).map((entry) => `${entry.skillId ?? "Skill"} ${formatSkillMetricValue(entry.metric, entry.value, locale)}`).join(locale === "zh-CN" ? "；" : "; ");
+            return locale === "zh-CN"
+                ? `普通 Skill 每个任务约 ${formatSkillMetricValue(baseline.metric, baseline.value, locale)} 次，这个 family 的两个主变体分别是 ${values}`
+                : `A typical Skill appears about ${formatSkillMetricValue(baseline.metric, baseline.value, locale)} times per task; the two main variants are ${values}`;
+        }
+        const member = members[0];
+        if (baseline && member) {
+            return locale === "zh-CN"
+                ? `普通 Skill 每个任务约 ${formatSkillMetricValue(baseline.metric, baseline.value, locale)} 次，这个 Skill 达到 ${formatSkillMetricValue(member.metric, member.value, locale)} 次`
+                : `A typical Skill appears about ${formatSkillMetricValue(baseline.metric, baseline.value, locale)} times per task; this Skill reaches ${formatSkillMetricValue(member.metric, member.value, locale)}`;
+        }
+    }
+    if (item.reveal.pattern === "family_concentration") {
+        const familyShare = revealMetric(item, "family_metric", "callShare");
+        if (familyShare) {
+            return locale === "zh-CN"
+                ? `${formatSkillMetricValue(familyShare.metric, familyShare.value, locale)} 的 Skill 调用，都带着同一个名字前缀`
+                : `${formatSkillMetricValue(familyShare.metric, familyShare.value, locale)} of Skill calls share the same name prefix`;
+        }
+    }
+    return semantic;
+}
+function renderSkillInsightProof(item, locale) {
+    const evidenceItems = revealEvidence(item);
+    const rendered = evidenceItems.map((ev) => {
+        if (ev.kind.includes("metric")) {
+            const separator = locale === "zh-CN" ? "：" : ": ";
+            const valStr = separator + formatSkillMetricValue(ev.metric, ev.value, locale);
+            return "<span class=\"kami-badge metric-badge\">" + escapeHtml(skillMetricLabel(ev.metric, locale) + valStr) + "</span>";
+        }
+        return "<blockquote class=\"skill-excerpt\">&ldquo;" + escapeHtml(ev.evidenceExcerpt || "") + "&rdquo;</blockquote>";
+    }).join("");
+    return rendered ? "<div class=\"insight-proof\"><strong>" + escapeHtml(locale === "zh-CN" ? "关键对照：" : "Proof: ") + "</strong>" + rendered + "</div>" : "";
+}
 function renderSkillInsightsHtml(composition, locale) {
     const insights = composition?.skillInsights;
-    if (!insights || insights.length === 0)
+    if (!insights || insights.length === 0 || !composition?.skillInsightsSnapshotId)
         return "";
-    const labels = labelsFor(locale);
+    if (insights.some((item) => item.snapshotId !== composition.skillInsightsSnapshotId))
+        return "";
     const cards = insights.map((item) => {
-        const evidenceItems = item.evidence.map((ev) => {
-            if (ev.kind.includes("metric")) {
-                const separator = locale === "zh-CN" ? "：" : ": ";
-                const valStr = separator + formatSkillMetricValue(ev.metric, ev.value, locale);
-                return "<span class=\"kami-badge metric-badge\">" + escapeHtml(skillMetricLabel(ev.metric, locale) + valStr) + "</span>";
-            }
-            return "<blockquote class=\"skill-excerpt\">&ldquo;" + escapeHtml(ev.evidenceExcerpt || "") + "&rdquo;</blockquote>";
-        }).join("");
-        const shiftHtml = item.mentalModelShift
-            ? "<div class=\"insight-shift\"><span class=\"shift-tag\">" + escapeHtml(labels.skillInsightLabels.shiftSurface) + "：</span>" + escapeHtml(item.mentalModelShift.surface) + "<br><span class=\"shift-tag shift-tag--highlight\">" + escapeHtml(labels.skillInsightLabels.shiftObserved) + "：</span>" + escapeHtml(item.mentalModelShift.observed) + "</div>"
-            : "";
-        const decisionDeltaHtml = item.decisionDelta
-            ? "<div class=\"insight-decision-delta\"><span class=\"shift-tag\">" + escapeHtml(labels.skillInsightLabels.decisionDelta) + "：</span><span class=\"decision-before\">" + escapeHtml(labels.skillInsightLabels.decisionBefore + " " + item.decisionDelta.before) + "</span> → <span class=\"decision-after\">" + escapeHtml(labels.skillInsightLabels.decisionAfter + " " + item.decisionDelta.after) + "</span></div>"
+        const reveal = renderSkillInsightReveal(item, locale);
+        const proof = renderSkillInsightProof(item, locale);
+        const soWhat = item.decisionDelta
+            ? "<p class=\"insight-so-what\"><strong>" + escapeHtml(locale === "zh-CN" ? "这意味着：" : "So what: ") + "</strong>" + escapeHtml(item.decisionDelta.after) + "</p>"
             : "";
         return ("<div class=\"quiet-card skill-insight-card\">" +
             "<div class=\"card-header\">" +
             "<div class=\"card-title-group\">" +
-            "<h3 class=\"card-title\">" + escapeHtml(item.title) + "</h3>" +
+            "<h3 class=\"card-title\">" + escapeHtml(reveal) + "</h3>" +
             "</div>" +
             "</div>" +
             "<div class=\"card-body\">" +
-            shiftHtml +
-            decisionDeltaHtml +
-            "<p class=\"insight-observation\"><strong>" + escapeHtml(labels.skillInsightLabels.observation) + "：</strong>" + escapeHtml(item.observation) + "</p>" +
-            (item.contrast ? "<p class=\"insight-contrast\"><strong>" + escapeHtml(labels.skillInsightLabels.contrast) + "：</strong>" + escapeHtml(item.contrast) + "</p>" : "") +
-            (evidenceItems ? "<div class=\"insight-evidence\">" + evidenceItems + "</div>" : "") +
-            "<p class=\"insight-interpretation\"><strong>" + escapeHtml(labels.skillInsightLabels.interpretation) + "：</strong>" + escapeHtml(item.interpretation) + "</p>" +
-            (item.conditionalMechanism ? "<p class=\"insight-mechanism\"><strong>" + escapeHtml(labels.skillInsightLabels.mechanism) + "：</strong>" + escapeHtml(item.conditionalMechanism) + "</p>" : "") +
-            (item.consequence ? "<p class=\"insight-action\"><strong>" + escapeHtml(labels.skillInsightLabels.consequence) + "：</strong>" + escapeHtml(item.consequence) + "</p>" : "") +
+            proof +
+            soWhat +
             "</div>" +
             "</div>");
     }).join("");
     return ("<section class=\"skill-insights\">" +
-        "<h2>" + escapeHtml(labels.skillInsightsTitle) + "</h2>" +
-        "<p class=\"coverage-note\">" + escapeHtml(labels.skillInsightsNote) + "</p>" +
+        "<h2>" + escapeHtml(labelsFor(locale).skillInsightsTitle) + "</h2>" +
+        "<p class=\"coverage-note\">" + escapeHtml(labelsFor(locale).skillInsightsNote) + "</p>" +
         "<div class=\"quiet-cards-grid skill-insights-grid\">" + cards + "</div>" +
         "</section>");
 }

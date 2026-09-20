@@ -397,6 +397,7 @@ export function reportComposition(
   synthesis: ReportSynthesis | null = null,
   packets?: ContentEvidencePacket[],
   skillInsights?: ValidatedSkillInsight[],
+  skillInsightsSnapshotId?: string,
 ): ReportComposition {
   const composition = composeKeySessionAnalyses(audit, analyses, packets);
   const validatedSynthesis = synthesis === null ? null : validateReportSynthesis(audit, synthesis).synthesis;
@@ -406,5 +407,6 @@ export function reportComposition(
     reportSynthesis: validatedSynthesis,
     keySessionAnalyses: composition.analyses,
     skillInsights,
+    skillInsightsSnapshotId,
   };
 }
