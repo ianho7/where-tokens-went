@@ -511,7 +511,7 @@ test('Codex Skill path reports a deterministic long-session check without raw co
 
   try {
     const { stdout: jsonText } = await runAudit(
-      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'],
       { CODEX_HOME: codexHome },
     );
     const result = JSON.parse(jsonText);
@@ -550,7 +550,7 @@ test('Codex Skill path reports a deterministic long-session check without raw co
     assert.equal(textOutput.includes('secret-source.js'), false);
 
     const { stdout: bundledJson } = await runBundledCodex(
-      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'],
       { CODEX_HOME: codexHome },
     );
     const bundledResult = JSON.parse(bundledJson);
@@ -614,7 +614,7 @@ test('Codex scope keeps projects separate and deduplicates repeated response usa
 
   try {
     const { stdout } = await runAudit(
-      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'],
       { CODEX_HOME: codexHome },
     );
     const result = JSON.parse(stdout);
@@ -658,7 +658,7 @@ test('Codex current usage records prefer deduplicated response usage and reconci
   await writeFile(path.join(sessions, 'rollout-accounting-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
   try {
     const { stdout } = await runAudit(
-      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'],
       { CODEX_HOME: codexHome },
     );
     const result = JSON.parse(stdout);
@@ -699,7 +699,7 @@ test('Codex analysis exposes Turn trajectory evidence and neutral candidates', a
   await writeFile(path.join(sessions, 'rollout-turn-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
   try {
     const { stdout } = await runAudit(
-      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'],
       { CODEX_HOME: codexHome },
     );
     const result = JSON.parse(stdout);
@@ -808,7 +808,7 @@ test('progressive content Evidence stays inside the selected Top 3 Session and i
   process.env.CODEX_HOME = codexHome;
   try {
     const { stdout } = await runAudit(
-      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'],
       { CODEX_HOME: codexHome },
     );
     const audit = JSON.parse(stdout);
@@ -860,7 +860,7 @@ test('Key Session Analysis validation binds prose to the audit, Session, and Tur
   await writeFile(path.join(sessions, 'rollout-analysis-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
   try {
     const { stdout } = await runAudit(
-      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'],
       { CODEX_HOME: codexHome },
     );
     const audit = JSON.parse(stdout);
@@ -1469,7 +1469,7 @@ test('shared Token composition derives Claude totals without reasoning and split
   try {
     const [{ stdout: claudeOutput }, { stdout: codexOutput }] = await Promise.all([
       runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json'], { CLAUDE_CONFIG_DIR: claudeHome }),
-      runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'], { CODEX_HOME: codexHome }),
+      runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'], { CODEX_HOME: codexHome }),
     ]);
     const claude = JSON.parse(claudeOutput);
     const codex = JSON.parse(codexOutput);
@@ -1703,7 +1703,7 @@ test('first-request burden selects one earliest deduplicated call and separates 
   await writeFile(path.join(sessionsRoot, 'rollout-first-sub.jsonl'), subRecords.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
   try {
     const env = { CODEX_HOME: codexHome };
-    const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'], env);
+    const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'], env);
     const result = JSON.parse(stdout);
     const first = result.report.firstRequestBurden;
     assert.equal(first.sessionCount.value, 2);
@@ -1720,11 +1720,11 @@ test('first-request burden selects one earliest deduplicated call and separates 
     assert.equal(first.subagent.medianTokens.value, 210);
     assert.equal(first.identityCoveragePercent.value, 100);
 
-    const { stdout: textOutput } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text', '--locale', 'zh-CN', '--view', 'usage'], env);
+    const { stdout: textOutput } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'text', '--locale', 'zh-CN', '--view', 'usage'], env);
     assert.match(textOutput, /首次请求 Token 量/);
     assert.match(textOutput, /160/);
-    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--html', htmlPath], env);
-    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--share', sharePath], env);
+    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json', '--html', htmlPath], env);
+    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json', '--share', sharePath], env);
     assert.match(await readFile(htmlPath, 'utf8'), /首次请求 Token 量|First-request burden/);
     assert.match(await readFile(sharePath, 'utf8'), /首次请求 Token 量|First-request burden/);
   } finally {
@@ -1799,7 +1799,7 @@ test('Codex Skill evidence recognizes structured input and verifiable resource o
   await writeFile(path.join(sessionsRoot, 'rollout-codex-skills.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
   try {
     const env = { CODEX_HOME: codexHome };
-    const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'], env);
+    const { stdout } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'], env);
     const result = JSON.parse(stdout);
     const byName = new Map(result.report.skills.map((skill) => [skill.name, skill]));
     assert.equal(byName.get('listing-only-skill').state, 'available');
@@ -1816,10 +1816,10 @@ test('Codex Skill evidence recognizes structured input and verifiable resource o
     assert.equal(serialized.includes('SKILL.md'), false);
     assert.equal(serialized.includes('run.js'), false);
 
-    const { stdout: textOutput } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'text', '--view', 'usage'], env);
+    const { stdout: textOutput } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'text', '--view', 'usage'], env);
     assert.match(textOutput, /Skill evidence/i);
-    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--html', htmlPath], env);
-    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json', '--share', sharePath], env);
+    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json', '--html', htmlPath], env);
+    await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json', '--share', sharePath], env);
     assert.match(await readFile(htmlPath, 'utf8'), /Skill evidence/);
     assert.match(await readFile(sharePath, 'utf8'), /Skill evidence/);
   } finally {

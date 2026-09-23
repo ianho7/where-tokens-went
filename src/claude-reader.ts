@@ -324,6 +324,7 @@ function accountingSensitiveClaudeType(type: string): boolean {
 export async function readClaude(scope: ReadScope): Promise<ReadResult> {
   const root = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
   const files = await jsonlFiles(path.join(root, "projects"));
+  const selectedSourceFiles = new Set<string>();
   const coverage = { filesRead: 0, recordsRead: 0, recordsSkipped: 0, partialSessions: 0, warnings: [] as string[] };
   const pendingById = new Map<string, PendingSession>();
   let fallbackIndex = 0;
@@ -523,6 +524,7 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
       }
       continue;
     }
+    if (pending.session.filePath) selectedSourceFiles.add(pending.session.filePath);
     if (pending.unsupported) {
       coverage.warnings.push("A Claude Code Session contains unsupported accounting records; only a partial audit is reported.");
     }
@@ -555,5 +557,5 @@ export async function readClaude(scope: ReadScope): Promise<ReadResult> {
     if (finalCost) sessionCosts.push(finalCost);
   }
   if (files.length === 0) coverage.warnings.push("No Claude Code transcript history was found for the selected scope.");
-  return { sessions, turns, modelCalls, toolCalls, lifecycle, skillEvidence, sessionCosts, firstUserMessages, coverage };
+  return { sessions, turns, modelCalls, toolCalls, lifecycle, skillEvidence, sessionCosts, firstUserMessages, sourceFiles: [...selectedSourceFiles].sort(), coverage };
 }

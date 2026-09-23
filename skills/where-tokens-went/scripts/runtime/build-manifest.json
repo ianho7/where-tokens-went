@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "sourceHashes": {
+    "analysis.ts": "59ce4d0765a531588ccf5f4cbb19c6f8f5698f6849609e72d39387272398bf8c",
+    "bundle-version.ts": "ac9339e0bee1e5706883c15063d0d08f6492bdd418d4f82dd31fc0a01742154d",
+    "claude-reader.ts": "210ffb8225311a59f970cf3b45429fbc2d6421685e4f373894c67518cd42335c",
+    "cli.ts": "8966c97df057376a9b9b63d48e53caec205e06b81a37e74e01eb9df6b9f4df85",
+    "codex-provenance.ts": "10a4fdb0fd34b0e5cca9049d75d24a51ccad2bc557440b1305e1e00f272061db",
+    "codex-reader.ts": "c97738fe739e5319c6dda5d9d28b08a5d0937bd59e9cad4fea69d4a30cc903b7",
+    "content-evidence.ts": "2d8df928c37e65ea0a0232359b5d4ed03fe3f5a26ff881d288a5c07f11ae8f68",
+    "echarts-entry.ts": "a5cb4ddc6460ec273d2060edc485e5c870327176a53eea9c81ca4130f00edd46",
+    "eval-baseline.ts": "a454a0509e9ff0aa6576387c9212718a1955e3a4fb303e47112a0dd14a976233",
+    "eval-contract.ts": "508be003ad76dfdefe5204de7e0a716e467c06ed27c29616cbdcafa5fdc274bc",
+    "eval-lab.ts": "ef66cf2ba8107b253375fdcda192227367cee46bf877093cd13a9b738d8bb082",
+    "eval-provenance.ts": "b13dc1d6c27677b5fbb000a6db211b8d6e043c41ec894075edfb32f62b4c57c8",
+    "eval-state.ts": "e7908913746d1afc62ff54e57b7492aa0c5f62abda7337de9a8d43830d67e2a1",
+    "key-session-analysis.ts": "d29c6b049f63a00434ed6b364bd6ea4bac31a17543499a86cccf3649aae51ea9",
+    "prompt-projection.ts": "40783587ccd596a333d5ef2164286ff22dbb9edd06e77f9f7ff8508d43218a4b",
+    "rates.ts": "8d2fa3093c53e4ab788c8b9f7f779a116ba2a7ebb96709fe739f18e546bd1a9c",
+    "report-messages.ts": "e825f81e1e1c51b5e9c73d377a44ec791ff875516875eef95f6d6aba06cd53ae",
+    "report-run.ts": "d9d00a197a1da7576772417eafe49ec26567aea08350a7bf6721bf08a1d44228",
+    "report.ts": "e16ff9b9ea55af313bf96b02ea5e4252cd6962ee31adcde4fd98b319e80b7a25",
+    "skill-insights.ts": "abae7758d96d3dc53d21bce39c5c3a39bae1d9d9786ac71839121510b7b52fdb",
+    "types.ts": "a9b7214e12d89a7e4830829a9478bf5fd1f911ed1b4e0a78f37c6155f213c32f"
+  }
+}

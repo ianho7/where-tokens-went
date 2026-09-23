@@ -1,7 +1,8 @@
 import type { ApiPricingSource, Harness, ModelCallRecord } from "./types";
 import { performance } from "node:perf_hooks";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync, mkdirSync } from "node:fs";
 import * as path from "node:path";
+import { homedir } from "node:os";
 
 export type PricingMode = "litellm";
 
@@ -310,7 +311,8 @@ interface RatesCacheEntry {
 
 function getRatesCachePath(): string {
   if (process.env.RATES_CACHE_FILE) return process.env.RATES_CACHE_FILE;
-  return path.join(process.cwd(), ".scratch", "rates-cache.json");
+  const cacheRoot = process.env.WHERE_TOKENS_WENT_CACHE_DIR || process.env.XDG_CACHE_HOME || process.env.LOCALAPPDATA || path.join(homedir(), ".cache");
+  return path.join(cacheRoot, "where-tokens-went", "rates-cache.json");
 }
 
 function readRatesDiskCache(): Map<string, RatesCacheEntry> {
@@ -343,7 +345,9 @@ function writeRatesDiskCache(map: Map<string, RatesCacheEntry>): void {
         obj[k] = v;
       }
     }
-    writeFileSync(cachePath, JSON.stringify(obj, null, 2), "utf8");
+    const temporary = cachePath + ".tmp-" + process.pid;
+    writeFileSync(temporary, JSON.stringify(obj, null, 2), "utf8");
+    renameSync(temporary, cachePath);
   } catch {
     // Best effort write
   }
@@ -369,6 +373,7 @@ export async function resolveApiPricing(
   const diskCache = shouldUseCache ? readRatesDiskCache() : null;
   let cacheUpdated = false;
 
+  const uncachedPairs: typeof pairs = [];
   for (const pair of pairs) {
     const cacheKey = pair.provider + "|" + pair.model;
     if (diskCache && diskCache.has(cacheKey)) {
@@ -380,21 +385,27 @@ export async function resolveApiPricing(
       }
       continue;
     }
+    uncachedPairs.push(pair);
+  }
 
-    const result = await lookupLiteLlmRate(pair.provider, pair.model, fetcher, baseUrl, timing);
-    if (result.rate) {
-      dynamicRates.push(result.rate);
-      if (diskCache) {
-        diskCache.set(cacheKey, { rate: result.rate, expiresAt: Date.now() + 7 * 24 * 3600 * 1000 });
-        cacheUpdated = true;
-      }
-    } else {
-      limitations.push(result.failed
-        ? "LiteLLM price lookup failed for " + pair.provider + "/" + pair.model
-        : "LiteLLM returned no exact price entry for " + pair.provider + "/" + pair.model);
-      if (diskCache && !result.failed) {
-        diskCache.set(cacheKey, { rate: null, expiresAt: Date.now() + 24 * 3600 * 1000 });
-        cacheUpdated = true;
+  for (let offset = 0; offset < uncachedPairs.length; offset += 3) {
+    const results = await Promise.all(uncachedPairs.slice(offset, offset + 3).map(async (pair) => ({ pair, result: await lookupLiteLlmRate(pair.provider, pair.model, fetcher, baseUrl, timing) })));
+    for (const { pair, result } of results) {
+      const cacheKey = pair.provider + "|" + pair.model;
+      if (result.rate) {
+        dynamicRates.push(result.rate);
+        if (diskCache) {
+          diskCache.set(cacheKey, { rate: result.rate, expiresAt: Date.now() + 7 * 24 * 3600 * 1000 });
+          cacheUpdated = true;
+        }
+      } else {
+        limitations.push(result.failed
+          ? "LiteLLM price lookup failed for " + pair.provider + "/" + pair.model
+          : "LiteLLM returned no exact price entry for " + pair.provider + "/" + pair.model);
+        if (diskCache && !result.failed) {
+          diskCache.set(cacheKey, { rate: null, expiresAt: Date.now() + 24 * 3600 * 1000 });
+          cacheUpdated = true;
+        }
       }
     }
   }

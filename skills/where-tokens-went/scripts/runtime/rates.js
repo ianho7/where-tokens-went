@@ -40,6 +40,7 @@ exports.resolveApiPricing = resolveApiPricing;
 const node_perf_hooks_1 = require("node:perf_hooks");
 const node_fs_1 = require("node:fs");
 const path = __importStar(require("node:path"));
+const node_os_1 = require("node:os");
 exports.LITELLM_MODEL_CATALOG_URL = "https://api.litellm.ai/model_catalog";
 function pricingProviderForHarness(harness) {
     return harness === "codex" ? "openai" : "anthropic";
@@ -268,7 +269,8 @@ function rateForInput(rate, inputTokens) {
 function getRatesCachePath() {
     if (process.env.RATES_CACHE_FILE)
         return process.env.RATES_CACHE_FILE;
-    return path.join(process.cwd(), ".scratch", "rates-cache.json");
+    const cacheRoot = process.env.WHERE_TOKENS_WENT_CACHE_DIR || process.env.XDG_CACHE_HOME || process.env.LOCALAPPDATA || path.join((0, node_os_1.homedir)(), ".cache");
+    return path.join(cacheRoot, "where-tokens-went", "rates-cache.json");
 }
 function readRatesDiskCache() {
     const cachePath = getRatesCachePath();
@@ -300,7 +302,9 @@ function writeRatesDiskCache(map) {
                 obj[k] = v;
             }
         }
-        (0, node_fs_1.writeFileSync)(cachePath, JSON.stringify(obj, null, 2), "utf8");
+        const temporary = cachePath + ".tmp-" + process.pid;
+        (0, node_fs_1.writeFileSync)(temporary, JSON.stringify(obj, null, 2), "utf8");
+        (0, node_fs_1.renameSync)(temporary, cachePath);
     }
     catch {
         // Best effort write
@@ -319,6 +323,7 @@ async function resolveApiPricing(calls, harness, mode = "litellm", fetcher = def
     const shouldUseCache = baseUrl === exports.LITELLM_MODEL_CATALOG_URL;
     const diskCache = shouldUseCache ? readRatesDiskCache() : null;
     let cacheUpdated = false;
+    const uncachedPairs = [];
     for (const pair of pairs) {
         const cacheKey = pair.provider + "|" + pair.model;
         if (diskCache && diskCache.has(cacheKey)) {
@@ -331,21 +336,27 @@ async function resolveApiPricing(calls, harness, mode = "litellm", fetcher = def
             }
             continue;
         }
-        const result = await lookupLiteLlmRate(pair.provider, pair.model, fetcher, baseUrl, timing);
-        if (result.rate) {
-            dynamicRates.push(result.rate);
-            if (diskCache) {
-                diskCache.set(cacheKey, { rate: result.rate, expiresAt: Date.now() + 7 * 24 * 3600 * 1000 });
-                cacheUpdated = true;
+        uncachedPairs.push(pair);
+    }
+    for (let offset = 0; offset < uncachedPairs.length; offset += 3) {
+        const results = await Promise.all(uncachedPairs.slice(offset, offset + 3).map(async (pair) => ({ pair, result: await lookupLiteLlmRate(pair.provider, pair.model, fetcher, baseUrl, timing) })));
+        for (const { pair, result } of results) {
+            const cacheKey = pair.provider + "|" + pair.model;
+            if (result.rate) {
+                dynamicRates.push(result.rate);
+                if (diskCache) {
+                    diskCache.set(cacheKey, { rate: result.rate, expiresAt: Date.now() + 7 * 24 * 3600 * 1000 });
+                    cacheUpdated = true;
+                }
             }
-        }
-        else {
-            limitations.push(result.failed
-                ? "LiteLLM price lookup failed for " + pair.provider + "/" + pair.model
-                : "LiteLLM returned no exact price entry for " + pair.provider + "/" + pair.model);
-            if (diskCache && !result.failed) {
-                diskCache.set(cacheKey, { rate: null, expiresAt: Date.now() + 24 * 3600 * 1000 });
-                cacheUpdated = true;
+            else {
+                limitations.push(result.failed
+                    ? "LiteLLM price lookup failed for " + pair.provider + "/" + pair.model
+                    : "LiteLLM returned no exact price entry for " + pair.provider + "/" + pair.model);
+                if (diskCache && !result.failed) {
+                    diskCache.set(cacheKey, { rate: null, expiresAt: Date.now() + 24 * 3600 * 1000 });
+                    cacheUpdated = true;
+                }
             }
         }
     }

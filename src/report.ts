@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { extname, join, resolve as resolvePath } from "node:path";
+import { homedir } from "node:os";
 
 import type {
   AutomatedCheck,
@@ -1725,7 +1726,8 @@ function warnFontSubsettingFailure(): void {
 
 function getFontCacheDir(): string {
   if (process.env.FONT_CACHE_DIR) return process.env.FONT_CACHE_DIR;
-  return join(process.cwd(), ".scratch", "font-cache");
+  const cacheRoot = process.env.WHERE_TOKENS_WENT_CACHE_DIR || process.env.XDG_CACHE_HOME || process.env.LOCALAPPDATA || join(homedir(), ".cache");
+  return join(cacheRoot, "where-tokens-went", "font-cache");
 }
 
 interface CachedFontEntry {
@@ -1790,8 +1792,14 @@ function saveCachedFont(fontFingerprint: string, weight: string, chars: string, 
     mkdirSync(cacheDir, { recursive: true });
     const subsetHash = createHash("sha256").update(chars).digest("hex").slice(0, 12);
     const baseName = fontFingerprint + "-" + weight + "-" + subsetHash;
-    writeFileSync(join(cacheDir, baseName + ".woff2"), woff2Buffer);
-    writeFileSync(join(cacheDir, baseName + ".json"), JSON.stringify({ chars }), "utf8");
+    const woff2Path = join(cacheDir, baseName + ".woff2");
+    const metaPath = join(cacheDir, baseName + ".json");
+    const temporary = woff2Path + ".tmp-" + process.pid;
+    writeFileSync(temporary, woff2Buffer);
+    renameSync(temporary, woff2Path);
+    const metaTemporary = metaPath + ".tmp-" + process.pid;
+    writeFileSync(metaTemporary, JSON.stringify({ chars }), "utf8");
+    renameSync(metaTemporary, metaPath);
   } catch {
     // Best effort caching
   }

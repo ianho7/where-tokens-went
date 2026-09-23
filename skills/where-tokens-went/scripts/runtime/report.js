@@ -12,6 +12,7 @@ exports.renderShare = renderShare;
 const node_fs_1 = require("node:fs");
 const node_crypto_1 = require("node:crypto");
 const node_path_1 = require("node:path");
+const node_os_1 = require("node:os");
 const key_session_analysis_1 = require("./key-session-analysis");
 const skill_insights_1 = require("./skill-insights");
 const report_messages_1 = require("./report-messages");
@@ -1590,7 +1591,8 @@ function warnFontSubsettingFailure() {
 function getFontCacheDir() {
     if (process.env.FONT_CACHE_DIR)
         return process.env.FONT_CACHE_DIR;
-    return (0, node_path_1.join)(process.cwd(), ".scratch", "font-cache");
+    const cacheRoot = process.env.WHERE_TOKENS_WENT_CACHE_DIR || process.env.XDG_CACHE_HOME || process.env.LOCALAPPDATA || (0, node_path_1.join)((0, node_os_1.homedir)(), ".cache");
+    return (0, node_path_1.join)(cacheRoot, "where-tokens-went", "font-cache");
 }
 function loadCachedFontEntries(fontFingerprint, weight) {
     const cacheDir = getFontCacheDir();
@@ -1649,8 +1651,14 @@ function saveCachedFont(fontFingerprint, weight, chars, woff2Buffer) {
         (0, node_fs_1.mkdirSync)(cacheDir, { recursive: true });
         const subsetHash = (0, node_crypto_1.createHash)("sha256").update(chars).digest("hex").slice(0, 12);
         const baseName = fontFingerprint + "-" + weight + "-" + subsetHash;
-        (0, node_fs_1.writeFileSync)((0, node_path_1.join)(cacheDir, baseName + ".woff2"), woff2Buffer);
-        (0, node_fs_1.writeFileSync)((0, node_path_1.join)(cacheDir, baseName + ".json"), JSON.stringify({ chars }), "utf8");
+        const woff2Path = (0, node_path_1.join)(cacheDir, baseName + ".woff2");
+        const metaPath = (0, node_path_1.join)(cacheDir, baseName + ".json");
+        const temporary = woff2Path + ".tmp-" + process.pid;
+        (0, node_fs_1.writeFileSync)(temporary, woff2Buffer);
+        (0, node_fs_1.renameSync)(temporary, woff2Path);
+        const metaTemporary = metaPath + ".tmp-" + process.pid;
+        (0, node_fs_1.writeFileSync)(metaTemporary, JSON.stringify({ chars }), "utf8");
+        (0, node_fs_1.renameSync)(metaTemporary, metaPath);
     }
     catch {
         // Best effort caching

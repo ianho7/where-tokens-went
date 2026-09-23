@@ -671,9 +671,11 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
     warnings: [] as string[],
   };
   const pendingById = new Map<string, PendingSession>();
+  const selectedSourceFiles = new Set<string>();
   let fallbackIndex = 0;
   const sessionTitles = await readSessionTitles(codexHome, coverage.warnings);
-  const sessionIndex = loadSessionIndex();
+  const useSessionIndex = process.env.WTW_DISABLE_SESSION_INDEX_CACHE !== "1";
+  const sessionIndex = useSessionIndex ? loadSessionIndex() : new Map<string, CachedFileParseResult>();
   let indexUpdated = false;
 
   for (const file of files) {
@@ -1042,7 +1044,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
     indexUpdated = true;
   }
 
-  if (indexUpdated) {
+  if (indexUpdated && useSessionIndex) {
     saveSessionIndex(sessionIndex);
   }
 
@@ -1073,6 +1075,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
       }
       continue;
     }
+    if (pending.session.filePath) selectedSourceFiles.add(pending.session.filePath);
     if (pending.unsupported) {
       unsupportedSessions += 1;
     }
@@ -1169,6 +1172,7 @@ export async function readCodex(scope: ReadScope): Promise<ReadResult> {
     skillEvidence,
     firstUserMessages: firstUserMessages.sort((a, b) => a.sessionId.localeCompare(b.sessionId) || a.turnId.localeCompare(b.turnId)),
     tokenAccounting,
+    sourceFiles: [...selectedSourceFiles].sort(),
     coverage,
   };
 }
