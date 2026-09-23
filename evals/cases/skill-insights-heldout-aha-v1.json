@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "skill-insights-heldout-aha-v1",
+  "lane": "skill-insights",
+  "class": "capability",
+  "split": "held-out",
+  "inputArtifact": "evals/fixtures/skill-insights-snapshot-heldout-aha-v1.json",
+  "inputHash": "eca7a05d87c45a780c9dce8a56759ab5c643d7466b02ededed070697338c04b5",
+  "expectedOutcome": "the same evidence-first Capability and naming-family distinctions generalize to a different Snapshot with different names and values",
+  "deterministicExpectations": [
+    "Held-out Snapshot ID is exact and input hash is distinct from development Cases",
+    "Capability content excerpts are bounded and verified on unique and generic sides",
+    "Naming-family language does not become capability-family language without member content evidence",
+    "No unsupported Trigger Trace or per-Skill Token-scale mechanism is invented"
+  ],
+  "rubricId": "skill-insights-aha-v2",
+  "goodReference": "evals/references/skill-good-reference-v2.json",
+  "badReference": "evals/references/skill-bad-reference-v2.json",
+  "originFailure": "held-out evidence-first selection was not previously executed on a differently named family and distinct Snapshot distribution.",
+  "privacy": "redacted"
+}

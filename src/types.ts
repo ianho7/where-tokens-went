@@ -337,6 +337,8 @@ export interface SkillAnalysisEntry {
   sessionCount: EvidenceValue;
   firstObservedAt: EvidenceValue;
   lastObservedAt: EvidenceValue;
+  /** Sum of unique selected Session ModelCall totals for Sessions containing this Skill. */
+  associatedSessionTokens: EvidenceValue;
   attributedTokens: EvidenceValue;
   attributedApiEquivalentCost: EvidenceValue;
   evidenceCoveragePercent: EvidenceValue;
@@ -571,7 +573,10 @@ export interface SkillDerivedMetrics {
   taskCoverage: number;
   rankByCalls: number;
   rankByTasks: number;
-  associatedTokens: number | null;
+  /** ModelCall Tokens matched by the Skill's source-proven call/Turn boundary. */
+  attributedCallTokens: number | null;
+  /** Sum of unique selected Session totals for Sessions containing the Skill. */
+  associatedSessionTokens: number | null;
   associatedCost: number | null;
 }
 
@@ -608,6 +613,12 @@ export interface GlobalSkillUsage {
   lowFrequencySkillShare: number;
   lowFrequencyCallShare: number;
   singleUseSkillShare: number;
+  /** Distribution over per-Skill associated Session totals; values are not additive across Skills. */
+  associatedSessionTokenCount?: number;
+  associatedSessionTokenMedian?: number | null;
+  associatedSessionTokenP75?: number | null;
+  associatedSessionTokenP90?: number | null;
+  associatedSessionTokenMax?: number | null;
   dominantFamily: DominantFamilyCandidate | null;
   familyMetrics?: SkillFamilyUsage[];
 }
@@ -633,6 +644,8 @@ export interface SkillCandidate {
     callShare?: number;
     callsPerTask?: number;
     rankByCalls?: number;
+    attributedCallTokens?: number;
+    associatedSessionTokens?: number;
     familyGroup?: string;
     isOutlier?: boolean;
   };

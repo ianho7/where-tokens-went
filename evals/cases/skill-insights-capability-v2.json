@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "id": "skill-insights-capability-v2",
+  "lane": "skill-insights",
+  "class": "capability",
+  "split": "regression",
+  "inputArtifact": "evals/fixtures/skill-insights-snapshot-v2.json",
+  "inputHash": "528529fba7ff9614cbb5563bec8aa32451ddf5ea9b4febdeffb03d69b59746ba",
+  "expectedOutcome": "capability insight binds the immutable Snapshot and contrasts unique protocol with generic procedure",
+  "deterministicExpectations": ["Snapshot ID is exact", "content excerpts are bounded and verified", "usage and both content roles are present"],
+  "rubricId": "skill-insights-aha",
+  "goodReference": "evals/references/skill-good-reference.json",
+  "badReference": "evals/references/skill-bad-reference.json",
+  "originFailure": "Skill Insights lacked a grounded Usage x Content relationship",
+  "privacy": "redacted"
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "id": "skill-insights-capability",
+  "lane": "skill-insights",
+  "class": "capability",
+  "split": "smoke",
+  "inputArtifact": "evals/fixtures/skill-insights-snapshot.json",
+  "inputHash": "9b153bb34cbbbe927709ca6b3e1de86b4847a8cecdd2cfb66c2c7280626bd60d",
+  "expectedOutcome": "capability candidate uses the exact Snapshot and bounded content contrast",
+  "deterministicExpectations": ["Snapshot ID is exact", "content excerpts are bounded", "good and bad references are annotated"],
+  "rubricId": "skill-insights-aha",
+  "goodReference": "evals/references/skill-good-reference.json",
+  "badReference": "evals/references/skill-bad-reference.json",
+  "originFailure": "Skill Insights lacked a grounded Usage x Content relationship",
+  "privacy": "redacted"
+}

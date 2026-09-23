@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "skill-insights-aha",
+  "lane": "skill-insights",
+  "dimensions": [
+    {"id": "snapshot_binding", "description": "The immutable Snapshot identity is preserved.", "blocking": true, "minimumScore": 1},
+    {"id": "content_contrast", "description": "Capability claims include bounded Snapshot-verified content on both required sides.", "blocking": true, "minimumScore": 0.5},
+    {"id": "decision_delta", "description": "Observation, contrast, interpretation, cognitive delta, and decision delta are explicit.", "minimumScore": 0.5},
+    {"id": "uncertainty", "description": "Unsupported mechanism claims remain conditional or unknown.", "minimumScore": 0.5}
+  ]
+}

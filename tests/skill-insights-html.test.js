@@ -246,12 +246,29 @@ test('report-run compose integrates validated skill insights into HTML report', 
       }
     });
 
+    const env = { CODEX_HOME: tmp };
+    const started = await runCli([
+      'report-run', 'ai-start',
+      '--run-dir', runDir,
+      '--lane', 'skill-insights'
+    ], env);
+    assert.equal(started.code, 0, started.stderr);
+    const ticket = JSON.parse(started.stdout);
+    const accepted = await runCli([
+      'report-run', 'ai-accept',
+      '--run-dir', runDir,
+      '--lane', 'skill-insights',
+      '--attempt', String(ticket.attempt),
+      '--span-id', ticket.spanId
+    ], env, JSON.stringify(JSON.parse(aiEnvelope).skillInsights));
+    assert.equal(accepted.code, 0, accepted.stderr);
+
     const composed = await runCli([
       'report-run', 'compose',
       '--run-dir', runDir,
       '--locale', 'zh-CN',
       '--html', htmlPath
-    ], { CODEX_HOME: tmp }, aiEnvelope);
+    ], env);
 
     assert.equal(composed.code, 0, composed.stderr);
     const html = await readFile(htmlPath, 'utf8');

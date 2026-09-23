@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "skill-insights-cognitive-delta-v1",
+  "lane": "skill-insights",
+  "baselinePromptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+  "candidatePromptHash": "4ca61332c66e57ade26ba53ee5abd7318024c027051b122f39ebb1faf788d9fe",
+  "targetFailure": "The current Skill Insights output finds valid usage signals but does not consistently select the highest-information Cognitive Delta, sharply separate local Harness contracts from generic scaffolding, or preserve missing-evidence boundaries.",
+  "hypothesis": "An evidence-first selection delta that ranks capability contrast and naming-family topology, while explicitly refusing unsupported token-scale and Trigger Trace claims, will improve useful surprise and decision delta without weakening snapshot binding or uncertainty.",
+  "singleChange": "Add one candidate-only evidence-first selection policy; keep the deterministic validator and authoritative Prompt unchanged.",
+  "targetDimension": "useful_surprise",
+  "mustNotRegress": ["snapshot_binding", "content_contrast", "usage_content_relation", "evidence_sufficiency", "decision_delta", "uncertainty"],
+  "maxRevisions": 3,
+  "tokenBudget": 100000,
+  "timeBudgetMs": 300000,
+  "budgetEvidencePolicy": "required",
+  "tokenMetric": "total_tokens",
+  "caseIds": ["skill-insights-real-aha-v1", "skill-insights-token-boundary-v1", "skill-insights-heldout-aha-v1"],
+  "modelConfig": {"provider": "host-agent", "model": "codex-current", "temperature": null, "comparisonKey": "codex-current"},
+  "status": "smoke",
+  "createdAt": "2026-09-21T00:00:00.000Z"
+}

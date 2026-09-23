@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "skill-insights-cognitive-delta-v3",
+  "lane": "skill-insights",
+  "baselinePromptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+  "candidatePromptHash": "017a4ae39d89ac73f9101c5bb932c82b539ec88fe2a645dcf3a8d408ecaf83aa",
+  "targetFailure": "Revision 1 still emitted non-canonical content refs and family-semantic wording that activated a stronger validator gate.",
+  "hypothesis": "Literal canonical reference examples plus an explicit family-language guard will make the intended Capability and naming-topology Ahas contract-valid without weakening evidence gates.",
+  "singleChange": "Add one final candidate-only pre-emission Contract check for literal content refs and family-semantic wording.",
+  "targetDimension": "evidence_sufficiency",
+  "mustNotRegress": ["snapshot_binding", "content_contrast", "usage_content_relation", "decision_delta", "uncertainty"],
+  "maxRevisions": 3,
+  "tokenBudget": 100000,
+  "timeBudgetMs": 300000,
+  "budgetEvidencePolicy": "required",
+  "tokenMetric": "total_tokens",
+  "caseIds": ["skill-insights-real-aha-v1", "skill-insights-token-boundary-v1", "skill-insights-heldout-aha-v1"],
+  "modelConfig": {"provider": "host-agent", "model": "codex-current", "temperature": null, "comparisonKey": "codex-current"},
+  "status": "smoke",
+  "createdAt": "2026-09-21T00:00:00.000Z"
+}

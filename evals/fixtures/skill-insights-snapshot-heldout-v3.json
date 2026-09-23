@@ -1,0 +1,44 @@
+{
+  "snapshotId": "fixture-skill-snapshot-heldout-v3",
+  "auditFingerprint": "fixture-audit-heldout-v3",
+  "createdAt": "2026-09-20T01:00:00.000Z",
+  "distributionContext": {"median": 2, "p75": 3, "p90": 5, "max": 7},
+  "globalUsage": {
+    "totalSkillsUsed": 3,
+    "totalSkillCalls": 8,
+    "totalTasks": 5,
+    "callsPerTaskDistribution": {"median": 1, "p75": 2, "p90": 4, "max": 5},
+    "top4CallShare": 0.75,
+    "lowFrequencySkillCount": 2,
+    "lowFrequencyCallCount": 3,
+    "lowFrequencySkillShare": 0.6667,
+    "lowFrequencyCallShare": 0.375,
+    "singleUseSkillShare": 0.3333,
+    "singleUseCallShare": 0.125,
+    "dominantFamily": null,
+    "familyMetrics": []
+  },
+  "selectedCandidates": [
+    {
+      "skillId": "where-tokens-went",
+      "skillName": "where-tokens-went",
+      "candidateTypes": ["high_usage_strong_delta"],
+      "signals": {"calls": 4, "tasks": 3, "callShare": 0.5, "callsPerTask": 1.3333, "rankByCalls": 1, "rankByTasks": 1}
+    }
+  ],
+  "selectedSkills": [
+    {
+      "skillId": "where-tokens-went",
+      "skillName": "where-tokens-went",
+      "skillPath": "skills/where-tokens-went/SKILL.md",
+      "contentState": "available",
+      "skillMdBytes": 160,
+      "skillMdEstimatedTokens": 40,
+      "skillMdHash": "fixture-heldout-skill-md-hash",
+      "skillMdContent": "Use the frozen Audit evidence first, then explain the largest supported destination and name unknowns precisely.\nThe local deterministic tool owns facts and accounting.\nKeep raw Session content local-only.",
+      "referenceCount": 0,
+      "referenceBytes": 0,
+      "referenceFiles": []
+    }
+  ]
+}

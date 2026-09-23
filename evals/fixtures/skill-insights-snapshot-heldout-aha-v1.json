@@ -1,0 +1,46 @@
+{
+  "snapshotId": "fixture-skill-snapshot-heldout-aha-v1",
+  "auditFingerprint": "fixture-audit-heldout-aha-v1",
+  "createdAt": "2026-09-21T01:00:00.000Z",
+  "distributionContext": {"median": 1.08, "p75": 1.67, "p90": 3.2, "max": 9},
+  "globalUsage": {
+    "totalSkillsUsed": 27,
+    "totalSkillCalls": 402,
+    "totalTasks": 181,
+    "callsPerTaskDistribution": {"median": 1.08, "p75": 1.67, "p90": 3.2, "max": 9},
+    "top4CallShare": 0.7413,
+    "lowFrequencySkillCount": 14,
+    "lowFrequencyCallCount": 31,
+    "lowFrequencySkillShare": 0.5185,
+    "lowFrequencyCallShare": 0.0771,
+    "singleUseSkillShare": 0.2593,
+    "singleUseCallShare": 0.0672,
+    "dominantFamily": {"groupId": "audit-insights-family", "memberSkillIds": ["audit-insights", "audit-insights-codex"], "callShare": 0.6716},
+    "familyMetrics": [
+      {"groupId": "audit-insights-family", "memberSkillIds": ["audit-insights", "audit-insights-codex"], "totalCalls": 270, "totalTasks": 22, "callShare": 0.6716, "memberCount": 2}
+    ]
+  },
+  "selectedCandidates": [
+    {
+      "skillId": "audit-insights",
+      "skillName": "audit-insights",
+      "candidateTypes": ["high_frequency", "high_usage_strong_delta"],
+      "signals": {"calls": 198, "tasks": 17, "callShare": 0.4925, "callsPerTask": 11.65, "rankByCalls": 1, "rankByTasks": 1, "familyGroup": "audit-insights-family"}
+    }
+  ],
+  "selectedSkills": [
+    {
+      "skillId": "audit-insights",
+      "skillName": "audit-insights",
+      "skillPath": "skills/audit-insights/SKILL.md",
+      "contentState": "available",
+      "skillMdBytes": 9300,
+      "skillMdEstimatedTokens": 2300,
+      "skillMdHash": "fixture-heldout-aha-skill-md-hash",
+      "skillMdContent": "The active Host selects the local evidence source; do not inspect a sibling Harness.\nReport only what the frozen evidence supports and preserve material uncertainty.\nStructure the response as Finding, Evidence, mechanism, action when justified, and material uncertainty without fixed wording.\nThe deterministic reader owns accounting; do not reconstruct totals from raw records.",
+      "referenceCount": 0,
+      "referenceBytes": 0,
+      "referenceFiles": []
+    }
+  ]
+}

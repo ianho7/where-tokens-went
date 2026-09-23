@@ -533,11 +533,52 @@ function dedupeSkillEvidence(records: SkillUseRecord[]): SkillUseRecord[] {
   return [...byKey.values()];
 }
 
+function associatedSessionTokenEvidence(
+  skillName: string,
+  invocationRecords: SkillUseRecord[],
+  callsBySession: Map<string, ModelCallRecord[]>,
+  sessionById: Map<string, SessionRecord>,
+  harness: Harness,
+  tokenAccounting: ReadResult["tokenAccounting"],
+): EvidenceValue {
+  const sessionIds = [...new Set(invocationRecords.map((record) => record.sessionId))];
+  if (sessionIds.length === 0) return unavailable("no source-proven Skill invocation Session was available for " + skillName);
+
+  let total = 0;
+  for (const sessionId of sessionIds) {
+    const session = sessionById.get(sessionId);
+    if (!session) return unavailable("the Session containing " + skillName + " was not present in the selected source records");
+    if (session.partial !== false) return unavailable("the Session containing " + skillName + " was partial, so its selected Session Token total is unavailable");
+    if (harness === "codex" && !tokenAccounting?.reconciledSessionIds.includes(sessionId)) {
+      return unavailable("Codex Token accounting did not reconcile for the Session containing " + skillName);
+    }
+
+    const sessionCalls = callsBySession.get(sessionId) ?? [];
+    if (sessionCalls.length === 0 || sessionCalls.some((call) => callTokens(call, harness) === null)) {
+      return unavailable("the selected Session containing " + skillName + " did not have complete ModelCall Token totals");
+    }
+    total += sessionCalls.reduce((sum, call) => sum + callTokens(call, harness)!, 0);
+  }
+
+  return {
+    value: total,
+    provenance: "derived",
+    method: "sum of complete selected-scope ModelCall Token totals for each unique Session with a source-proven Skill invocation; Session totals may overlap across Skills and do not imply causality",
+  };
+}
+
 function skillAnalysis(read: ReadResult, harness: Harness, pricing: ApiPricingContext): SkillAnalysisEntry[] {
   const records = dedupeSkillEvidence(read.skillEvidence ?? []);
   if (records.length === 0) return [];
   const names = [...new Set(records.map((record) => record.skillName ?? "<unknown-skill>"))].sort();
   const calls = dedupeModelCalls(read.modelCalls);
+  const callsBySession = new Map<string, ModelCallRecord[]>();
+  for (const call of calls) {
+    const sessionCalls = callsBySession.get(call.sessionId);
+    if (sessionCalls) sessionCalls.push(call);
+    else callsBySession.set(call.sessionId, [call]);
+  }
+  const sessionById = new Map(read.sessions.map((session) => [session.sessionId, session]));
   const strongAttributionBoundaries = new Set(records
     .filter((record) => record.evidenceType === "versioned-attribution")
     .map((record) => [record.sessionId, record.timestamp, record.skillName].join("|")));
@@ -564,6 +605,7 @@ function skillAnalysis(read: ReadResult, harness: Harness, pricing: ApiPricingCo
     const associatedTokens = matchedCalls.length === 0 || matchedCalls.some((call) => callTokens(call, harness) === null)
       ? unavailable("no complete source-proven ModelCall Token total was associated with " + name)
       : { value: matchedCalls.reduce((sum, call) => sum + callTokens(call, harness)!, 0), provenance: "derived" as const, method: "sum of ModelCall Token totals matched by the Skill's source-proven call or turn boundary" };
+    const associatedSessionTokens = associatedSessionTokenEvidence(name, invocationRecords, callsBySession, sessionById, harness, read.tokenAccounting);
     const associatedCost = matchedCalls.length === 0
       ? unavailable("no source-proven ModelCall was associated with " + name)
       : apiCost(matchedCalls, harness, pricing).cost;
@@ -581,6 +623,7 @@ function skillAnalysis(read: ReadResult, harness: Harness, pricing: ApiPricingCo
       sessionCount: { value: new Set(invocationRecords.map((record) => record.sessionId)).size, provenance: "derived", method: "count of Sessions with a deduplicated Skill invocation boundary" },
       firstObservedAt: timeValues.length > 0 ? { value: timeValues[0], provenance: "reported", method: "earliest timestamp on the Skill evidence record" } : unavailable("Skill evidence had no usable timestamp"),
       lastObservedAt: timeValues.length > 0 ? { value: timeValues[timeValues.length - 1], provenance: "reported", method: "latest timestamp on the Skill evidence record" } : unavailable("Skill evidence had no usable timestamp"),
+      associatedSessionTokens,
       attributedTokens: associatedTokens,
       attributedApiEquivalentCost: associatedCost,
       evidenceCoveragePercent: own.length > 0 ? percentageEvidence(evidenceWithBoundary, own.length, "usable " + name + " Skill evidence") : unavailable("no Skill evidence was available"),

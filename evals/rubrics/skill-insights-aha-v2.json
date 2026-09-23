@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "id": "skill-insights-aha-v2",
+  "lane": "skill-insights",
+  "dimensions": [
+    {"id": "snapshot_binding", "description": "The exact immutable Snapshot identity is preserved and all claims resolve to it.", "blocking": true, "minimumScore": 1},
+    {"id": "useful_surprise", "description": "The insight creates a non-obvious mental-model shift rather than restating a visible metric.", "blocking": true, "minimumScore": 0.5},
+    {"id": "content_contrast", "description": "Capability claims contrast bounded Snapshot-verified unique/local content with a distinct generic-procedure excerpt.", "blocking": true, "minimumScore": 0.5},
+    {"id": "usage_content_relation", "description": "The insight joins a deterministic usage signal to the specific content or topology claim it supports without confusing association with causation.", "blocking": true, "minimumScore": 0.5},
+    {"id": "evidence_sufficiency", "description": "Every material part of the claim is supported by the required evidence kinds, with no unsupported Run, Trigger Trace, family capability, or token-scale leap.", "blocking": true, "minimumScore": 0.5},
+    {"id": "deletion_counterfactual", "description": "Capability claims state what would be lost without the unique rule and what would remain without the generic scaffold.", "blocking": true, "minimumScore": 0.5},
+    {"id": "decision_delta", "description": "The output makes the before/after governance or maintenance decision explicit and concrete.", "blocking": true, "minimumScore": 0.5},
+    {"id": "non_duplication", "description": "The selected Ahas are distinct across capability, topology, and usage-boundary roles; an unexplained anomaly is not promoted as a duplicate Aha.", "blocking": true, "minimumScore": 0.5},
+    {"id": "uncertainty", "description": "Unknown mechanisms, causal impact, naming-family semantics, and missing trigger traces remain calibrated and conditional.", "blocking": true, "minimumScore": 0.5},
+    {"id": "efficiency", "description": "The response uses the available evidence to prioritize high-information contrasts without adding unsupported analysis or unnecessary claims.", "blocking": false, "minimumScore": 0}
+  ]
+}

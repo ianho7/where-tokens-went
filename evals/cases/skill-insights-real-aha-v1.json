@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "id": "skill-insights-real-aha-v1",
+  "lane": "skill-insights",
+  "class": "capability",
+  "split": "regression",
+  "inputArtifact": "evals/fixtures/skill-insights-snapshot-real-aha-v1.json",
+  "inputHash": "39f933190d27e2337cb29f64547d1808b4ffb4a37e5db4c9ca5f6712f8181841",
+  "expectedOutcome": "three distinct evidence-backed Ahas prioritize local Harness capability, naming-family topology, and calibrated unknowns",
+  "deterministicExpectations": [
+    "Snapshot ID is exact",
+    "Capability content excerpts are bounded and verified on unique and generic sides",
+    "Family concentration uses family callShare, family totalCalls, and global totalSkillCalls",
+    "A repeated calls-per-task outlier is not promoted to a mechanism without Trigger Trace",
+    "No per-Skill associated-token claim passes when that signal is absent from the Snapshot"
+  ],
+  "rubricId": "skill-insights-aha-v2",
+  "goodReference": "evals/references/skill-good-reference-v2.json",
+  "badReference": "evals/references/skill-bad-reference-v2.json",
+  "originFailure": "The current real report found visible usage signals but did not turn the Harness/content contrast into a sharp Capability Aha, did not prioritize naming-family concentration, and treated a calls-per-task anomaly as a final card.",
+  "privacy": "redacted"
+}

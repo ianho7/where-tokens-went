@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "id": "skill-insights-real-aha-v2",
+  "lane": "skill-insights",
+  "class": "capability",
+  "split": "regression",
+  "inputArtifact": "evals/fixtures/skill-insights-snapshot-real-aha-v1.json",
+  "inputHash": "39f933190d27e2337cb29f64547d1808b4ffb4a37e5db4c9ca5f6712f8181841",
+  "expectedOutcome": "preserve three target Aha roles: support the local-Harness Capability Aha and naming-family topology Aha, while expressing the frequency-versus-task-scale target as an explicit unknown or omission because the current Snapshot lacks associatedTokens",
+  "deterministicExpectations": [
+    "Snapshot ID is exact",
+    "Capability content excerpts are bounded and verified on unique and generic sides",
+    "Family concentration uses family callShare, family totalCalls, and global totalSkillCalls",
+    "The three target roles remain visible in the Case contract; the unsupported third role is not silently removed",
+    "A repeated calls-per-task outlier is not promoted to a mechanism without Trigger Trace",
+    "A frequency-versus-task-scale assertion requires associated-token evidence; without it the output must state an explicit unknown boundary or omit the claim",
+    "No per-Skill associated-token claim passes when that signal is absent from the Snapshot"
+  ],
+  "rubricId": "skill-insights-aha-v2",
+  "goodReference": "evals/references/skill-good-reference-v2.json",
+  "badReference": "evals/references/skill-bad-reference-v2.json",
+  "originFailure": "The v1 Case described three evidence-backed Ahas even though the current Snapshot supports only two Aha claims and an explicit unknown for frequency versus task scale; the validator also needed to enforce that missing-evidence boundary.",
+  "privacy": "redacted"
+}

@@ -1,0 +1,52 @@
+{
+  "snapshotId": "fixture-skill-snapshot-real-aha-v1",
+  "auditFingerprint": "fixture-audit-real-aha-v1",
+  "createdAt": "2026-09-21T00:00:00.000Z",
+  "distributionContext": {"median": 1.11, "p75": 1.38, "p90": 3.58, "max": 13.43},
+  "globalUsage": {
+    "totalSkillsUsed": 34,
+    "totalSkillCalls": 616,
+    "totalTasks": 245,
+    "callsPerTaskDistribution": {"median": 1.11, "p75": 1.38, "p90": 3.58, "max": 13.43},
+    "top4CallShare": 0.7727,
+    "lowFrequencySkillCount": 19,
+    "lowFrequencyCallCount": 39,
+    "lowFrequencySkillShare": 0.5588,
+    "lowFrequencyCallShare": 0.0633,
+    "singleUseSkillShare": 0.2941,
+    "singleUseCallShare": 0.0714,
+    "dominantFamily": {"groupId": "where-tokens-went-family", "memberSkillIds": ["where-tokens-went", "where-tokens-went-codex", "where-tokens-went-claude"], "callShare": 0.7094},
+    "familyMetrics": [
+      {"groupId": "where-tokens-went-family", "memberSkillIds": ["where-tokens-went", "where-tokens-went-codex", "where-tokens-went-claude"], "totalCalls": 437, "totalTasks": 34, "callShare": 0.7094, "memberCount": 3}
+    ]
+  },
+  "selectedCandidates": [
+    {
+      "skillId": "where-tokens-went",
+      "skillName": "where-tokens-went",
+      "candidateTypes": ["high_frequency", "high_usage_strong_delta"],
+      "signals": {"calls": 339, "tasks": 26, "callShare": 0.5503, "callsPerTask": 13.04, "rankByCalls": 1, "rankByTasks": 1, "familyGroup": "where-tokens-went-family"}
+    },
+    {
+      "skillId": "kami",
+      "skillName": "kami",
+      "candidateTypes": ["behavior_outlier"],
+      "signals": {"calls": 18, "tasks": 3, "callShare": 0.0292, "callsPerTask": 6, "rankByCalls": 4, "rankByTasks": 4, "isOutlier": true}
+    }
+  ],
+  "selectedSkills": [
+    {
+      "skillId": "where-tokens-went",
+      "skillName": "where-tokens-went",
+      "skillPath": "skills/where-tokens-went/SKILL.md",
+      "contentState": "available",
+      "skillMdBytes": 19170,
+      "skillMdEstimatedTokens": 4800,
+      "skillMdHash": "fixture-real-aha-skill-md-hash",
+      "skillMdContent": "The invoking Harness is the current Host: use `codex` when running inside Codex and `claude` when running inside Claude Code. Do not inspect the other Harness in response to a request.\nStructure the response as Finding, Evidence, mechanism, action when justified, and material uncertainty without fixed wording.\nThe local tool is authoritative. Do not recalculate totals, infer missing values as zero, or expose raw history content.\nFor a full or report request, start one Report Run before any expensive work.",
+      "referenceCount": 0,
+      "referenceBytes": 0,
+      "referenceFiles": []
+    }
+  ]
+}

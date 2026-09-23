@@ -11,8 +11,9 @@ const {
   resolveSkillPath,
   loadSkillSnapshot,
 } = require('../dist/src/skill-insights.js');
+const { analyseAudit } = require('../dist/src/analysis.js');
 
-function mockSkill(name, invocations, sessions, tokens = 1000, cost = 0.05) {
+function mockSkill(name, invocations, sessions, tokens = 1000, cost = 0.05, associatedSessionTokens = null) {
   return {
     name,
     state: 'invoked',
@@ -21,6 +22,7 @@ function mockSkill(name, invocations, sessions, tokens = 1000, cost = 0.05) {
     sessionCount: { value: sessions, provenance: 'derived' },
     firstObservedAt: { value: '2026-09-15T00:00:00.000Z', provenance: 'reported' },
     lastObservedAt: { value: '2026-09-18T00:00:00.000Z', provenance: 'reported' },
+    associatedSessionTokens: { value: associatedSessionTokens, provenance: associatedSessionTokens === null ? 'unavailable' : 'derived' },
     attributedTokens: { value: tokens, provenance: 'derived' },
     attributedApiEquivalentCost: { value: cost, provenance: 'derived' },
     evidenceCoveragePercent: { value: 100, provenance: 'derived' },
@@ -111,14 +113,23 @@ test('deriveSkillMetrics leaves callsPerTask unavailable when tasks are zero', (
   assert.equal(perSkill.get('zero-task').callsPerTask, null);
 });
 
+test('keeps matched ModelCall Tokens separate from associated Session Tokens', () => {
+  const { perSkill } = deriveSkillMetrics([
+    mockSkill('boundary-skill', 2, 1, 120, 0.05, 9000),
+  ], 1);
+
+  assert.equal(perSkill.get('boundary-skill').attributedCallTokens, 120);
+  assert.equal(perSkill.get('boundary-skill').associatedSessionTokens, 9000);
+});
+
 test('selectSkillCandidates implements family-aware diverse sampling with quotas and max 5 ceiling', () => {
   const skills = [
     mockSkill('family-main-codex', 180, 18),  // dominant group, callsPerTask = 10
     mockSkill('family-main-claude', 50, 20),  // dominant group, callsPerTask = 2.5
     mockSkill('family-main-extra', 10, 10),   // dominant group (3rd member, must be throttled!)
     mockSkill('kami', 39, 8),                 // non-dominant high-frequency, callsPerTask = 4.875
-    mockSkill('outlier-helper', 9, 2),        // non-dominant callsPerTask outlier = 4.5
-    mockSkill('spare-skill', 3, 3),           // diversity candidate
+    mockSkill('outlier-helper', 9, 2, 1000, 0.05, 1000), // non-dominant callsPerTask outlier = 4.5; baseline Session total
+    mockSkill('spare-skill', 3, 3, 100, 0.05, 9000), // bounded low-frequency/large-Session candidate
   ];
 
   const result = selectSkillCandidates(skills, 30);
@@ -134,11 +145,81 @@ test('selectSkillCandidates implements family-aware diverse sampling with quotas
 
   // Must include non-dominant callsPerTask outlier when present
   assert.ok(names.includes('outlier-helper'), 'Must include non-dominant outlier');
+  assert.ok(names.includes('spare-skill'), 'Must give a low-frequency Skill with a complete associated Session total one bounded candidate slot');
+  assert.ok(result.candidates.find((candidate) => candidate.skillName === 'spare-skill').candidateTypes.includes('rare_strong_delta'));
 
   for (const candidate of result.candidates) {
     assert.equal(typeof candidate.signals.calls, 'number', 'Candidate signals must include calls');
     assert.equal(typeof candidate.signals.tasks, 'number', 'Candidate signals must include tasks');
   }
+});
+
+test('associated Session Tokens are deduplicated per Skill and overlap across Skills without implying causality', () => {
+  const timestamp = '2026-09-20T00:00:00.000Z';
+  const call = (sessionId, callId, turnId, totalTokens) => ({
+    sessionId,
+    callId,
+    timestamp,
+    provider: 'openai',
+    model: 'gpt-5',
+    inputTokens: totalTokens,
+    cachedInputTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    totalTokens,
+    reportedCost: null,
+    status: 'ok',
+    tokenProvenance: 'reported',
+    turnId,
+  });
+  const skill = (skillName, sessionId, turnId, callId) => ({
+    sessionId,
+    skillName,
+    state: 'invoked',
+    evidenceType: 'explicit-input',
+    turnId,
+    callId,
+    timestamp,
+    sourceLocation: 'rollout:fixture',
+    provenance: 'reported',
+  });
+  const read = {
+    sessions: [
+      { harness: 'codex', sessionId: 'shared-session', projectCwd: null, startedAt: timestamp, endedAt: timestamp, parentSessionId: null, partial: false, sourceVersion: 'fixture' },
+      { harness: 'codex', sessionId: 'missing-session', projectCwd: null, startedAt: timestamp, endedAt: timestamp, parentSessionId: null, partial: true, sourceVersion: 'fixture' },
+    ],
+    turns: [],
+    modelCalls: [call('shared-session', 'call-1', 'turn-1', 100), call('shared-session', 'call-2', 'turn-2', 900), call('missing-session', 'call-3', 'turn-3', null)],
+    toolCalls: [],
+    lifecycle: [],
+    skillEvidence: [
+      skill('skill-a', 'shared-session', 'turn-1', 'skill-input-1'),
+      skill('skill-a', 'shared-session', 'turn-1', 'skill-input-1'),
+      skill('skill-b', 'shared-session', 'turn-2', 'skill-input-2'),
+      skill('missing-skill', 'missing-session', 'turn-3', 'skill-input-3'),
+    ],
+    coverage: { filesRead: 1, recordsRead: 1, recordsSkipped: 0, partialSessions: 1, warnings: [] },
+    tokenAccounting: {
+      responseTotal: null,
+      turnTotal: null,
+      threadTotal: null,
+      reconciledSessionIds: ['shared-session'],
+      mismatchedSessionIds: [],
+      status: 'unavailable',
+      method: 'fixture',
+    },
+  };
+
+  const audit = analyseAudit({ cwd: null, allProjects: true, since: new Date('2026-09-19T00:00:00.000Z') }, read, 'codex');
+  const byName = new Map(audit.report.skills.map((entry) => [entry.name, entry]));
+  assert.equal(byName.get('skill-a').attributedTokens.value, 100);
+  assert.equal(byName.get('skill-a').associatedSessionTokens.value, 1000);
+  assert.equal(byName.get('skill-b').attributedTokens.value, 900);
+  assert.equal(byName.get('skill-b').associatedSessionTokens.value, 1000);
+  assert.match(byName.get('skill-a').associatedSessionTokens.method, /overlap across Skills|do not imply causality/);
+  assert.equal(byName.get('missing-skill').associatedSessionTokens.value, null);
+  assert.equal(byName.get('missing-skill').associatedSessionTokens.provenance, 'unavailable');
 });
 
 test('selectSkillCandidates does not force fill 5 slots when candidates are sparse', () => {

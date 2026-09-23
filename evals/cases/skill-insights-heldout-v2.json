@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "id": "skill-insights-heldout-v2",
+  "lane": "skill-insights",
+  "class": "capability",
+  "split": "held-out",
+  "inputArtifact": "evals/fixtures/skill-insights-snapshot-heldout-v3.json",
+  "inputHash": "22c4547550cac08ca400033d15e87888f93688fe5ae6744d24d3397465d08c23",
+  "expectedOutcome": "capability insight preserves the same contract on an input-distinct held-out frozen Snapshot",
+  "deterministicExpectations": ["Snapshot ID is exact", "content excerpts are bounded and verified", "usage and both content roles are present"],
+  "rubricId": "skill-insights-aha",
+  "goodReference": "evals/references/skill-good-reference.json",
+  "badReference": "evals/references/skill-bad-reference.json",
+  "originFailure": "held-out capability evidence was not previously executed",
+  "privacy": "redacted"
+}

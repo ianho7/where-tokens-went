@@ -1,0 +1,23 @@
+{
+  "snapshotId": "fixture-skill-snapshot-v1",
+  "auditFingerprint": "fixture-audit-v1",
+  "createdAt": "2026-09-20T00:00:00.000Z",
+  "distributionContext": {"median": 0, "p75": 0, "p90": 0, "max": 0},
+  "globalUsage": {
+    "totalSkillsUsed": 0,
+    "totalSkillCalls": 0,
+    "totalTasks": 0,
+    "callsPerTaskDistribution": {"median": 0, "p75": 0, "p90": 0, "max": 0},
+    "top4CallShare": 0,
+    "lowFrequencySkillCount": 0,
+    "lowFrequencyCallCount": 0,
+    "lowFrequencyCallShare": 0,
+    "lowFrequencySkillShare": 0,
+    "singleUseSkillShare": 0,
+    "dominantFamily": null,
+    "familyMetrics": []
+  },
+  "selectedCandidates": [],
+  "selectedSkills": [],
+  "redacted": true
+}

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "skill-insights-cognitive-delta-v2",
+  "lane": "skill-insights",
+  "baselinePromptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+  "candidatePromptHash": "ffb24ce0825e9fe39f92b67845ac9251f8c5df1e819759347cf92ca8c510d75d",
+  "targetFailure": "The first candidate smoke selected the intended Ahas but failed deterministic evidence-reference validation.",
+  "hypothesis": "Canonical evidence-reference instructions and exact pattern-required metric sets will convert the candidate's semantically improved smoke into validator-accepted output without changing its Cognitive Delta selection.",
+  "singleChange": "Add one candidate-only Contract-reference rule to the evidence-first selection policy.",
+  "targetDimension": "evidence_sufficiency",
+  "mustNotRegress": ["snapshot_binding", "content_contrast", "usage_content_relation", "decision_delta", "uncertainty"],
+  "maxRevisions": 3,
+  "tokenBudget": 100000,
+  "timeBudgetMs": 300000,
+  "budgetEvidencePolicy": "required",
+  "tokenMetric": "total_tokens",
+  "caseIds": ["skill-insights-real-aha-v1", "skill-insights-token-boundary-v1", "skill-insights-heldout-aha-v1"],
+  "modelConfig": {"provider": "host-agent", "model": "codex-current", "temperature": null, "comparisonKey": "codex-current"},
+  "status": "smoke",
+  "createdAt": "2026-09-21T00:00:00.000Z"
+}

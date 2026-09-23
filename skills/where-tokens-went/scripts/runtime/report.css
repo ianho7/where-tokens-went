@@ -190,7 +190,7 @@ details > .kami-table{margin-top:16px}
 .scope-badge{font-size:10px;text-transform:uppercase;padding:2px 6px;border-radius:4px;background:var(--inline-code);color:var(--brand)}
 .insight-shift{background:var(--parchment);padding:10px 14px;border-radius:6px;font-size:13px;line-height:1.45;margin-bottom:8px;border-left:3px solid var(--brand)}
 .shift-tag{color:var(--stone);font-weight:500}
-.shift-tag--highlight{color:var(--brand);font-weight:600}
+.shift-tag--highlight{color:var(--brand);font-weight:500}
 .excerpt-tags{display:inline-block;margin-left:6px;font-size:11px;color:var(--stone)}
 .insight-contrast strong{color:var(--stone)}
 .insight-mechanism strong{color:var(--brand-light)}

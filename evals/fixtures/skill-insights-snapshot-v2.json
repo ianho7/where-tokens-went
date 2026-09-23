@@ -1,0 +1,43 @@
+{
+  "snapshotId": "fixture-skill-snapshot-v2",
+  "auditFingerprint": "fixture-audit-v2",
+  "createdAt": "2026-09-20T00:00:00.000Z",
+  "distributionContext": {"median": 1, "p75": 2, "p90": 3, "max": 4},
+  "globalUsage": {
+    "totalSkillsUsed": 2,
+    "totalSkillCalls": 5,
+    "totalTasks": 3,
+    "callsPerTaskDistribution": {"median": 1, "p75": 2, "p90": 3, "max": 4},
+    "top4CallShare": 0.8,
+    "lowFrequencySkillCount": 1,
+    "lowFrequencyCallCount": 2,
+    "lowFrequencySkillShare": 0.5,
+    "lowFrequencyCallShare": 0.4,
+    "singleUseSkillShare": 0.5,
+    "dominantFamily": null,
+    "familyMetrics": []
+  },
+  "selectedCandidates": [
+    {
+      "skillId": "where-tokens-went",
+      "skillName": "where-tokens-went",
+      "candidateTypes": ["high_usage_strong_delta"],
+      "signals": {"calls": 3, "tasks": 2, "callShare": 0.6, "callsPerTask": 1.5, "rankByCalls": 1, "rankByTasks": 1}
+    }
+  ],
+  "selectedSkills": [
+    {
+      "skillId": "where-tokens-went",
+      "skillName": "where-tokens-went",
+      "skillPath": "skills/where-tokens-went/SKILL.md",
+      "contentState": "available",
+      "skillMdBytes": 120,
+      "skillMdEstimatedTokens": 30,
+      "skillMdHash": "fixture-skill-md-hash",
+      "skillMdContent": "For a full or report request, start one Report Run before any expensive work.\nThe local tool is authoritative.\nUse Current Project by default.",
+      "referenceCount": 0,
+      "referenceBytes": 0,
+      "referenceFiles": []
+    }
+  ]
+}

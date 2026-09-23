@@ -66,8 +66,8 @@ test('standalone report exposes the Kami visual contract', () => {
   assert.match(boot, /unclassified.*emptyCircle/);
   assert.match(boot, /areaStyle:\{color,opacity:\.1\}/);
   assert.doesNotMatch(head, /<link\b|src:url\(["']assets\/fonts|https?:\/\//i);
-  assert.match(noJsHtml, /审计范围/);
-  assert.match(noJsHtml, /覆盖情况/);
+  assert.match(noJsHtml, /本次统计范围/);
+  assert.match(noJsHtml, /数据完整度/);
   assert.match(noJsHtml, /<table/);
   assert.match(noJsHtml, /限制与缺失/);
   const score = scoreHtml(html);
@@ -116,11 +116,11 @@ test('standalone report adds five stable localized chapter markers without chang
   const expected = {
     'en-US': {
       markers: ['01 · Orient', '02 · Diagnose', '03 · Patterns', '04 · Trace', '05 · Caveats'],
-      modules: ['Audit scope', 'Coverage', 'Findings', 'Cache economics', 'First-request burden', 'Skill evidence', 'Time distribution', 'Model distribution', 'Tool context impact', 'Heavy Sessions', 'Key Session Analysis', 'Limitations and missing data'],
+      modules: ['Usage scope', 'Data completeness', 'Findings', 'Cache economics', 'First-request burden', 'Skill evidence', 'Time distribution', 'Model distribution', 'Tool context impact', 'Largest tasks by Token use', 'Key task analysis', 'Limitations and missing data'],
     },
     'zh-CN': {
       markers: ['01 · 概览', '02 · 诊断', '03 · 模式', '04 · 追踪', '05 · 限制'],
-      modules: ['审计范围', '覆盖情况', '发现', '缓存经济性', '首次请求 Token 量', 'Skill 使用证据', '时间分布', '模型分布', '工具上下文影响', '高用量 Session', '关键 Session 分析', '限制与缺失'],
+      modules: ['本次统计范围', '数据完整度', '补充发现', '缓存经济性', '首次请求 Token 量', 'Skill 使用证据', '时间分布', '模型分布', '工具上下文影响', '高用量任务记录', '关键任务分析', '限制与缺失'],
     },
   };
 

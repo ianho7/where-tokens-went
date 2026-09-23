@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "real-skill-insights-round3-codex-v1",
+  "lane": "skill-insights",
+  "baselinePromptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+  "candidatePromptHash": "fb586e3d5459d1358b0de161ffc09524a55bacc4fbb83cc8ad4cb13e10fb48e5",
+  "targetFailure": "Capability Aha content contrast was under-specified.",
+  "hypothesis": "Requiring explicit unique and model-native evidence plus a deletion counterfactual will improve decision-changing Skill Insights.",
+  "singleChange": "Require separate bounded Skill-content evidence for the unique protocol and model-native procedure without changing the deterministic validator.",
+  "targetDimension": "content_contrast",
+  "mustNotRegress": ["snapshot_binding", "uncertainty"],
+  "maxRevisions": 3,
+  "tokenBudget": 1000,
+  "timeBudgetMs": 10000,
+  "budgetEvidencePolicy": "required",
+  "tokenMetric": "total_tokens",
+  "caseIds": ["skill-insights-capability-v2", "skill-insights-heldout-v2"],
+  "modelConfig": {"provider": "host-agent", "model": "codex-current", "temperature": null, "comparisonKey": "codex-current"},
+  "status": "review",
+  "createdAt": "2026-09-20T10:35:00.000Z"
+}

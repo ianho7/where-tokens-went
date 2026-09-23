@@ -78,6 +78,11 @@ export function deriveSkillMetrics(
         lowFrequencySkillShare: 0,
         lowFrequencyCallShare: 0,
         singleUseSkillShare: 0,
+        associatedSessionTokenCount: 0,
+        associatedSessionTokenMedian: null,
+        associatedSessionTokenP75: null,
+        associatedSessionTokenP90: null,
+        associatedSessionTokenMax: null,
         dominantFamily: null,
         familyMetrics: [],
       },
@@ -108,7 +113,8 @@ export function deriveSkillMetrics(
       taskCoverage,
       rankByCalls: callRanks.get(skill.name) ?? skills.length,
       rankByTasks: taskRanks.get(skill.name) ?? skills.length,
-      associatedTokens: typeof skill.attributedTokens?.value === "number" ? skill.attributedTokens.value : null,
+      attributedCallTokens: typeof skill.attributedTokens?.value === "number" ? skill.attributedTokens.value : null,
+      associatedSessionTokens: typeof skill.associatedSessionTokens?.value === "number" ? skill.associatedSessionTokens.value : null,
       associatedCost: typeof skill.attributedApiEquivalentCost?.value === "number" ? skill.attributedApiEquivalentCost.value : null,
     });
   }
@@ -138,6 +144,12 @@ export function deriveSkillMetrics(
 
   const singleUseSkills = activeSkills.filter((s) => skillCalls(s) === 1);
   const singleUseSkillShare = totalSkillsUsed > 0 ? Math.round((singleUseSkills.length / totalSkillsUsed) * 10000) / 10000 : 0;
+
+  const associatedSessionTokenValues = [...perSkill.values()]
+    .map((metrics) => metrics.associatedSessionTokens)
+    .filter((value): value is number => typeof value === "number")
+    .sort((a, b) => a - b);
+  const associatedSessionTokenCount = associatedSessionTokenValues.length;
 
   // Family metrics always use the full active population. Candidate sampling happens later.
   const samplingGroups = detectSamplingGroups(activeSkills);
@@ -176,6 +188,11 @@ export function deriveSkillMetrics(
     lowFrequencySkillShare,
     lowFrequencyCallShare,
     singleUseSkillShare,
+    associatedSessionTokenCount,
+    associatedSessionTokenMedian: associatedSessionTokenCount > 0 ? calculatePercentileLinear(associatedSessionTokenValues, 0.5) : null,
+    associatedSessionTokenP75: associatedSessionTokenCount > 0 ? calculatePercentileLinear(associatedSessionTokenValues, 0.75) : null,
+    associatedSessionTokenP90: associatedSessionTokenCount > 0 ? calculatePercentileLinear(associatedSessionTokenValues, 0.9) : null,
+    associatedSessionTokenMax: associatedSessionTokenCount > 0 ? associatedSessionTokenValues[associatedSessionTokenCount - 1] : null,
     dominantFamily,
     familyMetrics,
   };
@@ -237,20 +254,30 @@ export function selectSkillCandidates(
 
   function addCandidate(skillName: string, type: SkillCandidateType, signals: SkillCandidate["signals"]) {
     if (selectedMap.size >= 5 && !selectedMap.has(skillName)) return false;
+    const metrics = perSkill.get(skillName);
+    const enrichedSignals: SkillCandidate["signals"] = {
+      ...signals,
+      ...(metrics?.attributedCallTokens !== null && metrics?.attributedCallTokens !== undefined
+        ? { attributedCallTokens: metrics.attributedCallTokens }
+        : {}),
+      ...(metrics?.associatedSessionTokens !== null && metrics?.associatedSessionTokens !== undefined
+        ? { associatedSessionTokens: metrics.associatedSessionTokens }
+        : {}),
+    };
     let existing = selectedMap.get(skillName);
     if (!existing) {
       existing = {
         skillId: skillName,
         skillName,
         candidateTypes: [type],
-        signals: { ...signals },
+        signals: enrichedSignals,
       };
       selectedMap.set(skillName, existing);
     } else {
       if (!existing.candidateTypes.includes(type)) {
         existing.candidateTypes.push(type);
       }
-      existing.signals = { ...existing.signals, ...signals };
+      existing.signals = { ...existing.signals, ...enrichedSignals };
     }
     return true;
   }
@@ -318,7 +345,39 @@ export function selectSkillCandidates(
     });
   }
 
-  // 4. Optional diversity slot 5 (only if valid candidate exists, do NOT force fill)
+  // 4. One bounded low-frequency candidate with a complete associated Session total.
+  // This is intentionally before the generic diversity slot and never displaces the
+  // family, high-frequency, or calls-per-task candidates above it.
+  const associatedSessionCandidates = activeSkills
+    .filter((skill) => skillCalls(skill) <= 5 && !selectedMap.has(skill.name))
+    .map((skill) => ({ skill, metrics: perSkill.get(skill.name)! }))
+    .filter(({ metrics }) =>
+      metrics.associatedSessionTokens !== null &&
+      metrics.tasks > 0 &&
+      (global.associatedSessionTokenCount ?? 0) >= 2 &&
+      global.associatedSessionTokenP75 !== null &&
+      global.associatedSessionTokenP75 !== undefined &&
+      metrics.associatedSessionTokens >= global.associatedSessionTokenP75,
+    )
+    .sort((left, right) =>
+      (right.metrics.associatedSessionTokens ?? 0) - (left.metrics.associatedSessionTokens ?? 0) ||
+      left.metrics.calls - right.metrics.calls ||
+      left.skill.name.localeCompare(right.skill.name),
+    );
+
+  const associatedSessionCandidate = associatedSessionCandidates[0];
+  if (associatedSessionCandidate) {
+    const { skill, metrics: m } = associatedSessionCandidate;
+    addCandidate(skill.name, "rare_strong_delta", {
+      calls: m.calls,
+      tasks: m.tasks,
+      callShare: m.callShare,
+      callsPerTask: m.callsPerTask ?? undefined,
+      rankByCalls: m.rankByCalls,
+    });
+  }
+
+  // 5. Optional diversity slot 5 (only if valid candidate exists, do NOT force fill)
   if (selectedMap.size < 5) {
     const remainingCandidates = nonDominantByCalls.filter((s) => !selectedMap.has(s.name));
     if (remainingCandidates.length > 0) {
@@ -485,14 +544,14 @@ export function calculateSkillSnapshotBudget(snapshot: SkillSnapshotArtifact): {
   };
 }
 
-const UNCONDITIONAL_CAUSAL_REGEX = /\b(cause|caused|causing|causes|responsible for|waste|wasted|cost you|lead(?:s|ing)? to|result(?:s|ing)? in|amplif(?:y|ies|ied|ying))\b|导致|造成|浪费|花掉|因为这个\s*Skill\s*消耗/i;
-const CONDITIONAL_INDICATOR_REGEX = /\b(if|assuming|hypothesis|potential|whether)\b|如果|若|假设|视乎|是否|可能|或许|潜在/i;
-const UNCONFIRMED_INDICATOR_REGEX = /\b(cannot confirm|unconfirmed|missing trace|cannot prove|unverified|needs? (?:content )?confirmation)\b|当前缺少|尚未证实|尚无法确认|不能证明|需要(?:内容)?确认|待确认/i;
-const REPEATED_INJECTION_ASSERTION_REGEX = /(?:完整|整个|full|entire|complete)\s*(?:SKILL\.md|Prompt|prompt).{0,40}(?:重复|反复|再次|repeated|re-?injected|injected)/i;
-const SEMANTIC_FAMILY_ASSERTION_REGEX = /\b(shared|same capability|same core|common core|identical|equivalent|overlap(?:ping)?)\b|共享(?:能力|核心)|同一(?:能力|核心)|共同(?:能力|核心)|内容重叠/i;
-const MIXED_ROLE_ASSERTION_REGEX = /(?:generic|general|通用).{0,80}(?:hard constraint|strict constraint|约束|硬约束)|(?:hard constraint|strict constraint|硬约束).{0,80}(?:generic|general|通用)|same (?:level|layer)|同一层/i;
+const DIRECT_CAUSAL_ATTRIBUTION_REGEX = /^\s*(?:(?:this|the|selected|named)\s+)?(?:skill|family)\s+(?:directly\s+)?(?:cause(?:s|d|ing)?|drive(?:s|d)?|drove|waste(?:s|d)?|costs?|lead(?:s|ing)? to|result(?:s|ing)? in)\b.{0,72}\b(?:calls?|tokens?|usage|cost|spend)\b/i;
+const DIRECT_CAUSAL_ATTRIBUTION_ZH_REGEX = /^.{0,24}(?:Skill|技能)\s*(?:直接)?(?:导致|造成|浪费|花掉|消耗).{0,48}(?:Token|调用|成本)/i;
+const DIRECT_REPEATED_INJECTION_ASSERTION_REGEX = /^\s*(?:(?:the|this)\s+)?(?:full|entire|complete)\s+(?:SKILL\.md|Prompt|prompt)\s+(?:is|was|gets?)\s+repeatedly\s+injected\b/i;
+const UNSUPPORTED_TOKEN_SCALE_RELATION_REGEX = /(?:(?:\b(?:low[- ]frequency|few calls?|call frequency|call count|invocations?)\b|低频|调用(?:次数|频率)|少量调用).{0,80}(?:\b(?:tokens?|task scale|task size|large tasks?|heavy tasks?|cost)\b|Token|任务规模|任务大小|大任务|成本))|(?:(?:\b(?:tokens?|task scale|task size|large tasks?|heavy tasks?|cost)\b|Token|任务规模|任务大小|大任务|成本).{0,80}(?:\b(?:low[- ]frequency|few calls?|call frequency|call count|invocations?)\b|低频|调用(?:次数|频率)|少量调用))/i;
+const TOKEN_SCALE_MENTION_REGEX = /(?<![-_A-Za-z0-9])(?:tokens?|associatedSessionTokens|task scale|task size|cost)\b|(?<![-_A-Za-z0-9])Token\b|任务规模|任务大小|成本/i;
+const CROSS_SKILL_TOKEN_AGGREGATION_REGEX = /\b(?:sum|total|combine(?:d)?|aggregate|add(?:ed)?|pool|together|across)\b|(?:相加|合计|总和|合并|汇总|叠加|累计|共同承担)/i;
+const TOKEN_SCALE_BOUNDARY_REGEX = /\b(?:not|no|cannot|can't|does not|doesn't|unknown|unclear|unconfirmed|unverified|pending|without evidence|not a proxy)\b|当前(?:缺少|没有)|(?:不能|无法|不足以|不代表|不等于|不是|并非|未必|待确认|尚未确认|尚待确认|尚未证实|尚无法确认|不能证明|未知|不确定|缺少).{0,16}(?:证据|Token|任务规模)?/i;
 const USER_BELIEF_ASSERTION_REGEX = /\b(?:you|your)\s+(?:think|assume|believe)|你(?:以为|认为|相信)/i;
-const GENERIC_DECISION_DELTA_REGEX = /^(?:review|check|inspect|optimize|monitor|continue to observe|继续观察|建议(?:进一步)?(?:检查|优化)|继续优化)[。.!！?？\s]*$/i;
 const NUMERIC_PROSE_REGEX = /\d|%|百分(?:比|之)|\b(?:about|approximately|roughly|more than half|less than half|times|percent|median|p(?:75|90))\b|(?:超过|不到|高于|低于|一半|多数|大多数|大部分|倍|中位数)/i;
 const ALLOWED_REVEAL_PATTERNS = new Set<SkillInsightRevealPattern>([
   "share_inversion",
@@ -513,6 +572,31 @@ export const SKILL_INSIGHT_REJECTION_REASONS: readonly SkillInsightRejectionReas
 
 function normalizeText(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();
+}
+
+function hasUnqualifiedTokenScaleRelation(text: string): boolean {
+  const clauses = normalizeText(text).split(/[。.!?！？;；,，]/).map((clause) => clause.trim()).filter(Boolean);
+  const relationPattern = new RegExp(UNSUPPORTED_TOKEN_SCALE_RELATION_REGEX.source, "gi");
+  return clauses.some((clause) => {
+    relationPattern.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = relationPattern.exec(clause)) !== null) {
+      const before = clause.slice(Math.max(0, match.index - 56), match.index);
+      const after = clause.slice(match.index + match[0].length, match.index + match[0].length + 56);
+      if (!TOKEN_SCALE_BOUNDARY_REGEX.test(before) && !TOKEN_SCALE_BOUNDARY_REGEX.test(after)) return true;
+    }
+    return false;
+  });
+}
+
+function hasUnsupportedCausalAssertion(text: string): boolean {
+  const normalized = normalizeText(text);
+  if (DIRECT_REPEATED_INJECTION_ASSERTION_REGEX.test(normalized)) return true;
+  const clauses = normalized
+    .split(/[。.!?！？;；,，]|\b(?:but|although|however|yet)\b|但|但是|不过/i)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  return clauses.some((clause) => DIRECT_CAUSAL_ATTRIBUTION_REGEX.test(clause) || DIRECT_CAUSAL_ATTRIBUTION_ZH_REGEX.test(clause));
 }
 
 const ALLOWED_SCOPES = new Set<SkillInsightScope>(["global", "family", "cross_skill", "skill"]);
@@ -901,10 +985,23 @@ export function validateSkillInsights(
       decisionDelta?.after ?? "",
       counterfactual?.ifRemoved ?? "",
       counterfactual?.withoutGenericScaffold ?? "",
+      ...familyDifferences,
     ];
+    const validatorProse = [...proseWithDeltas, reveal.semantic, ...familyDifferences];
+    const hasTokenScaleRelation = validatorProse.some((segment) => hasUnqualifiedTokenScaleRelation(segment));
     if (proseWithDeltas.some((segment) => NUMERIC_PROSE_REGEX.test(segment))) {
       errors.push(`Insight ${id} rejected: free prose must not contain copied or derived quantitative claims; use evidence refs.`);
       unsupportedClaimsDropped++;
+      continue;
+    }
+    if (hasTokenScaleRelation && !rawEvidence.some((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      const evidence = entry as Record<string, unknown>;
+      return evidence.kind === "skill_metric" && evidence.metric === "associatedSessionTokens";
+    })) {
+      errors.push(`Insight ${id} rejected: frequency-versus-task-scale claims require associated-token evidence or an explicit unknown boundary.`);
+      unsupportedClaimsDropped++;
+      addRejectionReason("usage_content_relation_unclear");
       continue;
     }
 
@@ -919,8 +1016,8 @@ export function validateSkillInsights(
       unsupportedClaimsDropped++;
       continue;
     }
-    if (USER_BELIEF_ASSERTION_REGEX.test(mentalModelShift.surface) || GENERIC_DECISION_DELTA_REGEX.test(normalizeText(decisionDelta.after))) {
-      errors.push(`Insight ${id} must derive its cognitive delta from observed data and name a concrete decision change.`);
+    if (USER_BELIEF_ASSERTION_REGEX.test(mentalModelShift.surface)) {
+      errors.push(`Insight ${id} must not attribute a private belief to the user.`);
       unsupportedClaimsDropped++;
       continue;
     }
@@ -931,12 +1028,9 @@ export function validateSkillInsights(
       continue;
     }
 
-    // Fake injection check
-    const claimSegments = [title, observation, contrast, interpretation, consequence ?? "", conditionalMechanism ?? ""];
-    const unsupportedMechanism = claimSegments.some((segment) => {
-      const isConditional = CONDITIONAL_INDICATOR_REGEX.test(segment) && UNCONFIRMED_INDICATOR_REGEX.test(segment);
-      return (UNCONDITIONAL_CAUSAL_REGEX.test(segment) || REPEATED_INJECTION_ASSERTION_REGEX.test(segment)) && !isConditional;
-    });
+    // Keep only the direct, machine-identifiable causal and repeated-injection claims here.
+    const claimSegments = validatorProse;
+    const unsupportedMechanism = claimSegments.some(hasUnsupportedCausalAssertion);
     if (unsupportedMechanism) {
       errors.push(`Insight ${id} rejected: contains an unsupported causal or prompt-injection assertion.`);
       unsupportedClaimsDropped++;
@@ -1047,10 +1141,49 @@ export function validateSkillInsights(
       }
     }
 
+    const hasAssociatedSessionEvidence = validEvidence.some((entry) =>
+      entry.kind === "skill_metric" &&
+      entry.metric === "associatedSessionTokens" &&
+      typeof entry.value === "number" &&
+      Number.isFinite(entry.value)
+    );
+    const hasAssociatedSessionBaseline = validEvidence.some((entry) =>
+      entry.kind === "global_metric" &&
+      (entry.metric === "associatedSessionTokenMedian" || entry.metric === "associatedSessionTokenP75") &&
+      typeof entry.value === "number" &&
+      Number.isFinite(entry.value)
+    );
+    if (hasTokenScaleRelation && (!hasAssociatedSessionEvidence || !hasAssociatedSessionBaseline)) {
+      errors.push(`Insight ${id} rejected: frequency-versus-Session-scale claims require verified associatedSessionTokens and a population baseline.`);
+      unsupportedClaimsDropped++;
+      addRejectionReason("usage_content_relation_unclear");
+      continue;
+    }
+
     if (validEvidence.length === 0) {
       errors.push(`Insight ${id} rejected: no valid evidence passed verification.`);
       unsupportedClaimsDropped++;
       if (kind === "capability") addRejectionReason("usage_content_relation_unclear");
+      continue;
+    }
+
+    const associatedSessionSkillIds = new Set(validEvidence
+      .filter((entry) => entry.kind === "skill_metric" && entry.metric === "associatedSessionTokens" && entry.skillId)
+      .map((entry) => entry.skillId));
+    const declaredSkillIds = new Set([
+      ...associatedSessionSkillIds,
+      ...(subject?.skillIds ?? []),
+      ...(subject?.skillId ? [subject.skillId] : []),
+    ]);
+    // Family topology prose may legitimately say that call counts are aggregated
+    // across several named members. Only apply the cross-Skill aggregation gate
+    // when the same insight actually discusses Token scale and therefore risks
+    // summing associatedSessionTokens.
+    const mentionsTokenScale = validatorProse.some((segment) => TOKEN_SCALE_MENTION_REGEX.test(segment));
+    if (mentionsTokenScale && declaredSkillIds.size > 1 && CROSS_SKILL_TOKEN_AGGREGATION_REGEX.test(validatorProse.join(" "))) {
+      errors.push(`Insight ${id} rejected: associated Session Token totals from multiple Skills cannot be added or aggregated.`);
+      unsupportedClaimsDropped++;
+      addRejectionReason("usage_content_relation_unclear");
       continue;
     }
 
@@ -1121,34 +1254,6 @@ export function validateSkillInsights(
         continue;
       }
     }
-    const prose = [title, observation, contrast, interpretation, conditionalMechanism ?? "", consequence ?? ""].join(" ");
-    const semanticAssertion = SEMANTIC_FAMILY_ASSERTION_REGEX.test(prose) && !(CONDITIONAL_INDICATOR_REGEX.test(prose) && UNCONFIRMED_INDICATOR_REGEX.test(prose));
-    if (semanticAssertion && (scope === "family" || scope === "cross_skill")) {
-      const distinctContentSkills = new Set(contentEvidence.map((ev) => ev.skillId).filter((value): value is string => Boolean(value)));
-      if (distinctContentSkills.size < 2) {
-        errors.push(`Insight ${id} rejected: a direct family-semantic claim requires content evidence from at least two Skills.`);
-        unsupportedClaimsDropped++;
-        addRejectionReason("family_content_unavailable");
-        continue;
-      }
-      if (kind === "capability" && familyDifferences.length === 0) {
-        errors.push(`Insight ${id} rejected: family Capability Aha must state platform or environment differences.`);
-        unsupportedClaimsDropped++;
-        addRejectionReason("family_content_unavailable");
-        continue;
-      }
-    }
-
-    if (MIXED_ROLE_ASSERTION_REGEX.test(prose)) {
-      const roles = new Set(contentEvidence.map((ev) => ev.role));
-      if (!roles.has("hardConstraint") || !roles.has("genericProcedure")) {
-        errors.push(`Insight ${id} rejected: a mixed hard-constraint/generic-procedure claim needs evidence for both roles.`);
-        unsupportedClaimsDropped++;
-        addRejectionReason(roles.has("hardConstraint") ? "missing_model_native_counterevidence" : "missing_unique_capability_evidence");
-        continue;
-      }
-    }
-
     acceptedInsights.push({
       snapshotId: snapshot.snapshotId,
       id,
@@ -1198,7 +1303,11 @@ export function validateSkillInsights(
       continue;
     }
     if (item.kind === "capability" || item.kind === "mechanism") {
-      if (contentInsightCount >= 2) continue;
+      if (contentInsightCount >= 2) {
+        unsupportedClaimsDropped++;
+        rejectionReasons.add("insufficient_content_support");
+        continue;
+      }
     } else if (item.reveal.pattern === "distribution_outlier") {
       if (usageAnomalyCount >= 1) continue;
     } else if (usageTopologyCount >= 1) {
@@ -1207,7 +1316,7 @@ export function validateSkillInsights(
     const familyKey = insightFamilyKey(item, familyMetrics, candidateMap);
     if ((item.scope === "family" || item.scope === "skill") && familyKey) {
       const existing = familySelections.get(familyKey) ?? [];
-      if (existing.length >= 2 || (existing.length === 1 && (!allowsSecondFamilyInsight(existing[0], item) || item.kind === "capability" || existing[0].kind === "capability"))) {
+      if (existing.length >= 2 || (existing.length === 1 && !allowsSecondFamilyInsight(existing[0], item))) {
         unsupportedClaimsDropped++;
         if (item.kind === "capability") rejectionReasons.add("duplicate_mental_model_shift");
         continue;
@@ -1230,8 +1339,12 @@ export function validateSkillInsights(
     if (rejectionReasons.size === 0) addRejectionReason("usage_content_relation_unclear");
   }
 
+  if (finalInsights.length === 0) {
+    errors.push("No Skill Insights cards passed validation.");
+  }
+
   return {
-    valid: true,
+    valid: finalInsights.length > 0,
     insights: finalInsights,
     errors,
     unsupportedClaimsDropped,

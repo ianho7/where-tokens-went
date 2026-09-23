@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "skill-insights-token-boundary-v1",
+  "lane": "skill-insights",
+  "class": "regression",
+  "split": "regression",
+  "inputArtifact": "evals/fixtures/skill-insights-snapshot-real-aha-v1.json",
+  "inputHash": "39f933190d27e2337cb29f64547d1808b4ffb4a37e5db4c9ca5f6712f8181841",
+  "expectedOutcome": "the lane preserves an explicit unknown instead of claiming that Skill call frequency explains associated task Tokens",
+  "deterministicExpectations": [
+    "Snapshot ID is exact",
+    "No evidence reference invents a per-Skill associatedTokens metric",
+    "Any frequency-versus-scale statement is conditional or omitted",
+    "The output preserves the non-causal and potentially overlapping association boundary"
+  ],
+  "rubricId": "skill-insights-aha-v2",
+  "goodReference": "evals/references/skill-good-reference-v2.json",
+  "badReference": "evals/references/skill-bad-reference-v2.json",
+  "originFailure": "The desired low-frequency-versus-task-scale Aha is visible in the HTML table but the current Skill Snapshot contract does not expose per-Skill associatedTokens to the Skill Insights validator.",
+  "privacy": "redacted"
+}
