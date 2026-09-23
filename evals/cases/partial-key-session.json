@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "partial-key-session",
+  "lane": "key-session-analysis",
+  "class": "regression",
+  "split": "held-out",
+  "inputArtifact": "evals/fixtures/partial-key-session.json",
+  "inputHash": "08b8b0f84340425383fe7ad7baeb0c866eff3c5b727608dd27b9ce6de73641eb",
+  "expectedOutcome": "null finding with concrete limitation",
+  "deterministicExpectations": ["weak Content Evidence yields null finding", "recommendation is absent"],
+  "rubricId": "key-session-grounding",
+  "originFailure": "partial Session analysis lacked a grounded reason",
+  "privacy": "redacted"
+}

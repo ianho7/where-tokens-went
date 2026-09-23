@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "generic-finding",
+  "lane": "report-synthesis",
+  "class": "capability",
+  "split": "held-out",
+  "inputArtifact": "evals/fixtures/generic-finding.json",
+  "inputHash": "14c6f4874f41da1f6eecdb466e0a68307e4c4799bd922f596b4f05252a2762ed",
+  "expectedOutcome": "metric restatement is rejected or narrowed",
+  "deterministicExpectations": ["finding cites same-Audit Evidence", "portability does not reduce it to a template"],
+  "rubricId": "report-synthesis-aha",
+  "originFailure": "Finding only restated a metric",
+  "privacy": "redacted"
+}

@@ -59,6 +59,41 @@ async function readBundleVersionFile(filePath) {
         return null;
     }
 }
+async function listFiles(root) {
+    const result = [];
+    const visit = async (directory, relative) => {
+        for (const entry of await (0, promises_1.readdir)(directory, { withFileTypes: true })) {
+            const next = path.join(directory, entry.name);
+            const nextRelative = path.join(relative, entry.name);
+            if (entry.isDirectory())
+                await visit(next, nextRelative);
+            else if (entry.isFile())
+                result.push(nextRelative);
+        }
+    };
+    await visit(root, "");
+    return result.sort();
+}
+async function verifyInstalledContent(expectedRoot, actualRoot, label) {
+    let expectedFiles;
+    let actualFiles;
+    try {
+        [expectedFiles, actualFiles] = await Promise.all([listFiles(expectedRoot), listFiles(actualRoot)]);
+    }
+    catch {
+        throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed content is unavailable. ${exports.INSTALL_HINT}`);
+    }
+    if (expectedFiles.join("\n") !== actualFiles.join("\n")) {
+        throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed file set differs from the repository distribution. ${exports.INSTALL_HINT}`);
+    }
+    for (const relative of expectedFiles) {
+        const expected = await (0, promises_1.readFile)(path.join(expectedRoot, relative));
+        const actual = await (0, promises_1.readFile)(path.join(actualRoot, relative));
+        if (!expected.equals(actual)) {
+            throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed content differs at ${relative}. ${exports.INSTALL_HINT}`);
+        }
+    }
+}
 function ancestors(start) {
     const result = [];
     let current = path.resolve(start);
@@ -121,6 +156,7 @@ async function verifyInstalledSkill() {
                 throw new Error(`where-tokens-went Skill version preflight failed: ${label} ${field} does not match the repository distribution bundle. ${exports.INSTALL_HINT}`);
             }
         }
+        await verifyInstalledContent(path.join(repositoryRoot, "skills", "where-tokens-went"), skillRoot, label);
     }
     return expected;
 }

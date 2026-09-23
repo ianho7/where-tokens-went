@@ -141,6 +141,8 @@ export interface ReadResult {
   tokenAccounting?: TokenAccountingSummary;
   /** Local-only report input; never copied into AuditResult or safe output formats. */
   firstUserMessages?: FirstUserMessageRecord[];
+  /** Local-only identities of files actually read or selected for this Scope. */
+  sourceFiles?: string[];
 }
 
 export interface TokenAccountingSummary {

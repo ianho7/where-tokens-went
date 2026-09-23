@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "analysis-missing-from-html",
+  "lane": "report-synthesis",
+  "class": "regression",
+  "split": "regression",
+  "inputArtifact": "evals/fixtures/report-synthesis-analysis-missing.json",
+  "inputHash": "afc3e5a7cdec9d5b09f5a705b7eead94b649f4274a05bb7c13a7bda8a1497c54",
+  "expectedOutcome": "validated synthesis is retained by composition",
+  "deterministicExpectations": ["fingerprint binds to the fixture Audit", "accepted synthesis is present in composition input"],
+  "rubricId": "report-synthesis-aha",
+  "originFailure": "analysis generated but absent from final projection",
+  "privacy": "redacted"
+}

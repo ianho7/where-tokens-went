@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "key-session-grounding",
+  "lane": "key-session-analysis",
+  "dimensions": [
+    {"id": "scope_binding", "description": "Each analysis belongs to the selected Top 3 and current Audit.", "blocking": true, "minimumScore": 1},
+    {"id": "mechanism", "description": "A non-null finding explains a Session-specific mechanism.", "minimumScore": 1},
+    {"id": "actionability", "description": "A recommendation targets the mechanism and has a user-owned verification.", "minimumScore": 1},
+    {"id": "unknown_calibration", "description": "Weak or unavailable Evidence produces a concrete null state.", "minimumScore": 1}
+  ]
+}

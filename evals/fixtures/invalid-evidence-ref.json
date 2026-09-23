@@ -1,0 +1,1 @@
+{"version":1,"lane":"key-session-analysis","case":"invalid-evidence-ref","redacted":true,"auditFingerprint":"fixture-audit-v1","facts":["selected evidence ids are scoped to one session","cross-scope references must be rejected"]}

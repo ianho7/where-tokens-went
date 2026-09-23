@@ -102,5 +102,5 @@ for (const name of skillNames) {
   copyIfChanged(skillInsightsPrompt, path.join(referencesRoot, 'skill-insights.md'));
   fs.writeFileSync(path.join(scriptsRoot, 'where-tokens-went.js'), launcher, 'utf8');
   const bundle = writeBundleVersion(repoRoot);
-  console.log(`packaged ${name} ${bundle.bundleVersion}`);
+  console.log(JSON.stringify({ kind: 'package-skills', status: 'passed', command: 'npm run package-skills', bundleVersion: bundle.bundleVersion, skill: name, observedAt: new Date().toISOString() }));
 }

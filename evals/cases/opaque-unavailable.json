@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "opaque-unavailable",
+  "lane": "report-synthesis",
+  "class": "regression",
+  "split": "smoke",
+  "inputArtifact": "evals/fixtures/opaque-unavailable.json",
+  "inputHash": "28022937bbde875106ff32addf4df7f4740ec17671715094b18ebb9f597619f4",
+  "expectedOutcome": "fallback names the failed phase and stable reason",
+  "deterministicExpectations": ["fallback is explicit", "failure phase is retained"],
+  "rubricId": "report-synthesis-aha",
+  "originFailure": "unavailable reason was opaque",
+  "privacy": "redacted"
+}

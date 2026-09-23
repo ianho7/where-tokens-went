@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-const { createReportRun, withRunSpan, finalizeReportRun, readRunManifest } = require('../dist/src/report-run.js');
+const { createReportRun, withRunSpan, finalizeReportRun, readRunManifest, setRunEligibleStages, recordCompletedRunSpan, setRunUiDispatch, writeRunTextArtifact, writeRunArtifact, writeRunLaneArtifact, cleanupSensitiveRunArtifacts, startReportLane, recordRunSpan } = require('../dist/src/report-run.js');
 const { resolveApiPricing } = require('../dist/src/rates.js');
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 
@@ -23,6 +23,13 @@ function runCli(args, env, input = '') {
     child.stdin.end(input);
   });
 }
+
+test('Report Run rejects arbitrary and network-like directories outside local-sensitive roots', async () => {
+  await assert.rejects(
+    createReportRun({ harness: 'codex', cwd: null, allProjects: true, since: new Date('2026-09-19T00:00:00.000Z'), until: new Date('2026-09-20T00:00:00.000Z'), locale: 'en-US' }, path.resolve(process.cwd(), 'not-a-sensitive-run')),
+    /REPORT_RUN_DIR_NOT_LOCAL_SENSITIVE/,
+  );
+});
 
 test('Report Run persists successful and failed spans without raw error text', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-run-test-'));
@@ -68,6 +75,72 @@ test('Report Run persists successful and failed spans without raw error text', a
     assert.match(trace, /"status":"failed"/);
     assert.doesNotMatch(trace, /do-not-persist-this-secret/);
     assert.match(trace, /"errorCode":"EACCES"/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('finalization downgrades completed delivery when trace persistence fails', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-trace-failure-test-'));
+  try {
+    const run = await createReportRun({
+      harness: 'codex', cwd: null, allProjects: true,
+      since: new Date('2026-09-19T00:00:00.000Z'), until: new Date('2026-09-20T00:00:00.000Z'), locale: 'en-US',
+    }, root);
+    await setRunEligibleStages(run, ['compose']);
+    await recordCompletedRunSpan(run, { phase: 'compose', operation: 'fixture-compose', source: 'runner' });
+    await writeRunTextArtifact(run, 'html', '<html>fixture</html>');
+    await setRunUiDispatch(run, 'queued');
+    await rm(path.join(run.runDir, 'trace.jsonl'));
+    await mkdir(path.join(run.runDir, 'trace.jsonl'));
+    await finalizeReportRun(run, 'completed');
+    const manifest = await readRunManifest(run.runDir);
+    assert.equal(manifest.status, 'incomplete');
+    assert.equal(manifest.deliveryStatus, 'incomplete');
+    assert.equal(manifest.traceCompleteness, 'incomplete');
+    assert.ok(manifest.traceErrorCode);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('host-agent timing events cannot pre-accept a running lane', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-lane-timing-test-'));
+  try {
+    const run = await createReportRun({
+      harness: 'codex', cwd: null, allProjects: true,
+      since: new Date('2026-09-19T00:00:00.000Z'), until: new Date('2026-09-20T00:00:00.000Z'), locale: 'en-US',
+    }, root);
+    const lane = await startReportLane(run, 'report-synthesis', 'lanes/report-synthesis/input.json');
+    await recordRunSpan(run.runDir, {
+      event: 'end', phase: 'report-synthesis', operation: 'host-agent-generate', source: 'host-agent',
+      spanId: lane.spanId, attempt: lane.attempt, startedAt: lane.startedAt, endedAt: new Date().toISOString(), durationMs: 1, status: 'completed',
+    });
+    const manifest = await readRunManifest(run.runDir);
+    assert.equal(manifest.laneStatus['report-synthesis'].status, 'running');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('sensitive Run artifacts have an explicit local cleanup path without removing final HTML', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-retention-test-'));
+  try {
+    const run = await createReportRun({
+      harness: 'codex', cwd: null, allProjects: true,
+      since: new Date('2026-09-19T00:00:00.000Z'), until: new Date('2026-09-20T00:00:00.000Z'), locale: 'en-US',
+    }, root);
+    await writeRunArtifact(run, 'evidence', { bounded: true });
+    await writeRunArtifact(run, 'skillSnapshot', { bounded: true });
+    await writeRunLaneArtifact(run, 'skill-insights', 'raw', { bounded: true }, 1);
+    await writeRunTextArtifact(run, 'html', '<html>final</html>');
+    const manifest = await cleanupSensitiveRunArtifacts(run);
+    assert.equal(manifest.retention.policy, 'explicit-cleanup');
+    assert.ok(manifest.retention.cleanedAt);
+    await assert.rejects(() => readFile(path.join(run.runDir, 'evidence.json')));
+    await assert.rejects(() => readFile(path.join(run.runDir, 'skill-snapshot.json')));
+    await assert.rejects(() => readFile(path.join(run.runDir, 'lanes', 'skill-insights', 'attempt-1.raw.json')));
+    assert.equal(await readFile(path.join(run.runDir, 'report.html'), 'utf8'), '<html>final</html>');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -183,8 +256,7 @@ test('report-run reuses one frozen Audit and completes fallback HTML without lar
     assert.equal(secondEvidence.code, 0, secondEvidence.stderr);
     assert.equal(JSON.parse(secondEvidence.stdout).reused, true);
 
-    const aiOutput = JSON.stringify({ runId: preparedSummary.runId, auditFingerprint: preparedSummary.auditFingerprint, promptHashes: preparedSummary.promptHashes, runtimeHash: preparedSummary.runtimeHash, reportSynthesis: null, keySessionAnalyses: [] });
-    const composed = await runCli(['report-run', 'compose', '--run-dir', runDir, '--locale', 'zh-CN', '--html', htmlPath], env, aiOutput);
+    const composed = await runCli(['report-run', 'compose', '--run-dir', runDir, '--locale', 'zh-CN', '--html', htmlPath], env);
     assert.equal(composed.code, 0, composed.stderr);
     assert.equal(JSON.parse(composed.stdout).reportStatus, 'fallback');
     assert.match(await readFile(htmlPath, 'utf8'), /直接解释不可用或未通过核对/);
@@ -202,9 +274,12 @@ test('report-run reuses one frozen Audit and completes fallback HTML without lar
       await event({ event: 'end', spanId, phase, operation, source, startedAt: timestamp, endedAt: timestamp, durationMs: 0, status });
     };
     await timedEvent('skill-read-1', 'skill-read', 'read-installed-skill', 'skill', 'completed');
-    await timedEvent('skill-insights-1', 'skill-insights', 'host-agent-skill-insights', 'host-agent', 'skipped');
-    await timedEvent('synthesis-1', 'report-synthesis', 'host-agent-report-synthesis', 'host-agent', 'fallback');
-    await timedEvent('key-analysis-1', 'key-session-analysis', 'host-agent-key-session-analysis', 'host-agent', 'skipped');
+    for (const lane of ['report-synthesis', 'key-session-analysis', 'skill-insights']) {
+      const started = await runCli(['report-run', 'ai-start', '--run-dir', runDir, '--lane', lane], env);
+      assert.equal(started.code, 0, started.stderr);
+      const fallback = await runCli(['report-run', 'ai-fallback', '--run-dir', runDir, '--lane', lane, '--status', 'unavailable', '--reason-code', 'AI_UNAVAILABLE'], env);
+      assert.equal(fallback.code, 0, fallback.stderr);
+    }
     await event({ event: 'start', spanId: 'open-1', phase: 'codex-open', operation: 'open-final-html', source: 'ui', startedAt: timestamp });
     await event({ event: 'end', spanId: 'open-1', phase: 'codex-open', operation: 'open-final-html', source: 'ui', startedAt: timestamp, endedAt: timestamp, durationMs: 0, status: 'queued' });
     const finalized = await runCli(['report-run', 'finalize', '--run-dir', runDir, '--status', 'completed'], env);

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "report-synthesis-aha",
+  "lane": "report-synthesis",
+  "dimensions": [
+    {"id": "evidence_grounding", "description": "Every claim resolves to same-Audit Evidence.", "blocking": true, "minimumScore": 1},
+    {"id": "aha_relevance", "description": "The output changes the reading of the largest meaningful destination.", "minimumScore": 1},
+    {"id": "non_duplication", "description": "Findings are distinct rather than parameterized metric restatements.", "minimumScore": 1},
+    {"id": "uncertainty", "description": "Unknowns and alternative explanations are calibrated.", "minimumScore": 1}
+  ]
+}

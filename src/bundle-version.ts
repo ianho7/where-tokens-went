@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import * as path from "node:path";
 
 export const AUDIT_SCHEMA_VERSION = 1;
@@ -26,6 +26,40 @@ async function readBundleVersionFile(filePath: string): Promise<BundleVersion | 
     return isBundleVersion(value) ? value : null;
   } catch {
     return null;
+  }
+}
+
+async function listFiles(root: string): Promise<string[]> {
+  const result: string[] = [];
+  const visit = async (directory: string, relative: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const next = path.join(directory, entry.name);
+      const nextRelative = path.join(relative, entry.name);
+      if (entry.isDirectory()) await visit(next, nextRelative);
+      else if (entry.isFile()) result.push(nextRelative);
+    }
+  };
+  await visit(root, "");
+  return result.sort();
+}
+
+async function verifyInstalledContent(expectedRoot: string, actualRoot: string, label: string): Promise<void> {
+  let expectedFiles: string[];
+  let actualFiles: string[];
+  try {
+    [expectedFiles, actualFiles] = await Promise.all([listFiles(expectedRoot), listFiles(actualRoot)]);
+  } catch {
+    throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed content is unavailable. ${INSTALL_HINT}`);
+  }
+  if (expectedFiles.join("\n") !== actualFiles.join("\n")) {
+    throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed file set differs from the repository distribution. ${INSTALL_HINT}`);
+  }
+  for (const relative of expectedFiles) {
+    const expected = await readFile(path.join(expectedRoot, relative));
+    const actual = await readFile(path.join(actualRoot, relative));
+    if (!expected.equals(actual)) {
+      throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed content differs at ${relative}. ${INSTALL_HINT}`);
+    }
   }
 }
 
@@ -88,6 +122,7 @@ export async function verifyInstalledSkill(): Promise<BundleVersion> {
         throw new Error(`where-tokens-went Skill version preflight failed: ${label} ${field} does not match the repository distribution bundle. ${INSTALL_HINT}`);
       }
     }
+    await verifyInstalledContent(path.join(repositoryRoot, "skills", "where-tokens-went"), skillRoot, label);
   }
   return expected;
 }

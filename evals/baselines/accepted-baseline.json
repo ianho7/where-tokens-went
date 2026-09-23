@@ -1,0 +1,648 @@
+{
+  "version": 1,
+  "id": "accepted-baseline-real-skill-insights-round3-codex-v1",
+  "acceptedAt": "2026-09-21T03:08:44.744Z",
+  "productVersion": "0.1.0",
+  "bundleVersion": "0.1.0+d4a42cf6d97d63ff9f6cb718cc39b3953583589835254581d03bf789e4d6beb2",
+  "auditSchemaVersion": 1,
+  "promptHashes": {
+    "report-synthesis": "c0daf889a8b32246226209541d6eb0d7d3df24064548b96bffe5d09b903d30fc",
+    "key-session-analysis": "77c4582651a8529faf468fe3ad1e73fb8e872092448a98acee2c1fd4a900cc6e",
+    "skill-insights": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75"
+  },
+  "runtimeHash": "cedb6e891222d967621023d831c31f39521f88b1475f9beb4a49357dc85a4b29",
+  "modelConfig": {
+    "provider": "host-agent",
+    "model": "codex-current",
+    "temperature": null,
+    "comparisonKey": "codex-current"
+  },
+  "caseIds": [
+    "skill-insights-heldout-v2",
+    "skill-insights-capability-v2"
+  ],
+  "trials": [
+    {
+      "version": 1,
+      "id": "heldout-base-v3-clean-4",
+      "caseId": "skill-insights-heldout-v2",
+      "lane": "skill-insights",
+      "role": "baseline",
+      "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+      "bundleVersion": "0.1.0+d4a42cf6d97d63ff9f6cb718cc39b3953583589835254581d03bf789e4d6beb2",
+      "inputHash": "22c4547550cac08ca400033d15e87888f93688fe5ae6744d24d3397465d08c23",
+      "modelConfig": {
+        "provider": "host-agent",
+        "model": "codex-current",
+        "temperature": null,
+        "comparisonKey": "codex-current"
+      },
+      "outputHash": "bdb1cd8dcb33c92bba69c61286225f13a8c23d2071887d0fab4666c0f41d7363",
+      "outputArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean-v3\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-heldout-v2\\baseline\\attempt-1-heldout-base-v3-clean-4\\output.raw.json",
+      "validationArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean-v3\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-heldout-v2\\baseline\\attempt-1-heldout-base-v3-clean-4\\validation.json",
+      "contractStatus": "passed",
+      "quality": {
+        "snapshot_binding": 0.86,
+        "content_contrast": 0.96,
+        "decision_delta": 0.94,
+        "uncertainty": 0.92
+      },
+      "durationMs": 68579,
+      "tokenCount": 39619,
+      "toolCallCount": null,
+      "transcriptRef": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-25-14-01a0bfd9-c1f7-7221-bb7b-9cd2df62c1b3.jsonl",
+      "privacy": "redacted",
+      "createdAt": "2026-09-20T17:29:01.108Z",
+      "experimentId": "real-skill-insights-round3-codex-v1",
+      "attempt": 1,
+      "generationRecord": {
+        "version": 1,
+        "kind": "host-agent-generation",
+        "executionId": "codex:01a0be94-17b9-79e0-b11a-a75d689d605c:01a0bfd9-c1f7-7221-bb7b-9cd2df62c1b3:01a0bfd9-c2db-7311-b367-e189f3eee43e:msg_0dc394fd43b9ccda016ab017372dbc87d08609e6fba49083fd",
+        "caseId": "skill-insights-heldout-v2",
+        "lane": "skill-insights",
+        "role": "baseline",
+        "inputHash": "22c4547550cac08ca400033d15e87888f93688fe5ae6744d24d3397465d08c23",
+        "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+        "outputHash": "bdb1cd8dcb33c92bba69c61286225f13a8c23d2071887d0fab4666c0f41d7363",
+        "modelComparisonKey": "codex-current",
+        "producerContext": {
+          "role": "generator",
+          "contextId": "01a0bfd9-c1f7-7221-bb7b-9cd2df62c1b3",
+          "host": "codex"
+        },
+        "observed": {
+          "startedAt": "2026-09-20T17:25:14.694Z",
+          "endedAt": "2026-09-20T17:26:23.273Z",
+          "usage": {
+            "inputTokens": 36468,
+            "outputTokens": 3151,
+            "totalTokens": 39619
+          }
+        },
+        "codexProvenance": {
+          "harness": "codex",
+          "rolloutPath": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-25-14-01a0bfd9-c1f7-7221-bb7b-9cd2df62c1b3.jsonl",
+          "rolloutHash": "c0ba4c0b5604da315f4dc636cc2c69a6953ab3791f7d3f9c256fdbcb23ea4bff",
+          "sessionId": "01a0be94-17b9-79e0-b11a-a75d689d605c",
+          "threadId": "01a0bfd9-c1f7-7221-bb7b-9cd2df62c1b3",
+          "turnId": "01a0bfd9-c2db-7311-b367-e189f3eee43e",
+          "responseItemId": "msg_0dc394fd43b9ccda016ab017372dbc87d08609e6fba49083fd",
+          "responseItemOrdinal": 27,
+          "tokenUsageRecordOrdinal": 28,
+          "tokenEventOrdinal": 29,
+          "responseId": "resp_0dc394fd43b9ccda016ab0170ca1d087d0ac124a84831e1a28",
+          "startedAt": "2026-09-20T17:25:14.694Z",
+          "endedAt": "2026-09-20T17:26:23.273Z",
+          "usage": {
+            "inputTokens": 36468,
+            "outputTokens": 3151,
+            "totalTokens": 39619
+          },
+          "tokenMetric": "total_tokens",
+          "tokenValue": 39619,
+          "outputHash": "bdb1cd8dcb33c92bba69c61286225f13a8c23d2071887d0fab4666c0f41d7363"
+        },
+        "sourceReference": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-25-14-01a0bfd9-c1f7-7221-bb7b-9cd2df62c1b3.jsonl",
+        "sourceReferenceHash": "c0ba4c0b5604da315f4dc636cc2c69a6953ab3791f7d3f9c256fdbcb23ea4bff"
+      },
+      "qualityEvidence": {
+        "snapshot_binding": [
+          "References calls, tasks, call share, and calls-per-task evidence tied to the snapshot."
+        ],
+        "content_contrast": [
+          "Clearly separates local privacy/accounting rules from generic explanation guidance."
+        ],
+        "decision_delta": [
+          "Provides a concrete before/after retention decision and consequence."
+        ],
+        "uncertainty": [
+          "Uses medium confidence and explicitly distinguishes distinctive value from sparse generic scaffolding."
+        ]
+      },
+      "provenanceEvidenceHash": "ba3a6271d25115ec46eeab8ad8a3a36339749189b1a35d46b68d07f94c769615"
+    },
+    {
+      "version": 1,
+      "id": "heldout-base-v3-clean-5",
+      "caseId": "skill-insights-heldout-v2",
+      "lane": "skill-insights",
+      "role": "baseline",
+      "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+      "bundleVersion": "0.1.0+d4a42cf6d97d63ff9f6cb718cc39b3953583589835254581d03bf789e4d6beb2",
+      "inputHash": "22c4547550cac08ca400033d15e87888f93688fe5ae6744d24d3397465d08c23",
+      "modelConfig": {
+        "provider": "host-agent",
+        "model": "codex-current",
+        "temperature": null,
+        "comparisonKey": "codex-current"
+      },
+      "outputHash": "f3fc0fb402f9a7e66c52165178bac59fc64df399dae4d17b6904ad1884c5b8d7",
+      "outputArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean-v3\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-heldout-v2\\baseline\\attempt-1-heldout-base-v3-clean-5\\output.raw.json",
+      "validationArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean-v3\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-heldout-v2\\baseline\\attempt-1-heldout-base-v3-clean-5\\validation.json",
+      "contractStatus": "passed",
+      "quality": {
+        "snapshot_binding": 0.87,
+        "content_contrast": 0.96,
+        "decision_delta": 0.94,
+        "uncertainty": 0.91
+      },
+      "durationMs": 102806,
+      "tokenCount": 41294,
+      "toolCallCount": null,
+      "transcriptRef": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-29-18-01a0bfdd-7c6f-7760-afbd-35b3f4e1d331.jsonl",
+      "privacy": "redacted",
+      "createdAt": "2026-09-21T02:19:35.619Z",
+      "experimentId": "real-skill-insights-round3-codex-v1",
+      "attempt": 1,
+      "generationRecord": {
+        "version": 1,
+        "kind": "host-agent-generation",
+        "executionId": "codex:01a0be94-17b9-79e0-b11a-a75d689d605c:01a0bfdd-7c6f-7760-afbd-35b3f4e1d331:01a0bfdd-7d2d-7133-9679-aa53bb0a591b:msg_0bc7abce0a2128af016ab0184c89ec87d0af1e63e8b4347d47",
+        "caseId": "skill-insights-heldout-v2",
+        "lane": "skill-insights",
+        "role": "baseline",
+        "inputHash": "22c4547550cac08ca400033d15e87888f93688fe5ae6744d24d3397465d08c23",
+        "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+        "outputHash": "f3fc0fb402f9a7e66c52165178bac59fc64df399dae4d17b6904ad1884c5b8d7",
+        "modelComparisonKey": "codex-current",
+        "producerContext": {
+          "role": "generator",
+          "contextId": "01a0bfdd-7c6f-7760-afbd-35b3f4e1d331",
+          "host": "codex"
+        },
+        "observed": {
+          "startedAt": "2026-09-20T17:29:18.993Z",
+          "endedAt": "2026-09-20T17:31:01.799Z",
+          "usage": {
+            "inputTokens": 36592,
+            "outputTokens": 4702,
+            "totalTokens": 41294
+          }
+        },
+        "codexProvenance": {
+          "harness": "codex",
+          "rolloutPath": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-29-18-01a0bfdd-7c6f-7760-afbd-35b3f4e1d331.jsonl",
+          "rolloutHash": "e11cdc993a98d8c85549a27097e1873dd4bcf774cf2e65bd4fa72992aa43c2c6",
+          "sessionId": "01a0be94-17b9-79e0-b11a-a75d689d605c",
+          "threadId": "01a0bfdd-7c6f-7760-afbd-35b3f4e1d331",
+          "turnId": "01a0bfdd-7d2d-7133-9679-aa53bb0a591b",
+          "responseItemId": "msg_0bc7abce0a2128af016ab0184c89ec87d0af1e63e8b4347d47",
+          "responseItemOrdinal": 43,
+          "tokenUsageRecordOrdinal": 44,
+          "tokenEventOrdinal": 45,
+          "responseId": "resp_0bc7abce0a2128af016ab0180744bc87d0b21899519e35b6af",
+          "startedAt": "2026-09-20T17:29:18.993Z",
+          "endedAt": "2026-09-20T17:31:01.799Z",
+          "usage": {
+            "inputTokens": 36592,
+            "outputTokens": 4702,
+            "totalTokens": 41294
+          },
+          "tokenMetric": "total_tokens",
+          "tokenValue": 41294,
+          "outputHash": "f3fc0fb402f9a7e66c52165178bac59fc64df399dae4d17b6904ad1884c5b8d7"
+        },
+        "sourceReference": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-29-18-01a0bfdd-7c6f-7760-afbd-35b3f4e1d331.jsonl",
+        "sourceReferenceHash": "e11cdc993a98d8c85549a27097e1873dd4bcf774cf2e65bd4fa72992aa43c2c6"
+      },
+      "qualityEvidence": {
+        "snapshot_binding": [
+          "Binds the claim to calls, tasks, call share, and calls-per-task metrics."
+        ],
+        "content_contrast": [
+          "Makes the evidence-ownership and privacy boundary distinct from generic explanation behavior."
+        ],
+        "decision_delta": [
+          "Recommends preserving protocol-bearing content while simplifying only explanatory wording."
+        ],
+        "uncertainty": [
+          "Uses medium confidence and limits the simplification recommendation to generic scaffolding."
+        ]
+      },
+      "provenanceEvidenceHash": "cea27140230d180f5e3cc7373e86bb251be1b5713b5dd1bca664b8c763afdf51"
+    },
+    {
+      "version": 1,
+      "id": "heldout-base-v3-clean-6",
+      "caseId": "skill-insights-heldout-v2",
+      "lane": "skill-insights",
+      "role": "baseline",
+      "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+      "bundleVersion": "0.1.0+d4a42cf6d97d63ff9f6cb718cc39b3953583589835254581d03bf789e4d6beb2",
+      "inputHash": "22c4547550cac08ca400033d15e87888f93688fe5ae6744d24d3397465d08c23",
+      "modelConfig": {
+        "provider": "host-agent",
+        "model": "codex-current",
+        "temperature": null,
+        "comparisonKey": "codex-current"
+      },
+      "outputHash": "7ffed7e01c203ba22a27d6c8fc533544aea6ffea6f40238a7abf52c8633d3f90",
+      "outputArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean-v3\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-heldout-v2\\baseline\\attempt-1-heldout-base-v3-clean-6\\output.raw.json",
+      "validationArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean-v3\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-heldout-v2\\baseline\\attempt-1-heldout-base-v3-clean-6\\validation.json",
+      "contractStatus": "passed",
+      "quality": {
+        "snapshot_binding": 0.9,
+        "content_contrast": 0.97,
+        "decision_delta": 0.96,
+        "uncertainty": 0.9
+      },
+      "durationMs": 88545,
+      "tokenCount": 40721,
+      "toolCallCount": null,
+      "transcriptRef": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-29-18-01a0bfdd-7d42-7b51-95bc-461409c2b8bb.jsonl",
+      "privacy": "redacted",
+      "createdAt": "2026-09-21T02:19:35.791Z",
+      "experimentId": "real-skill-insights-round3-codex-v1",
+      "attempt": 1,
+      "generationRecord": {
+        "version": 1,
+        "kind": "host-agent-generation",
+        "executionId": "codex:01a0be94-17b9-79e0-b11a-a75d689d605c:01a0bfdd-7d42-7b51-95bc-461409c2b8bb:01a0bfdd-7e1e-7163-9917-e9d4a92a0528:msg_0f9401ed06a155b9016ab0183b27bc87d085530dff699c9e62",
+        "caseId": "skill-insights-heldout-v2",
+        "lane": "skill-insights",
+        "role": "baseline",
+        "inputHash": "22c4547550cac08ca400033d15e87888f93688fe5ae6744d24d3397465d08c23",
+        "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+        "outputHash": "7ffed7e01c203ba22a27d6c8fc533544aea6ffea6f40238a7abf52c8633d3f90",
+        "modelComparisonKey": "codex-current",
+        "producerContext": {
+          "role": "generator",
+          "contextId": "01a0bfdd-7d42-7b51-95bc-461409c2b8bb",
+          "host": "codex"
+        },
+        "observed": {
+          "startedAt": "2026-09-20T17:29:19.226Z",
+          "endedAt": "2026-09-20T17:30:47.771Z",
+          "usage": {
+            "inputTokens": 36685,
+            "outputTokens": 4036,
+            "totalTokens": 40721
+          }
+        },
+        "codexProvenance": {
+          "harness": "codex",
+          "rolloutPath": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-29-18-01a0bfdd-7d42-7b51-95bc-461409c2b8bb.jsonl",
+          "rolloutHash": "d459f20b675dc1a74435f098ebf2ba457dbd3ab7bfe6a67505a1a7fe6bade831",
+          "sessionId": "01a0be94-17b9-79e0-b11a-a75d689d605c",
+          "threadId": "01a0bfdd-7d42-7b51-95bc-461409c2b8bb",
+          "turnId": "01a0bfdd-7e1e-7163-9917-e9d4a92a0528",
+          "responseItemId": "msg_0f9401ed06a155b9016ab0183b27bc87d085530dff699c9e62",
+          "responseItemOrdinal": 31,
+          "tokenUsageRecordOrdinal": 32,
+          "tokenEventOrdinal": 33,
+          "responseId": "resp_0f9401ed06a155b9016ab01805246c87d094acf11e3fc6a530",
+          "startedAt": "2026-09-20T17:29:19.226Z",
+          "endedAt": "2026-09-20T17:30:47.771Z",
+          "usage": {
+            "inputTokens": 36685,
+            "outputTokens": 4036,
+            "totalTokens": 40721
+          },
+          "tokenMetric": "total_tokens",
+          "tokenValue": 40721,
+          "outputHash": "7ffed7e01c203ba22a27d6c8fc533544aea6ffea6f40238a7abf52c8633d3f90"
+        },
+        "sourceReference": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-29-18-01a0bfdd-7d42-7b51-95bc-461409c2b8bb.jsonl",
+        "sourceReferenceHash": "d459f20b675dc1a74435f098ebf2ba457dbd3ab7bfe6a67505a1a7fe6bade831"
+      },
+      "qualityEvidence": {
+        "snapshot_binding": [
+          "Connects the interpretation to calls, tasks, call share, calls-per-task, and a stated top usage position."
+        ],
+        "content_contrast": [
+          "Separates frozen-evidence, accounting, and privacy constraints from a replaceable explanation step."
+        ],
+        "decision_delta": [
+          "States a clear preservation decision and a conditional path for isolating generic guidance."
+        ],
+        "uncertainty": [
+          "Uses coexistence framing and qualifies the generic-scaffold judgment as plausible rather than certain."
+        ]
+      },
+      "provenanceEvidenceHash": "20da6b511a31d570eb4eab833c99b4de40793d46691b9a7dd7dadf1c021b1c7f"
+    },
+    {
+      "version": 1,
+      "id": "baseline-cap-clean-1",
+      "caseId": "skill-insights-capability-v2",
+      "lane": "skill-insights",
+      "role": "baseline",
+      "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+      "bundleVersion": "0.1.0+d4a42cf6d97d63ff9f6cb718cc39b3953583589835254581d03bf789e4d6beb2",
+      "inputHash": "528529fba7ff9614cbb5563bec8aa32451ddf5ea9b4febdeffb03d69b59746ba",
+      "modelConfig": {
+        "provider": "host-agent",
+        "model": "codex-current",
+        "temperature": null,
+        "comparisonKey": "codex-current"
+      },
+      "outputHash": "188c951ddac736fa1c566e27515aec883f65a1967ea765dec533daef6bcdddc2",
+      "outputArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-capability-v2\\baseline\\attempt-1-baseline-cap-clean-1\\output.raw.json",
+      "validationArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-capability-v2\\baseline\\attempt-1-baseline-cap-clean-1\\validation.json",
+      "contractStatus": "passed",
+      "quality": {
+        "snapshot_binding": 0.82,
+        "content_contrast": 0.94,
+        "decision_delta": 0.92,
+        "uncertainty": 0.87
+      },
+      "durationMs": 151727,
+      "tokenCount": 77476,
+      "toolCallCount": null,
+      "transcriptRef": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-03-46-01a0bfc6-1b80-7831-96c9-a5044cd30d69.jsonl",
+      "privacy": "redacted",
+      "createdAt": "2026-09-20T17:11:57.577Z",
+      "experimentId": "real-skill-insights-round3-codex-v1",
+      "attempt": 1,
+      "generationRecord": {
+        "version": 1,
+        "kind": "host-agent-generation",
+        "executionId": "codex:01a0be94-17b9-79e0-b11a-a75d689d605c:01a0bfc6-1b80-7831-96c9-a5044cd30d69:01a0bfc6-1c1f-7353-ba65-cfc2047e6cf2:msg_0879e6055f2683ea016ab01282695887d0b39557e8b1e1d99e",
+        "caseId": "skill-insights-capability-v2",
+        "lane": "skill-insights",
+        "role": "baseline",
+        "inputHash": "528529fba7ff9614cbb5563bec8aa32451ddf5ea9b4febdeffb03d69b59746ba",
+        "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+        "outputHash": "188c951ddac736fa1c566e27515aec883f65a1967ea765dec533daef6bcdddc2",
+        "modelComparisonKey": "codex-current",
+        "producerContext": {
+          "role": "generator",
+          "contextId": "01a0bfc6-1b80-7831-96c9-a5044cd30d69",
+          "host": "codex"
+        },
+        "observed": {
+          "startedAt": "2026-09-20T17:03:46.841Z",
+          "endedAt": "2026-09-20T17:06:18.568Z",
+          "usage": {
+            "inputTokens": 74183,
+            "outputTokens": 3293,
+            "totalTokens": 77476
+          }
+        },
+        "codexProvenance": {
+          "harness": "codex",
+          "rolloutPath": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-03-46-01a0bfc6-1b80-7831-96c9-a5044cd30d69.jsonl",
+          "rolloutHash": "dcb0f082fc61864dfecba3dc5fae3d88d950a81dbe66d47029090075440e3566",
+          "sessionId": "01a0be94-17b9-79e0-b11a-a75d689d605c",
+          "threadId": "01a0bfc6-1b80-7831-96c9-a5044cd30d69",
+          "turnId": "01a0bfc6-1c1f-7353-ba65-cfc2047e6cf2",
+          "responseItemId": "msg_0879e6055f2683ea016ab01282695887d0b39557e8b1e1d99e",
+          "responseItemOrdinal": 121,
+          "tokenUsageRecordOrdinal": 122,
+          "tokenEventOrdinal": 123,
+          "responseId": "resp_0879e6055f2683ea016ab01254b31087d093bcb2017d9dd771",
+          "startedAt": "2026-09-20T17:03:46.841Z",
+          "endedAt": "2026-09-20T17:06:18.568Z",
+          "usage": {
+            "inputTokens": 74183,
+            "outputTokens": 3293,
+            "totalTokens": 77476
+          },
+          "tokenMetric": "total_tokens",
+          "tokenValue": 77476,
+          "outputHash": "188c951ddac736fa1c566e27515aec883f65a1967ea765dec533daef6bcdddc2"
+        },
+        "sourceReference": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-03-46-01a0bfc6-1b80-7831-96c9-a5044cd30d69.jsonl",
+        "sourceReferenceHash": "dcb0f082fc61864dfecba3dc5fae3d88d950a81dbe66d47029090075440e3566"
+      },
+      "qualityEvidence": {
+        "snapshot_binding": [
+          "Uses calls-per-task and distribution-median evidence, though it provides limited usage detail."
+        ],
+        "content_contrast": [
+          "Contrasts the local Report Run and authority protocol with familiar project scoping."
+        ],
+        "decision_delta": [
+          "Gives a focused retention decision for local protocol and a removal test for generic guidance."
+        ],
+        "uncertainty": [
+          "Uses high confidence but keeps the generic-removal recommendation conditional on run setup."
+        ]
+      },
+      "provenanceEvidenceHash": "658358d6b49ccfcef024f6c8cf82a5c69d154312693e8dbf8334a74ecc63d52d"
+    },
+    {
+      "version": 1,
+      "id": "baseline-cap-clean-4",
+      "caseId": "skill-insights-capability-v2",
+      "lane": "skill-insights",
+      "role": "baseline",
+      "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+      "bundleVersion": "0.1.0+d4a42cf6d97d63ff9f6cb718cc39b3953583589835254581d03bf789e4d6beb2",
+      "inputHash": "528529fba7ff9614cbb5563bec8aa32451ddf5ea9b4febdeffb03d69b59746ba",
+      "modelConfig": {
+        "provider": "host-agent",
+        "model": "codex-current",
+        "temperature": null,
+        "comparisonKey": "codex-current"
+      },
+      "outputHash": "c2f3e7b178fd951ee3f09a8315745b27c4d8ac9f6639b12eace88c34048a8fc7",
+      "outputArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-capability-v2\\baseline\\attempt-4-baseline-cap-clean-4\\output.raw.json",
+      "validationArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-capability-v2\\baseline\\attempt-4-baseline-cap-clean-4\\validation.json",
+      "contractStatus": "passed",
+      "quality": {
+        "snapshot_binding": 0.87,
+        "content_contrast": 0.96,
+        "decision_delta": 0.94,
+        "uncertainty": 0.92
+      },
+      "durationMs": 255608,
+      "tokenCount": 83643,
+      "toolCallCount": null,
+      "transcriptRef": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-03-47-01a0bfc6-1dee-7123-88e3-76c7ee45c34a.jsonl",
+      "privacy": "redacted",
+      "createdAt": "2026-09-20T17:13:29.085Z",
+      "experimentId": "real-skill-insights-round3-codex-v1",
+      "attempt": 4,
+      "generationRecord": {
+        "version": 1,
+        "kind": "host-agent-generation",
+        "executionId": "codex:01a0be94-17b9-79e0-b11a-a75d689d605c:01a0bfc6-1dee-7123-88e3-76c7ee45c34a:01a0bfc6-1eb0-74c3-b7c8-124a336769a7:msg_01d9411b5bbe4ce2016ab012e3ea7487d0bbf28c82385361fe",
+        "caseId": "skill-insights-capability-v2",
+        "lane": "skill-insights",
+        "role": "baseline",
+        "inputHash": "528529fba7ff9614cbb5563bec8aa32451ddf5ea9b4febdeffb03d69b59746ba",
+        "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+        "outputHash": "c2f3e7b178fd951ee3f09a8315745b27c4d8ac9f6639b12eace88c34048a8fc7",
+        "modelComparisonKey": "codex-current",
+        "producerContext": {
+          "role": "generator",
+          "contextId": "01a0bfc6-1dee-7123-88e3-76c7ee45c34a",
+          "host": "codex"
+        },
+        "observed": {
+          "startedAt": "2026-09-20T17:03:47.500Z",
+          "endedAt": "2026-09-20T17:08:03.108Z",
+          "usage": {
+            "inputTokens": 79274,
+            "outputTokens": 4369,
+            "totalTokens": 83643
+          }
+        },
+        "codexProvenance": {
+          "harness": "codex",
+          "rolloutPath": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-03-47-01a0bfc6-1dee-7123-88e3-76c7ee45c34a.jsonl",
+          "rolloutHash": "d09fe38b0c2d3aaa01a8bfb054df044e546c83a45ba4a4b58ea3f8cdb338fb15",
+          "sessionId": "01a0be94-17b9-79e0-b11a-a75d689d605c",
+          "threadId": "01a0bfc6-1dee-7123-88e3-76c7ee45c34a",
+          "turnId": "01a0bfc6-1eb0-74c3-b7c8-124a336769a7",
+          "responseItemId": "msg_01d9411b5bbe4ce2016ab012e3ea7487d0bbf28c82385361fe",
+          "responseItemOrdinal": 171,
+          "tokenUsageRecordOrdinal": 172,
+          "tokenEventOrdinal": 173,
+          "responseId": "resp_01d9411b5bbe4ce2016ab012a3231487d08baf18e5e37a57d8",
+          "startedAt": "2026-09-20T17:03:47.500Z",
+          "endedAt": "2026-09-20T17:08:03.108Z",
+          "usage": {
+            "inputTokens": 79274,
+            "outputTokens": 4369,
+            "totalTokens": 83643
+          },
+          "tokenMetric": "total_tokens",
+          "tokenValue": 83643,
+          "outputHash": "c2f3e7b178fd951ee3f09a8315745b27c4d8ac9f6639b12eace88c34048a8fc7"
+        },
+        "sourceReference": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-03-47-01a0bfc6-1dee-7123-88e3-76c7ee45c34a.jsonl",
+        "sourceReferenceHash": "d09fe38b0c2d3aaa01a8bfb054df044e546c83a45ba4a4b58ea3f8cdb338fb15"
+      },
+      "qualityEvidence": {
+        "snapshot_binding": [
+          "References calls, calls-per-task, and the distribution median while acknowledging that usage alone is insufficient."
+        ],
+        "content_contrast": [
+          "Clearly distinguishes the local execution gate and authority rule from context-selection scaffolding."
+        ],
+        "decision_delta": [
+          "Provides an actionable preservation and conditional isolation decision."
+        ],
+        "uncertainty": [
+          "Uses medium confidence and explicitly labels the remaining-value judgment as interpretive."
+        ]
+      },
+      "provenanceEvidenceHash": "087f6d38f0392b2d3739ebd74ebda91ec97c4a873075a30302690bde774a0425"
+    },
+    {
+      "version": 1,
+      "id": "baseline-cap-clean-5",
+      "caseId": "skill-insights-capability-v2",
+      "lane": "skill-insights",
+      "role": "baseline",
+      "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+      "bundleVersion": "0.1.0+d4a42cf6d97d63ff9f6cb718cc39b3953583589835254581d03bf789e4d6beb2",
+      "inputHash": "528529fba7ff9614cbb5563bec8aa32451ddf5ea9b4febdeffb03d69b59746ba",
+      "modelConfig": {
+        "provider": "host-agent",
+        "model": "codex-current",
+        "temperature": null,
+        "comparisonKey": "codex-current"
+      },
+      "outputHash": "7ed7d5fbfa21577d988498af252fc62d585076cf80a3e2aabb13035979e0069e",
+      "outputArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-capability-v2\\baseline\\attempt-5-baseline-cap-clean-5\\output.raw.json",
+      "validationArtifact": "D:\\project\\agent-audit\\.scratch\\evals-round3\\new-baseline\\trials-clean\\experiments\\real-skill-insights-round3-codex-v1\\skill-insights-capability-v2\\baseline\\attempt-5-baseline-cap-clean-5\\validation.json",
+      "contractStatus": "passed",
+      "quality": {
+        "snapshot_binding": 0.8,
+        "content_contrast": 0.95,
+        "decision_delta": 0.93,
+        "uncertainty": 0.88
+      },
+      "durationMs": 154117,
+      "tokenCount": 73920,
+      "toolCallCount": null,
+      "transcriptRef": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-03-47-01a0bfc6-1eca-7a93-a5c3-d61300c2212d.jsonl",
+      "privacy": "redacted",
+      "createdAt": "2026-09-20T17:13:29.272Z",
+      "experimentId": "real-skill-insights-round3-codex-v1",
+      "attempt": 5,
+      "generationRecord": {
+        "version": 1,
+        "kind": "host-agent-generation",
+        "executionId": "codex:01a0be94-17b9-79e0-b11a-a75d689d605c:01a0bfc6-1eca-7a93-a5c3-d61300c2212d:01a0bfc6-1f96-72b0-89cc-af4be541b56f:msg_01ee2a41db8fc957016ab01285260487d0adad32e8f77e104f",
+        "caseId": "skill-insights-capability-v2",
+        "lane": "skill-insights",
+        "role": "baseline",
+        "inputHash": "528529fba7ff9614cbb5563bec8aa32451ddf5ea9b4febdeffb03d69b59746ba",
+        "promptHash": "f8753cd72097d6cc31c553bc2f51eb3c4c31c28955246a7f2f0b049663a1df75",
+        "outputHash": "7ed7d5fbfa21577d988498af252fc62d585076cf80a3e2aabb13035979e0069e",
+        "modelComparisonKey": "codex-current",
+        "producerContext": {
+          "role": "generator",
+          "contextId": "01a0bfc6-1eca-7a93-a5c3-d61300c2212d",
+          "host": "codex"
+        },
+        "observed": {
+          "startedAt": "2026-09-20T17:03:47.719Z",
+          "endedAt": "2026-09-20T17:06:21.836Z",
+          "usage": {
+            "inputTokens": 70456,
+            "outputTokens": 3464,
+            "totalTokens": 73920
+          }
+        },
+        "codexProvenance": {
+          "harness": "codex",
+          "rolloutPath": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-03-47-01a0bfc6-1eca-7a93-a5c3-d61300c2212d.jsonl",
+          "rolloutHash": "372bafd7b19e28a001dba33008e65c295a25aa6b2e92a12f031e01f66abcfeaf",
+          "sessionId": "01a0be94-17b9-79e0-b11a-a75d689d605c",
+          "threadId": "01a0bfc6-1eca-7a93-a5c3-d61300c2212d",
+          "turnId": "01a0bfc6-1f96-72b0-89cc-af4be541b56f",
+          "responseItemId": "msg_01ee2a41db8fc957016ab01285260487d0adad32e8f77e104f",
+          "responseItemOrdinal": 128,
+          "tokenUsageRecordOrdinal": 129,
+          "tokenEventOrdinal": 130,
+          "responseId": "resp_01ee2a41db8fc957016ab012556e8887d0b35f946f734fe252",
+          "startedAt": "2026-09-20T17:03:47.719Z",
+          "endedAt": "2026-09-20T17:06:21.836Z",
+          "usage": {
+            "inputTokens": 70456,
+            "outputTokens": 3464,
+            "totalTokens": 73920
+          },
+          "tokenMetric": "total_tokens",
+          "tokenValue": 73920,
+          "outputHash": "7ed7d5fbfa21577d988498af252fc62d585076cf80a3e2aabb13035979e0069e"
+        },
+        "sourceReference": "C:\\Users\\admin\\.codex\\sessions\\2026\\09\\21\\rollout-2026-09-21T01-03-47-01a0bfc6-1eca-7a93-a5c3-d61300c2212d.jsonl",
+        "sourceReferenceHash": "372bafd7b19e28a001dba33008e65c295a25aa6b2e92a12f031e01f66abcfeaf"
+      },
+      "qualityEvidence": {
+        "snapshot_binding": [
+          "References calls and calls-per-task and identifies the Skill as a usage leader, but supplies fewer metric anchors."
+        ],
+        "content_contrast": [
+          "Separates report-specific protocol from reusable project-scoping guidance."
+        ],
+        "decision_delta": [
+          "Recommends preserving local rules and reviewing only the generic default for relocation."
+        ],
+        "uncertainty": [
+          "Uses medium confidence and frames the generic replacement as likely rather than measured."
+        ]
+      },
+      "provenanceEvidenceHash": "5bc9a7a385d3be78f6ad0f0b056cae1c4816de43de79aba53b05fdc940363524"
+    }
+  ],
+  "knownVariance": {
+    "version": "1",
+    "kind": "derived-baseline-variance",
+    "source": "independent blind grades",
+    "trialIds": "[\"baseline-cap-clean-1\",\"baseline-cap-clean-4\",\"baseline-cap-clean-5\",\"heldout-base-v3-clean-4\",\"heldout-base-v3-clean-5\",\"heldout-base-v3-clean-6\"]",
+    "dimensions": "{\"snapshot_binding\":{\"count\":6,\"mean\":0.8533333333333334,\"variance\":0.0011222222222222222,\"minimum\":0.8,\"maximum\":0.9},\"content_contrast\":{\"count\":6,\"mean\":0.9566666666666666,\"variance\":0.00008888888888888906,\"minimum\":0.94,\"maximum\":0.97},\"decision_delta\":{\"count\":6,\"mean\":0.9383333333333334,\"variance\":0.00014722222222222152,\"minimum\":0.92,\"maximum\":0.96},\"uncertainty\":{\"count\":6,\"mean\":0.9,\"variance\":0.0003666666666666673,\"minimum\":0.87,\"maximum\":0.92}}"
+  },
+  "privacy": "redacted",
+  "bootstrap": {
+    "previousBaselinePath": "evals/baselines/accepted-baseline.json",
+    "previousBaselineHash": "ab88f9a80a05101abb36c9bd1d5411842a7e3457d38c14ea324ef3b7c62e9252",
+    "invalidationReason": "Previous bootstrap baseline is invalid under the updated runtime contract because its runtimeHash predates the latest state-evidence validation fix.",
+    "invalidatedAt": "2026-09-21T03:08:44.746Z",
+    "reviewHashes": {
+      "blindMapHash": "a60276f48f1adeb21024ccdd7ce5337e704d46247145e85358203e5233664ae3",
+      "gradesHash": "e34ee781725a16d491b154aacb77810b9d52ca85a2170e0c3e51e01abcd50e28",
+      "varianceHash": "16181de50bb8f5123193d5e934602aecee7890a5eab0f828f4bd6071311b6f27",
+      "reviewEvidenceHash": "898661ca40bb1671c8965f5d29cfea63e0694f978c5a0bbc57fa75ea8939fefa",
+      "reviewerRecordHash": "498b8bf05bf223c88cd10c14ec721261a9a21fd86e68b165ac60bb5f94c092e5",
+      "qualityGraderRecordHash": "469a860d2719b2b284ffddf02b358f6e4b2b52e139ada94b6830ba4d434de1ea"
+    }
+  }
+}

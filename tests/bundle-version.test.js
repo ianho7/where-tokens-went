@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const { mkdtemp, mkdir, rm, writeFile } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const { computeBundleDigest } = require('../scripts/bundle-version');
 const { verifyInstalledSkill } = require('../scripts/verify-installed-skill');
@@ -71,6 +71,11 @@ test('installed bundle preflight rejects stale installs and passes after recover
     assert.throws(() => verifyInstalledSkill(root), /npm run install-local/);
     await writeFile(path.join(root, '.claude', 'skills', 'where-tokens-went', 'bundle-version.json'), JSON.stringify(bundle) + '\n');
     assert.deepEqual(verifyInstalledSkill(root), bundle);
+    await writeFile(path.join(root, '.agents', 'skills', 'where-tokens-went', 'SKILL.md'), 'tampered');
+    assert.throws(() => verifyInstalledSkill(root), /content differs/);
+    const runtimePreflight = await runCli(['report-run', 'prepare', '--harness', 'codex', '--cwd', root, '--since', '7d', '--run-dir', path.join(root, 'run')], { WHERE_TOKENS_WENT_REPO_ROOT: root });
+    assert.equal(runtimePreflight.code, 2);
+    assert.match(runtimePreflight.stderr, /content differs/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -90,6 +95,17 @@ test('stale preflight creates no Run artifact', async () => {
     assert.equal(result.code, 2);
     assert.match(result.stderr, /npm run install-local/);
     assert.equal(require('node:fs').existsSync(runDir), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('install-skills recovers both Harness installs and runs the same preflight', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-install-recovery-test-'));
+  try {
+    const result = spawnSync(process.execPath, [path.resolve(__dirname, '..', 'scripts', 'install-skills.js'), root], { cwd: path.resolve(__dirname, '..'), encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(verifyInstalledSkill(root, path.resolve(__dirname, '..')).bundleVersion, JSON.parse(require('node:fs').readFileSync(path.resolve(__dirname, '..', 'skills', 'where-tokens-went', 'bundle-version.json'), 'utf8')).bundleVersion);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

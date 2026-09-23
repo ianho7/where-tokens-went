@@ -189,8 +189,6 @@ function validateReportSynthesis(audit, synthesis) {
     else {
         if (candidate.findings.length > 5)
             errors.push("Report synthesis cannot contain more than five Findings.");
-        if (candidate.findings.length === 1)
-            errors.push("Report synthesis requires at least two Findings when findings are present, or return zero findings with noStrongFindingReason.");
         for (const [index, finding] of candidate.findings.entries()) {
             if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
                 errors.push("Finding " + index + " is malformed.");
@@ -248,6 +246,8 @@ function validateReportSynthesis(audit, synthesis) {
                 errors.push("Overview is an interchangeable restatement of Finding " + index + ".");
         }
     }
+    if (Array.isArray(candidate.findings) && candidate.findings.length === 1)
+        errors.push("Report synthesis requires at least two Findings when findings are present, or return zero findings with noStrongFindingReason.");
     const uniqueErrors = [...new Set(errors)];
     return { valid: uniqueErrors.length === 0, errors: uniqueErrors, synthesis: uniqueErrors.length === 0 ? candidate : null };
 }

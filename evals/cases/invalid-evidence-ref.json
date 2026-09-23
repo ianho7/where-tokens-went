@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "invalid-evidence-ref",
+  "lane": "key-session-analysis",
+  "class": "regression",
+  "split": "regression",
+  "inputArtifact": "evals/fixtures/invalid-evidence-ref.json",
+  "inputHash": "0881dc8b2b499aa62234b666b432126e58b0d0f25054e852393189372de80d02",
+  "expectedOutcome": "cross-scope Evidence is rejected before semantic grading",
+  "deterministicExpectations": ["Evidence references resolve to the selected Session", "invalid output has a field path"],
+  "rubricId": "key-session-grounding",
+  "originFailure": "Evidence was invalid or outside the selected Scope",
+  "privacy": "redacted"
+}
