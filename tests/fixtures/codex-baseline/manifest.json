@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "purpose": "Redacted real Codex inputs for later comparison; prior Audit observations are not accepted expected values.",
+  "redactionMethod": "Pseudonymize session/turn/response/call identifiers; replace project paths; retain timestamps, schema labels, model/provider identifiers and numeric facts; replace other string values with deterministic text preserving UTF-8 byte and character counts.",
+  "independentRedactionReview": "passed",
+  "cases": [
+    {
+      "caseId": "small",
+      "harness": "codex",
+      "sourceSessionIdSha256": "8ccf95f5daa167c0b6c0ebb36e0c9f881001406c04882677b8a2f60cda8ae836",
+      "sourceFile": "<CODEX_HOME>/sessions/2026/09/21/rollout-2026-09-21T16-06-49-<session-id-redacted>.jsonl",
+      "sourceSha256": "a7e3609c59bea96e8ee87d3cabdd2a833e0b474606d417cc3b33ec7fb76642ee",
+      "sourceBytes": 182562,
+      "recordCount": 17,
+      "recordTypes": {
+        "session_meta": 1,
+        "response_item": 6,
+        "compaction": 1,
+        "event_msg": 7,
+        "thread_settings_applied": 2,
+        "task_started": 1,
+        "message": 4,
+        "world_state": 1,
+        "turn_context": 1,
+        "item_completed": 2,
+        "reasoning": 1,
+        "token_usage_record": 1,
+        "token_count": 1,
+        "task_complete": 1
+      },
+      "fixtureFile": "small.jsonl",
+      "fixtureSha256": "b9275a3181f34a24d3cdb4990f876b46c235a3969ccc1071f3574b2a47882abd",
+      "fixtureBytes": 181936,
+      "redaction": {
+        "pathsRedacted": 5,
+        "idsPseudonymized": 29,
+        "stringValuesRedacted": 248,
+        "timestampsPreserved": true,
+        "projectPathsReplaced": true,
+        "freeTextByteAndCharacterLengthsPreserved": true
+      },
+      "priorAuditObservation": {
+        "turns": 1,
+        "toolCalls": 0,
+        "totalTokens": 26869,
+        "status": "pending_reverification",
+        "reference": "REWRITE_PLAN.md candidate table"
+      }
+    },
+    {
+      "caseId": "normal",
+      "harness": "codex",
+      "sourceSessionIdSha256": "23c0642255f9f48a27169108de835961831de4f642ad97044ab0c689ea4f6183",
+      "sourceFile": "<CODEX_HOME>/sessions/2026/09/15/rollout-2026-09-15T16-39-32-<session-id-redacted>.jsonl",
+      "sourceSha256": "6f9774d64af3ff4e028b6658fffa941b7b119686e7fd888fdab4a6bc68cbf9d2",
+      "sourceBytes": 1500481,
+      "recordCount": 173,
+      "recordTypes": {
+        "session_meta": 1,
+        "response_item": 49,
+        "compaction": 1,
+        "event_msg": 92,
+        "thread_settings_applied": 16,
+        "task_started": 15,
+        "message": 33,
+        "world_state": 1,
+        "turn_context": 15,
+        "item_completed": 31,
+        "reasoning": 15,
+        "token_usage_record": 15,
+        "token_count": 15,
+        "task_complete": 15
+      },
+      "fixtureFile": "normal.jsonl",
+      "fixtureSha256": "b166e1f2bebe45ae2d4115bfb7852e55d76236f98eadd9c5c4fa262c39daa40a",
+      "fixtureBytes": 1499472,
+      "redaction": {
+        "pathsRedacted": 33,
+        "idsPseudonymized": 314,
+        "stringValuesRedacted": 2703,
+        "timestampsPreserved": true,
+        "projectPathsReplaced": true,
+        "freeTextByteAndCharacterLengthsPreserved": true
+      },
+      "priorAuditObservation": {
+        "turns": 15,
+        "toolCalls": 31,
+        "totalTokens": 1636883,
+        "status": "pending_reverification",
+        "reference": "REWRITE_PLAN.md candidate table"
+      }
+    },
+    {
+      "caseId": "long-context",
+      "harness": "codex",
+      "sourceSessionIdSha256": "b6bebb330039f6b4127ee4d110215a039da1a10e122f1d4eff52a31137116811",
+      "sourceFile": "<CODEX_HOME>/sessions/2026/09/17/rollout-2026-09-17T17-13-02-<session-id-redacted>.jsonl",
+      "sourceSha256": "b5ecbda77a4edc744e096fa46a9ab57099d5ac3fb7895d71ca8c4f8e0f62a9a6",
+      "sourceBytes": 9766406,
+      "recordCount": 3995,
+      "recordTypes": {
+        "session_meta": 1,
+        "event_msg": 1726,
+        "task_started": 22,
+        "response_item": 1682,
+        "message": 53,
+        "world_state": 6,
+        "turn_context": 22,
+        "item_completed": 1089,
+        "reasoning": 549,
+        "function_call": 540,
+        "token_usage_record": 558,
+        "function_call_output": 540,
+        "token_count": 558,
+        "task_complete": 21,
+        "thread_settings_applied": 35,
+        "turn_aborted": 1
+      },
+      "fixtureFile": "long-context.jsonl",
+      "fixtureSha256": "8c586cfbe1b268625857e14dac6db15e1d40dc8993fcb2a924fdcc5e5f0e9795",
+      "fixtureBytes": 9545752,
+      "redaction": {
+        "pathsRedacted": 553,
+        "idsPseudonymized": 10103,
+        "stringValuesRedacted": 10506,
+        "timestampsPreserved": true,
+        "projectPathsReplaced": true,
+        "freeTextByteAndCharacterLengthsPreserved": true
+      },
+      "priorAuditObservation": {
+        "turns": 22,
+        "totalTokens": 199076168,
+        "status": "pending_reverification",
+        "reference": "REWRITE_PLAN.md candidate table"
+      }
+    }
+  ]
+}

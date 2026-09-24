@@ -93,10 +93,10 @@ interface CliOptions {
 
 function usage(): string {
   return [
-    "Usage: where-tokens-went inspect --harness <claude|codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
-    "       where-tokens-went inspect --harness <claude|codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
+    "Usage: where-tokens-went inspect --harness <codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
+    "       where-tokens-went inspect --harness <codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
     "       where-tokens-went compose-report --locale zh-CN|en-US --font <font-file> [--font-family <name>] --html <final-path> < composition JSON envelope",
-    "       where-tokens-went report-run prepare --harness <claude|codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
+    "       where-tokens-went report-run prepare --harness <codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
     "       where-tokens-went report-run evidence --run-dir <directory> < evidence selection JSON",
     "       where-tokens-went report-run evidence --run-dir <directory> --auto",
     "       where-tokens-went report-run ai-start|ai-accept|ai-fallback --run-dir <directory> --lane <lane> ...",
@@ -148,7 +148,8 @@ export function parseArgs(args: string[], now = Date.now()): CliOptions {
     if (flag === "--harness") {
       const value = requireValue(args, index, flag);
       index += 1;
-      if (value !== "codex" && value !== "claude") throw new Error(`Unsupported Harness ${value}; supported Harnesses are claude and codex.\n${usage()}`);
+      if (value === "claude") throw new Error("Claude Code support is paused. 此调用未读取 Claude Code 或 Codex 历史记录。请在 Codex 中调用 where-tokens-went。\n" + usage());
+      if (value !== "codex") throw new Error(`Unsupported Harness ${value}; the active Harness is codex.\n${usage()}`);
       harness = value as Harness;
     } else if (flag === "--cwd") {
       cwd = requireValue(args, index, flag);

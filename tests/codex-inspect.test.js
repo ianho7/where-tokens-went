@@ -51,6 +51,24 @@ async function runAudit(args, env) {
   });
 }
 
+async function readClaudeAt(claudeHome, scope, reader = readClaude) {
+  const previous = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = claudeHome;
+  try {
+    return await reader(scope);
+  } finally {
+    if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previous;
+  }
+}
+
+function assertClaudePaused(error) {
+  const message = String(error.stderr || error.message || error);
+  assert.match(message, /Claude Code support is paused/i);
+  assert.match(message, /未读取 Claude Code 或 Codex 历史记录/);
+  return true;
+}
+
 async function runBundledCodex(args, env) {
   return execFileAsync(process.execPath, [bundledCodexPath, ...args], {
     env: { ...process.env, ...env },
@@ -155,21 +173,30 @@ test('where-tokens-went Skill makes report delivery an atomic HTML-and-diagnosis
   assert.match(skill, /Regenerate an affected invalid entry once/i);
 });
 
-test('where-tokens-went works from both supported Harnesses', async () => {
+test('Codex is active and Claude Code requests receive a clear paused-support response', async () => {
   const skill = await readFile(path.join(bundledSkillRoot, 'SKILL.md'), 'utf8');
-  for (const harness of ['codex', 'claude']) {
-    assert.match(skill, new RegExp('`' + harness + '`'));
-    assert.match(skill, /Current Project versus Global Audit/);
-    assert.match(skill, /Finding, Evidence, mechanism, action when justified, and material uncertainty/);
-    assert.match(skill, /report-synthesis\.md.*in full/i);
-    assert.match(skill, /key-session-analysis\.md` in full/i);
-    assert.match(skill, /validated .*reportSynthesis.*null/);
-    assert.match(skill, /Open only that final HTML/i);
-    assert.match(skill, /same conversation turn produces and opens the final local HTML containing a validated Audit Overview and report-level Findings/i);
-    assert.match(skill, /rather than manufacture a verdict/i);
-    assert.match(skill, /cross-Session portability test/i);
-    assert.match(skill, /Regenerate an affected invalid entry once/i);
-  }
+  assert.match(skill, /Use this Skill in Codex/i);
+  assert.match(skill, /Claude Code.{0,100}(?:paused|暂停支持)/is);
+  assert.match(skill, /Claude Code support is paused\. No history was read\./);
+  assert.match(skill, /Current Project versus Global Audit/);
+  assert.match(skill, /Finding, Evidence, mechanism, action when justified, and material uncertainty/);
+  assert.match(skill, /report-synthesis\.md.*in full/i);
+  assert.match(skill, /key-session-analysis\.md` in full/i);
+  assert.match(skill, /validated .*reportSynthesis.*null/);
+  assert.match(skill, /Open only that final HTML/i);
+  assert.match(skill, /same conversation turn produces and opens the final local HTML containing a validated Audit Overview and report-level Findings/i);
+  assert.match(skill, /rather than manufacture a verdict/i);
+  assert.match(skill, /cross-Session portability test/i);
+  assert.match(skill, /Regenerate an affected invalid entry once/i);
+
+  await assert.rejects(
+    () => runAudit(['inspect', '--harness', 'claude', '--all-projects'], {}),
+    assertClaudePaused,
+  );
+  await assert.rejects(
+    () => runAudit(['report-run', 'prepare', '--harness', 'claude', '--cwd', os.tmpdir()], {}),
+    assertClaudePaused,
+  );
 });
 
 test('native Skill installation exposes one fixed Harness entry per platform', async () => {
@@ -312,7 +339,7 @@ test('normal Skill acquisition does not create preliminary HTML and the packaged
   }
 });
 
-test('each copied Skill runs its bundled deterministic tool without the source checkout', async () => {
+test('copied Codex Skill runs its bundled tool while Claude Code CLI requests stay paused', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-bundled-skill-'));
   const project = path.join(root, 'project');
   const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
@@ -320,44 +347,47 @@ test('each copied Skill runs its bundled deterministic tool without the source c
     codex: path.join(root, '.agents', 'skills', 'where-tokens-went', 'scripts', 'where-tokens-went.js'),
     claude: path.join(root, '.claude', 'skills', 'where-tokens-went', 'scripts', 'where-tokens-went.js'),
   };
-  const envByHarness = {
-    codex: { CODEX_HOME: path.join(root, 'missing-codex') },
-    claude: { CLAUDE_CONFIG_DIR: path.join(root, 'missing-claude') },
-  };
+  const codexEnv = { CODEX_HOME: path.join(root, 'missing-codex') };
   await mkdir(project, { recursive: true });
   try {
     await execFileAsync(process.execPath, [installer, root]);
-    for (const harness of Object.keys(installed)) {
-      const inspectArgs = [
-        installed[harness],
-        'inspect', '--harness', harness, '--cwd', project, '--since', '7d', '--format', 'json',
-      ];
-      const { stdout } = await execFileAsync(process.execPath, inspectArgs, {
-        env: { ...process.env, ...envByHarness[harness] },
-        maxBuffer: 1024 * 1024,
-      });
-      const result = JSON.parse(stdout);
-      assert.equal(result.scope.harness, harness);
-      assert.equal(result.summary.sessionCount.value, 0);
-      assert.equal(result.summary.totalTokens.value, null);
+    const inspectArgs = [
+      installed.codex,
+      'inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json',
+    ];
+    const { stdout } = await execFileAsync(process.execPath, inspectArgs, {
+      env: { ...process.env, ...codexEnv },
+      maxBuffer: 1024 * 1024,
+    });
+    const result = JSON.parse(stdout);
+    assert.equal(result.scope.harness, 'codex');
+    assert.equal(result.summary.sessionCount.value, 0);
+    assert.equal(result.summary.totalTokens.value, null);
 
-      const htmlPath = path.join(root, harness + '-subset-report.html');
-      await execFileAsync(process.execPath, [...inspectArgs, '--html', htmlPath], {
-        env: { ...process.env, ...envByHarness[harness] },
+    const htmlPath = path.join(root, 'codex-subset-report.html');
+    await execFileAsync(process.execPath, [...inspectArgs, '--html', htmlPath], {
+      env: { ...process.env, ...codexEnv },
+      maxBuffer: 1024 * 1024,
+    });
+    const html = await readFile(htmlPath, 'utf8');
+    const fonts = [...html.matchAll(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/g)];
+    assert.equal(fonts.length, 2);
+    assert.equal(html.match(/format\("woff2"\)/g)?.length, 2);
+    for (const font of fonts) assert.equal(Buffer.from(font[1], 'base64').subarray(0, 4).toString('ascii'), 'wOF2');
+
+    await assert.rejects(
+      () => execFileAsync(process.execPath, [installed.claude, 'inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json'], {
+        env: { ...process.env, CLAUDE_CONFIG_DIR: path.join(root, 'missing-claude') },
         maxBuffer: 1024 * 1024,
-      });
-      const html = await readFile(htmlPath, 'utf8');
-      const fonts = [...html.matchAll(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/g)];
-      assert.equal(fonts.length, 2);
-      assert.equal(html.match(/format\("woff2"\)/g)?.length, 2);
-      for (const font of fonts) assert.equal(Buffer.from(font[1], 'base64').subarray(0, 4).toString('ascii'), 'wOF2');
-    }
+      }),
+      assertClaudePaused,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test('packaged Codex and Claude runtimes preserve new evidence facts outside the checkout', async () => {
+test('packaged Codex runtime stays active and the frozen Claude Reader remains shipped', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-packaged-evidence-'));
   const project = path.join(root, 'project');
   const installer = path.resolve(__dirname, '..', 'scripts', 'install-skills.js');
@@ -385,25 +415,29 @@ test('packaged Codex and Claude runtimes preserve new evidence facts outside the
       codex: path.join(root, '.agents', 'skills', 'where-tokens-went', 'scripts', 'where-tokens-went.js'),
       claude: path.join(root, '.claude', 'skills', 'where-tokens-went', 'scripts', 'where-tokens-went.js'),
     };
-    const cases = [
-      ['codex', { CODEX_HOME: codexHome }],
-      ['claude', { CLAUDE_CONFIG_DIR: claudeHome }],
-    ];
-    for (const [harness, env] of cases) {
-      const args = ['inspect', '--harness', harness, '--cwd', project, '--since', '7d', '--format', 'json'];
-      const [{ stdout: sourceOutput }, { stdout: packagedOutput }] = await Promise.all([
-        runAudit(args, env),
-        execFileAsync(process.execPath, [installed[harness], ...args], { env: { ...process.env, ...env }, maxBuffer: 1024 * 1024 }),
-      ]);
-      const source = JSON.parse(sourceOutput);
-      const packaged = JSON.parse(packagedOutput);
-      assert.deepEqual(packaged.summary, source.summary);
-      assert.deepEqual(packaged.coverage, source.coverage);
-      assert.deepEqual(packaged.report.dailyUsage, source.report.dailyUsage);
-      assert.deepEqual(packaged.report.cacheEconomics, source.report.cacheEconomics);
-      assert.deepEqual(packaged.report.firstRequestBurden, source.report.firstRequestBurden);
-      assert.deepEqual(packaged.report.skills, source.report.skills);
-    }
+    const args = ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'];
+    const [{ stdout: sourceOutput }, { stdout: packagedOutput }] = await Promise.all([
+      runAudit(args, { CODEX_HOME: codexHome }),
+      execFileAsync(process.execPath, [installed.codex, ...args], { env: { ...process.env, CODEX_HOME: codexHome }, maxBuffer: 1024 * 1024 }),
+    ]);
+    const source = JSON.parse(sourceOutput);
+    const packaged = JSON.parse(packagedOutput);
+    assert.deepEqual(packaged.summary, source.summary);
+    assert.deepEqual(packaged.coverage, source.coverage);
+    assert.deepEqual(packaged.report.dailyUsage, source.report.dailyUsage);
+    assert.deepEqual(packaged.report.cacheEconomics, source.report.cacheEconomics);
+    assert.deepEqual(packaged.report.firstRequestBurden, source.report.firstRequestBurden);
+    assert.deepEqual(packaged.report.skills, source.report.skills);
+
+    const scope = { cwd: project, allProjects: false, since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
+    const sourceReader = await readClaudeAt(claudeHome, scope);
+    const packagedReaderPath = path.join(path.dirname(installed.claude), 'runtime', 'claude-reader.js');
+    const packagedReader = require(packagedReaderPath).readClaude;
+    const packagedReaderResult = await readClaudeAt(claudeHome, scope, packagedReader);
+    assert.deepEqual(packagedReaderResult.modelCalls, sourceReader.modelCalls);
+    assert.deepEqual(packagedReaderResult.toolCalls, sourceReader.toolCalls);
+    assert.deepEqual(packagedReaderResult.coverage, sourceReader.coverage);
+    await require('node:fs/promises').access(installed.claude);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -415,7 +449,7 @@ test('CLI rejects suspended Pi and DeepSeek Harness values', async () => {
       runAudit(['inspect', '--harness', harness, '--cwd', os.tmpdir(), '--since', '7d', '--format', 'json']),
       (error) => {
         assert.equal(error.code, 2);
-        assert.match(error.stderr, /supported Harnesses are claude and codex/i);
+        assert.match(error.stderr, /active Harness is codex/i);
         return true;
       },
     );
@@ -1374,7 +1408,7 @@ test('Codex Global Audit widens projects without crossing the Harness boundary',
   }
 });
 
-test('Claude Code Skill path deduplicates assistant usage and pairs tool results', async () => {
+test('frozen Claude Reader deduplicates assistant usage, pairs tool results, and omits private content', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-claude-'));
   const project = path.join(root, 'project');
   const claudeHome = path.join(root, 'claude-home');
@@ -1393,11 +1427,9 @@ test('Claude Code Skill path deduplicates assistant usage and pairs tool results
   await writeFile(path.join(transcripts, 'claude-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
 
   try {
-    const { stdout } = await runAudit(
-      ['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json'],
-      { CLAUDE_CONFIG_DIR: claudeHome },
-    );
-    const result = JSON.parse(stdout);
+    const scope = { cwd: project, allProjects: false, since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
+    const read = await readClaudeAt(claudeHome, scope);
+    const result = analyseAudit(scope, read, 'claude');
 
     assert.equal(result.scope.harness, 'claude');
     assert.equal(result.summary.sessionCount.value, 1);
@@ -1417,30 +1449,28 @@ test('Claude Code Skill path deduplicates assistant usage and pairs tool results
   }
 });
 
-test('every supported Harness emits the same safe empty-result contract', async () => {
+test('active Codex and frozen Claude Reader retain the same safe empty-result facts', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-empty-'));
   const project = path.join(root, 'project');
   await mkdir(project, { recursive: true });
-  const envByHarness = {
-    codex: { CODEX_HOME: path.join(root, 'missing-codex') },
-    claude: { CLAUDE_CONFIG_DIR: path.join(root, 'missing-claude') },
-  };
+  const scope = { cwd: project, allProjects: false, since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
 
   try {
-    for (const [harness, env] of Object.entries(envByHarness)) {
-      const args = ['inspect', '--harness', harness, '--cwd', project, '--since', '7d', '--format', 'json'];
-      const { stdout: jsonText } = await runAudit(args, env);
-      const result = JSON.parse(jsonText);
-      assert.equal(result.scope.harness, harness);
+    const { stdout } = await runAudit(
+      ['inspect', '--harness', 'codex', '--cwd', project, '--since', '7d', '--format', 'json'],
+      { CODEX_HOME: path.join(root, 'missing-codex') },
+    );
+    const codex = JSON.parse(stdout);
+    const claude = analyseAudit(scope, await readClaudeAt(path.join(root, 'missing-claude'), scope), 'claude');
+    for (const result of [codex, claude]) {
       assert.equal(result.summary.sessionCount.value, 0);
       assert.equal(result.summary.totalTokens.value, null);
       assert.equal(result.summary.totalTokens.provenance, 'unavailable');
       assert.ok(result.checks.every((check) => check.id === 'data_quality'));
-
-      const { stdout: textOutput } = await runAudit([...args.slice(0, -1), 'text'], env);
-      assert.match(textOutput, new RegExp(`Usage: ${harness}`));
-      assert.match(textOutput, /unavailable/);
     }
+    assert.equal(codex.scope.harness, 'codex');
+    assert.equal(claude.scope.harness, 'claude');
+    assert.match(renderText(claude, 'en-US'), /unavailable/i);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1467,11 +1497,9 @@ test('shared Token composition derives Claude totals without reasoning and split
   ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
 
   try {
-    const [{ stdout: claudeOutput }, { stdout: codexOutput }] = await Promise.all([
-      runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json'], { CLAUDE_CONFIG_DIR: claudeHome }),
-      runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'], { CODEX_HOME: codexHome }),
-    ]);
-    const claude = JSON.parse(claudeOutput);
+    const claudeScope = { cwd: project, allProjects: false, since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
+    const claude = analyseAudit(claudeScope, await readClaudeAt(claudeHome, claudeScope), 'claude');
+    const { stdout: codexOutput } = await runAudit(['inspect', '--harness', 'codex', '--cwd', project, '--since', '30d', '--format', 'json'], { CODEX_HOME: codexHome });
     const codex = JSON.parse(codexOutput);
     assert.equal(claude.summary.totalTokens.value, 130);
     assert.equal(claude.summary.totalTokens.provenance, 'derived');
@@ -1496,8 +1524,6 @@ test('cache ratios aggregate compatible Token buckets and report lower compositi
   const project = path.join(root, 'project');
   const claudeHome = path.join(root, 'claude-home');
   const transcriptRoot = path.join(claudeHome, 'projects', 'project');
-  const htmlPath = path.join(root, 'report.html');
-  const sharePath = path.join(root, 'share.md');
   await mkdir(project, { recursive: true });
   await mkdir(transcriptRoot, { recursive: true });
   const timestamp = isoHoursAgo(1);
@@ -1509,22 +1535,19 @@ test('cache ratios aggregate compatible Token buckets and report lower compositi
   ];
   await writeFile(path.join(transcriptRoot, 'cache-session.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
   try {
-    const env = { CLAUDE_CONFIG_DIR: claudeHome };
-    const { stdout } = await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json'], env);
-    const result = JSON.parse(stdout);
+    const scope = { cwd: project, allProjects: false, since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
+    const result = analyseAudit(scope, await readClaudeAt(claudeHome, scope), 'claude');
     assert.equal(result.report.cacheEconomics.cacheReadRatePercent.value, 52.63);
     assert.equal(result.report.cacheEconomics.cacheWriteRatePercent.value, 0);
     assert.equal(result.report.cacheEconomics.totalInputTokens.value, 190);
     assert.equal(result.report.cacheEconomics.coveragePercent.value, 79.25);
     assert.match(result.report.cacheEconomics.limitations.join(' '), /incompatible|composition/i);
 
-    const { stdout: textOutput } = await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'text', '--view', 'usage'], env);
+    const textOutput = renderText({ ...result, view: 'usage' }, 'en-US');
     assert.match(textOutput, /cache-read rate|缓存读取率/i);
     assert.match(textOutput, /52\.63/);
-    await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json', '--html', htmlPath], env);
-    await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json', '--share', sharePath], env);
-    assert.match(await readFile(htmlPath, 'utf8'), /52\.63|cache-read rate|缓存读取率/i);
-    assert.match(await readFile(sharePath, 'utf8'), /52\.63|cache-read rate|缓存读取率/i);
+    assert.match(renderHtml(result, 'en-US'), /52\.63|cache-read rate|缓存读取率/i);
+    assert.match(renderShare(result, 'en-US'), /52\.63|cache-read rate|缓存读取率/i);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1732,7 +1755,7 @@ test('first-request burden selects one earliest deduplicated call and separates 
   }
 });
 
-test('Claude Code Skill evidence keeps listing, invocation, attribution, and final cost snapshot distinct', async () => {
+test('frozen Claude Reader keeps skill evidence and final cost snapshot distinct', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-claude-skills-'));
   const project = path.join(root, 'project');
   const claudeHome = path.join(root, 'claude-home');
@@ -1751,8 +1774,8 @@ test('Claude Code Skill evidence keeps listing, invocation, attribution, and fin
   ];
   await writeFile(path.join(transcriptRoot, 'claude-skills.jsonl'), records.map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
   try {
-    const { stdout } = await runAudit(['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d', '--format', 'json'], { CLAUDE_CONFIG_DIR: claudeHome });
-    const result = JSON.parse(stdout);
+    const scope = { cwd: project, allProjects: false, since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
+    const result = analyseAudit(scope, await readClaudeAt(claudeHome, scope), 'claude');
     const byName = new Map(result.report.skills.map((skill) => [skill.name, skill]));
     assert.equal(result.summary.reportedCost.value, 2.5);
     assert.equal(byName.get('listed-skill').state, 'available');
@@ -1832,8 +1855,6 @@ test('joint evidence facts stay aligned across JSON, text, share, and standalone
   const project = path.join(root, 'project');
   const claudeHome = path.join(root, 'claude-home');
   const transcriptRoot = path.join(claudeHome, 'projects', 'project');
-  const htmlPath = path.join(root, 'joint.html');
-  const sharePath = path.join(root, 'joint.md');
   await mkdir(project, { recursive: true });
   await mkdir(transcriptRoot, { recursive: true });
   const timestamp = isoHoursAgo(1);
@@ -1843,13 +1864,13 @@ test('joint evidence facts stay aligned across JSON, text, share, and standalone
     { type: 'assistant', session_id: 'joint-session', cwd: project, provider: 'anthropic', attributionSkill: 'joint-skill', timestamp, message: { id: 'joint-call', role: 'assistant', model: 'claude-sonnet-5', usage: { input_tokens: 20, cache_read_input_tokens: 10, cache_creation_input_tokens: 5, cache_creation: { ephemeral_5m_input_tokens: 5 }, output_tokens: 5, total_tokens: 40 } } },
   ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
   try {
-    const env = { CLAUDE_CONFIG_DIR: claudeHome };
-    const baseArgs = ['inspect', '--harness', 'claude', '--cwd', project, '--since', '7d'];
-    const { stdout: jsonOutput } = await runAudit([...baseArgs, '--locale', 'zh-CN', '--format', 'json', '--html', htmlPath, '--share', sharePath], env);
-    const { stdout: textOutput } = await runAudit([...baseArgs, '--format', 'text', '--view', 'full'], env);
-    const html = await readFile(htmlPath, 'utf8');
-    const share = await readFile(sharePath, 'utf8');
-    const result = JSON.parse(jsonOutput);
+    const scope = { cwd: project, allProjects: false, since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
+    const read = await readClaudeAt(claudeHome, scope);
+    const result = analyseAudit(scope, read, 'claude');
+    const jsonOutput = JSON.stringify(result);
+    const textOutput = renderText(result, 'zh-CN');
+    const share = renderShare(result, 'zh-CN');
+    const html = renderHtml(result, 'zh-CN', undefined, read.firstUserMessages);
     assert.equal(result.report.cacheEconomics.cacheReadRatePercent.value, 28.57);
     assert.equal(result.report.cacheEconomics.cacheWriteRatePercent.value, 14.29);
     assert.equal(result.report.cacheEconomics.cacheSavingsPercent.value, 12.92);

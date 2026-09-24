@@ -1,10 +1,10 @@
 # where-tokens-went MVP：Claude Code 与 Codex 的历史数据源与 Reader 约定
 
-> 调研快照：2026-09-11。当前实现仅支持 Claude Code 和 OpenAI Codex。Pi（`earendil-works/pi`）与 DeepSeek Harness 的 Reader 暂停支持；下方对应章节保留为未来恢复参考，不代表当前 CLI、Skill 或安装脚本仍支持它们。目标是：工具由哪个 Harness 调用，就只读取该 Harness、当前项目的既有本地历史；不默认扫描其他 Harness，也不把实时采集放进 MVP。
+> 调研快照：2026-09-11；当前产品状态以 2026-09-24 决策为准：仅 Codex 为活跃 Harness，Claude Code、Pi（`earendil-works/pi`）与 DeepSeek Harness 暂停支持。Claude Reader、定向测试和本页数据源说明保留为恢复参考；CLI 与 Skill 会拒绝 Claude 请求，不改读其他 Harness。目标是：工具由哪个 Harness 调用，就只读取该 Harness、当前项目的既有本地历史；不默认扫描其他 Harness，也不把实时采集放进 MVP。
 
 ## 结论先行
 
-当前支持的两种 Harness 都能支撑“当前 Harness / 当前项目 / 最近一段时间”的历史诊断，但接口稳定性不对称：
+Claude Code 与 Codex 的历史数据都可供相应 Reader 使用，但当前只有 Codex 是活跃 Harness；接口稳定性不对称：
 
 | Harness | MVP 首选历史源 | 可得到的关键事实 | 主要风险 |
 |---|---|---|---|
@@ -251,12 +251,12 @@ DeepSeek Harness 把 session 定义为 append-only `SessionEvent` 日志，是�
 
 ## 实施优先级与验收
 
-当前实现优先验证 Codex → Claude Code：
+当前实现只验证 Codex：
 
 1. **Codex**：先用真实 rollout 打通“当前 cwd 最近 7 天 → 最大 token session → 最大工具输出/错误 → 一条证据化建议”。
-2. **Claude Code**：验证相同最小输出契约能容纳另一种 JSONL，并实现响应去重。
+2. **Claude Code（冻结）**：Reader 与响应去重测试保留；恢复前重新核实数据源并定向验收，不属于当前活跃实现。
 
-每个当前支持的 Reader 的最低验收只需要一份用户自己的脱敏历史样本：
+每个准备启用的 Reader 的最低验收只需要一份用户自己的脱敏历史样本：
 
 - 能按当前 cwd 找到正确 session，不碰其他 Harness；
 - 总 usage 与 Harness 自己显示的量级一致；

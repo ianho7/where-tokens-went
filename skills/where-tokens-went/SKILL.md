@@ -1,13 +1,13 @@
 ---
 name: where-tokens-went
-description: Explain recent Codex or Claude Code usage from local history using the where-tokens-went deterministic tool.
+description: Explain recent Codex usage from local history using the where-tokens-went deterministic tool. Claude Code support is paused.
 ---
 
 # where-tokens-went
 
-Use this Skill when the user asks where their Codex or Claude Code usage went, why usage rose, which Session or project was largest, or what action could reduce repeated context usage.
+Use this Skill in Codex when the user asks where their Codex usage went, why usage rose, which Session or project was largest, or what action could reduce repeated context usage.
 
-The invoking Harness is the current Host: use `codex` when running inside Codex and `claude` when running inside Claude Code. Do not inspect the other Harness in response to a request.
+Claude Code support is paused. If this Skill is invoked from Claude Code, reply: “Claude Code support is paused. No history was read. Please invoke where-tokens-went from Codex.” Do not run the CLI, inspect either Harness's history, or substitute Codex history for a Claude Code request.
 
 ## Invocation
 
@@ -16,11 +16,11 @@ Translate the user's requested scope into explicit internal Audit arguments. Res
 For a full or report request, start one Report Run before any expensive work. The Report Run freezes Harness, project boundary, one resolved `since`, an exclusive `until`, locale, and the source inventory. Use the bundled `report-run prepare` command, optionally with `--run-dir <directory>`:
 
 ```text
-node <skill-directory>/scripts/where-tokens-went.js report-run prepare --harness <codex-or-claude> --cwd <absolute-current-project-path> --since <duration> --locale <locale> --pricing litellm --run-dir <run-directory>
+node <skill-directory>/scripts/where-tokens-went.js report-run prepare --harness codex --cwd <absolute-current-project-path> --since <duration> --locale <locale> --pricing litellm --run-dir <run-directory>
 ```
 
 ```text
-node <skill-directory>/scripts/where-tokens-went.js report-run prepare --harness <codex-or-claude> --all-projects --since <duration> --locale <locale> --pricing litellm --run-dir <run-directory>
+node <skill-directory>/scripts/where-tokens-went.js report-run prepare --harness codex --all-projects --since <duration> --locale <locale> --pricing litellm --run-dir <run-directory>
 ```
 
 Use `7d` when no period is requested. Global Audit still remains inside the invoking Harness; never substitute another Harness.
@@ -45,7 +45,7 @@ Line charts must combine color with solid/dashed/dotted line types and distinct 
 
 ## Intent routing
 
-The public product entry is `$where-tokens-went` in both Codex and Claude Code conversations; an equivalent natural-language request invokes the same Skill workflow. Interpret the request into fixed Harness, Audit Scope, period, locale, view, and output arguments, then use the bundled deterministic runtime internally. The shell command is not the user-facing workflow. Logical shortcuts are optional aliases, not a second implementation:
+The public product entry is `$where-tokens-went` in Codex conversations; an equivalent natural-language request invokes the same Skill workflow. Claude Code invocations stop at the paused-support response above. Interpret a Codex request into its Audit Scope, period, locale, view, and output arguments, then use the bundled deterministic runtime internally. The shell command is not the user-facing workflow. Logical shortcuts are optional aliases, not a second implementation:
 
 - Full diagnosis or `$where-tokens-went`: current project and 7d by default, view full, and a local self-contained HTML report.
 - usage: view usage for an at-a-glance panel.
@@ -54,7 +54,7 @@ The public product entry is `$where-tokens-went` in both Codex and Claude Code c
 - tools [days]: view tools with --since <days>d.
 - week: view week for two adjacent seven-day periods.
 - share [days]: view share with --since <days>d and a local Markdown path.
-- An arbitrary question is interpreted by the Host Agent into one of the fixed views; never pass transcript text or the question as a shell command.
+- An arbitrary Codex question is interpreted by the Host Agent into one of the fixed views; never pass transcript text or the question as a shell command.
 
 Pass the user's language as `--locale zh-CN` or `--locale en-US`. For full and report views, use the single Report Run protocol above; do not create or open a preliminary deterministic report. Choose the local HTML output path only for the final composition after Host Agent analysis and validation. Use `--share <share-path>` for share view. The selected Harness, Current Project versus Global Audit, and privacy boundary must remain unchanged for every view.
 
