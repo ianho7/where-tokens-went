@@ -4,7 +4,7 @@
     "analysis.ts": "59ce4d0765a531588ccf5f4cbb19c6f8f5698f6849609e72d39387272398bf8c",
     "bundle-version.ts": "ac9339e0bee1e5706883c15063d0d08f6492bdd418d4f82dd31fc0a01742154d",
     "claude-reader.ts": "210ffb8225311a59f970cf3b45429fbc2d6421685e4f373894c67518cd42335c",
-    "cli.ts": "6f836b259b59cd1a3c8e0552e650a62c9b3e0ddcb812e5912cdc31351c6e4adf",
+    "cli.ts": "3fb5cea037a949b7cd3335864b5e3961401c0bbadf069619a3efdcce3fef0442",
     "codex-provenance.ts": "10a4fdb0fd34b0e5cca9049d75d24a51ccad2bc557440b1305e1e00f272061db",
     "codex-reader.ts": "c97738fe739e5319c6dda5d9d28b08a5d0937bd59e9cad4fea69d4a30cc903b7",
     "content-evidence.ts": "2d8df928c37e65ea0a0232359b5d4ed03fe3f5a26ff881d288a5c07f11ae8f68",

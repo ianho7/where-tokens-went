@@ -11,6 +11,8 @@ test('installed Skill documents one Evidence acquisition path and no duplicate s
   const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went', 'SKILL.md'), 'utf8');
   assert.equal((skill.match(/report-run evidence --run-dir <run-directory> --auto/g) ?? []).length, 1);
   assert.doesNotMatch(skill, /dispatches `report-run evidence --run-dir <run-directory>` through stdin/);
+  assert.match(skill, /report-run compose --run-dir <run-directory> --locale <locale> --json/);
+  assert.match(skill, /render-report --json <run-directory>\/report\.json --html <final-report-path> --run-dir <run-directory>/);
 });
 
 function runCli(args, env, input = '') {
@@ -35,6 +37,7 @@ test('lane-only start/accept and artifact-only compose retain accepted content w
   const sessions = path.join(codexHome, 'sessions', '2026', '09', '20');
   const runDir = path.join(root, 'run');
   const htmlPath = path.join(root, 'report.html');
+  const fontPath = path.resolve(__dirname, '..', 'skills', 'where-tokens-went', 'scripts', 'runtime', 'assets', 'fonts', 'TsangerJinKai02-W05.ttf');
   try {
     await mkdir(project, { recursive: true });
     await mkdir(sessions, { recursive: true });
@@ -43,6 +46,7 @@ test('lane-only start/accept and artifact-only compose retain accepted content w
       { timestamp, type: 'session_meta', payload: { id: 'lane-session', cwd: project } },
       { timestamp, type: 'turn_context', payload: { turn_id: 'lane-turn', cwd: project } },
       { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'lane-response', turn_id: 'lane-turn', usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 }, turn_token_usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 } } },
+      { timestamp, type: 'response_item', payload: { type: 'message', role: 'user', turn_id: 'lane-turn', content: 'Recognizable fixture prompt for the final report route.' } },
     ].map((record) => JSON.stringify(record)).join('\n') + '\n');
     const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
     const prepared = await runCli(['report-run', 'prepare', '--harness', 'codex', '--cwd', project, '--since', '10000d', '--locale', 'en-US', '--run-dir', runDir], env);
@@ -67,16 +71,61 @@ test('lane-only start/accept and artifact-only compose retain accepted content w
     assert.match(wrongSpan.stderr, /RUN_LANE_SPAN_MISMATCH/);
     const accepted = await runCli(['report-run', 'ai-accept', '--run-dir', runDir, '--lane', 'report-synthesis', '--attempt', String(ticket.attempt), '--span-id', ticket.spanId], env, JSON.stringify(synthesis));
     assert.equal(accepted.code, 0, accepted.stderr);
-    const composed = await runCli(['report-run', 'compose', '--run-dir', runDir, '--locale', 'en-US', '--html', htmlPath], env);
+    for (const lane of ['key-session-analysis', 'skill-insights']) {
+      const laneStart = await runCli(['report-run', 'ai-start', '--run-dir', runDir, '--lane', lane], env);
+      assert.equal(laneStart.code, 0, laneStart.stderr);
+      const fallback = await runCli(['report-run', 'ai-fallback', '--run-dir', runDir, '--lane', lane, '--status', 'unavailable', '--reason-code', 'AI_UNAVAILABLE'], env);
+      assert.equal(fallback.code, 0, fallback.stderr);
+    }
+    const composed = await runCli(['report-run', 'compose', '--run-dir', runDir, '--locale', 'en-US', '--json', '--font', fontPath, '--font-family', 'ticket-local-font'], env);
     assert.equal(composed.code, 0, composed.stderr);
-    assert.match(await readFile(htmlPath, 'utf8'), /The fixture records a bounded activity period/);
-    const forgedEnvelope = await runCli(['report-run', 'compose', '--run-dir', runDir, '--locale', 'en-US', '--html', htmlPath], env, JSON.stringify({ reportSynthesis: {} }));
+    const jsonPath = path.join(runDir, 'report.json');
+    const reportJson = JSON.parse(await readFile(jsonPath, 'utf8'));
+    assert.equal(JSON.parse(composed.stdout).reportJsonPath, jsonPath);
+    assert.equal(reportJson.render.projectName, 'project');
+    assert.equal(reportJson.render.font.source, 'custom');
+    assert.equal(reportJson.render.font.filePath, fontPath);
+    assert.equal(reportJson.render.font.family, 'ticket-local-font');
+    assert.ok(reportJson.render.firstUserMessages.some((record) => record.content === 'Recognizable fixture prompt for the final report route.'));
+    assert.equal(reportJson.ai.reportSynthesis.result.overview.summary, 'The fixture records a bounded activity period.');
+    assert.ok(reportJson.ai.keySessionAnalyses.fallbackReason);
+    assert.ok(reportJson.ai.skillInsights.fallbackReason);
+    await assert.rejects(readFile(htmlPath), { code: 'ENOENT' });
+
+    const blockedCodexHome = path.join(root, 'codex-home-is-a-file');
+    await writeFile(blockedCodexHome, 'JSON rendering must not inspect Codex history.', 'utf8');
+    const rendered = await runCli(['render-report', '--json', jsonPath, '--html', htmlPath, '--run-dir', runDir], {
+      ...env,
+      CODEX_HOME: blockedCodexHome,
+      FONT_CACHE_DIR: path.join(root, 'font-cache'),
+    });
+    assert.equal(rendered.code, 0, rendered.stderr);
+    const html = await readFile(htmlPath, 'utf8');
+    assert.match(html, /The fixture records a bounded activity period/);
+    assert.match(html, /ticket-local-font/);
+    assert.match(html, /Recognizable fixture prompt for the final report route\./);
+    const forgedEnvelope = await runCli(['report-run', 'compose', '--run-dir', runDir, '--locale', 'en-US', '--json'], env, JSON.stringify({ reportSynthesis: {} }));
     assert.equal(forgedEnvelope.code, 2);
     assert.match(forgedEnvelope.stderr, /REPORT_COMPOSE_STDIN_FORBIDDEN/);
+    const openSpanId = 'route-html-open';
+    const openStarted = await runCli(['report-run', 'event', '--run-dir', runDir], env, JSON.stringify({
+      event: 'start', phase: 'codex-open', operation: 'open-final-html', source: 'ui', spanId: openSpanId,
+    }));
+    assert.equal(openStarted.code, 0, openStarted.stderr);
+    const openFinished = await runCli(['report-run', 'event', '--run-dir', runDir], env, JSON.stringify({
+      event: 'end', phase: 'codex-open', operation: 'open-final-html', source: 'ui', spanId: openSpanId, status: 'completed', durationMs: 1,
+    }));
+    assert.equal(openFinished.code, 0, openFinished.stderr);
+    const finalized = await runCli(['report-run', 'finalize', '--run-dir', runDir, '--status', 'completed'], env);
+    assert.equal(finalized.code, 0, finalized.stderr);
     const manifest = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifest.status, 'completed');
     assert.equal(manifest.laneStatus['report-synthesis'].status, 'accepted');
+    assert.equal(manifest.uiDispatch, 'completed');
     assert.ok(manifest.laneArtifacts['report-synthesis/accepted.json']);
-    assert.equal(manifest.degraded, false);
+    assert.ok(manifest.artifacts.reportJson);
+    assert.ok(manifest.artifacts.html);
+    assert.equal(manifest.degraded, true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

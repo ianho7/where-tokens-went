@@ -62,7 +62,7 @@ function usage() {
         "Usage: where-tokens-went inspect --harness <codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
         "       where-tokens-went inspect --harness <codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
         "       where-tokens-went compose-report --locale zh-CN|en-US --font <font-file> [--font-family <name>] --html <final-path> < composition JSON envelope",
-        "       where-tokens-went render-report --json <report.json> --html <final-path>",
+        "       where-tokens-went render-report --json <report.json> --html <final-path> [--run-dir <directory>]",
         "       where-tokens-went report-run prepare --harness <codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
         "       where-tokens-went report-run evidence --run-dir <directory> < evidence selection JSON",
         "       where-tokens-went report-run evidence --run-dir <directory> --auto",
@@ -1470,6 +1470,7 @@ function parseReportJson(value) {
 async function renderReportMain(args) {
     let jsonPath = null;
     let htmlPath = null;
+    let runDir = null;
     for (let index = 0; index < args.length; index += 1) {
         const flag = args[index];
         if (flag === "--json") {
@@ -1484,17 +1485,66 @@ async function renderReportMain(args) {
             htmlPath = requireValue(args, index, flag);
             index += 1;
         }
+        else if (flag === "--run-dir") {
+            if (runDir)
+                throw new Error("render-report accepts --run-dir only once.");
+            runDir = requireValue(args, index, flag);
+            index += 1;
+        }
         else {
             throw new Error(`Unknown render-report argument: ${flag}.\n${usage()}`);
         }
     }
     if (!jsonPath || !htmlPath)
         throw new Error(`render-report requires --json <report.json> and --html <final-path>.\n${usage()}`);
-    const report = parseReportJson(JSON.parse(await fs.readFile(jsonPath, "utf8")));
-    const html = await (0, report_1.subsetReportFonts)((0, report_1.renderReportJson)(report));
-    const output = await writeAtomicLocal(htmlPath, html);
-    process.stdout.write("Output: final HTML report written to " + output + ".\n");
-    return 0;
+    const run = runDir ? await (0, report_run_1.openReportRun)(path.resolve(runDir)) : null;
+    try {
+        let value;
+        if (run) {
+            const installedBundle = await (0, bundle_version_1.verifyInstalledSkill)();
+            (0, report_run_1.assertRunBundleVersion)(run, installedBundle.bundleVersion);
+            const reportJsonArtifact = run.manifest.artifacts.reportJson;
+            if (!reportJsonArtifact || path.resolve(jsonPath) !== path.resolve(run.runDir, reportJsonArtifact.file)) {
+                throw new Error("REPORT_JSON_RUN_MISMATCH: render-report must consume this Report Run's registered report.json.");
+            }
+            value = await (0, report_run_1.readRunArtifact)(run.runDir, "reportJson");
+        }
+        else {
+            value = JSON.parse(await fs.readFile(jsonPath, "utf8"));
+        }
+        const report = parseReportJson(value);
+        if (run && (!run.manifest.auditFingerprint || (0, key_session_analysis_1.auditFingerprint)(report.audit) !== run.manifest.auditFingerprint)) {
+            throw new Error("REPORT_JSON_RUN_FINGERPRINT_MISMATCH: report.json does not match this Report Run.");
+        }
+        const rendered = run
+            ? await (0, report_run_1.withRunSpan)(run, { phase: "render", operation: "render-report-json", source: "runner" }, async () => (0, report_1.renderReportJson)(report))
+            : (0, report_1.renderReportJson)(report);
+        const html = run
+            ? await (0, report_run_1.withRunSpan)(run, { phase: "font-subset", operation: "subset-report-fonts", source: "runner" }, async () => (0, report_1.subsetReportFonts)(rendered))
+            : await (0, report_1.subsetReportFonts)(rendered);
+        const output = run
+            ? await (0, report_run_1.withRunSpan)(run, { phase: "html-write", operation: "write-final-html", source: "filesystem" }, async () => {
+                await (0, report_run_1.writeRunTextArtifact)(run, "html", html);
+                return writeAtomicLocal(htmlPath, html);
+            })
+            : await writeAtomicLocal(htmlPath, html);
+        if (run) {
+            outputRunSummary(run, {
+                reportStatus: report.ai.reportSynthesis.result ? "ai-enhanced" : "fallback",
+                htmlPath: output,
+                next: ["record codex-open", "finalize"],
+            });
+        }
+        else {
+            process.stdout.write("Output: final HTML report written to " + output + ".\n");
+        }
+        return 0;
+    }
+    catch (error) {
+        if (run)
+            await (0, report_run_1.setReportRunStatus)(run, "failed").catch(() => undefined);
+        throw error;
+    }
 }
 async function readEvalTrials(directory) {
     const files = [];
