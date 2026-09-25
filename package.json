@@ -8,6 +8,7 @@
     "where-tokens-went": "bin/where-tokens-went"
   },
   "scripts": {
+    "prompt:lab": "node scripts/prompt-lab.js",
     "build": "node scripts/build-echarts.js && tsc -p tsconfig.json && node scripts/write-build-manifest.js && node scripts/copy-report-styles.js",
     "test": "npm run package-skills && npm run install-skills && node --test tests/codex-inspect.test.js",
     "test:targeted": "node --test tests/p0-regressions.test.js tests/eval-contract.test.js tests/eval-lab.test.js tests/eval-optimizer.test.js tests/report-run.test.js tests/report-run-lanes.test.js tests/report-run-concurrency.test.js tests/scoped-inventory-cache.test.js",

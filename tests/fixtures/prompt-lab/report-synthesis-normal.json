@@ -1,0 +1,735 @@
+{
+  "id": "normal-synthetic",
+  "locale": "zh-CN",
+  "auditResult": {
+    "scope": {
+      "harness": "codex",
+      "cwd": "<current-project>",
+      "allProjects": false,
+      "since": "2026-09-01T00:00:00.000Z"
+    },
+    "coverage": {
+      "filesRead": 1,
+      "recordsRead": 4,
+      "recordsSkipped": 0,
+      "partialSessions": 0,
+      "warnings": []
+    },
+    "summary": {
+      "sessionCount": {
+        "value": 2,
+        "provenance": "derived",
+        "method": "count of selected Session records"
+      },
+      "topLevelSessionCount": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "one or more selected Codex Sessions lack source metadata needed to classify subagents"
+      },
+      "subagentSessionCount": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "one or more selected Codex Sessions lack source metadata needed to classify subagents"
+      },
+      "partialTopLevelSessionCount": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "one or more selected Codex Sessions lack source metadata needed to attribute partial coverage"
+      },
+      "partialSubagentSessionCount": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "one or more selected Codex Sessions lack source metadata needed to attribute partial coverage"
+      },
+      "partialSessionRatePercent": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "one or more selected Codex Sessions lack source metadata needed to attribute partial coverage"
+      },
+      "modelCallCount": {
+        "value": 3,
+        "provenance": "derived",
+        "method": "count of selected ModelCall records"
+      },
+      "activeBranchModelCallCount": {
+        "value": 3,
+        "provenance": "derived",
+        "method": "count of selected ModelCall records in the active context; calls without a branch marker are treated as active"
+      },
+      "activeBranchTokens": {
+        "value": 1000,
+        "provenance": "reported",
+        "method": "sum of selected active-context ModelCall token totals"
+      },
+      "totalTokens": {
+        "value": 1000,
+        "provenance": "reported",
+        "method": "sum of non-cumulative per-response usage"
+      },
+      "reportedCost": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "the selected history did not report a complete cost total"
+      },
+      "topSessionId": {
+        "value": "large",
+        "provenance": "derived",
+        "method": "largest complete Session token total"
+      },
+      "topSessionTokens": {
+        "value": 990,
+        "provenance": "derived",
+        "method": "sum of that Session's complete ModelCall totals",
+        "source": {
+          "sessionId": "large"
+        }
+      },
+      "topSessionTitle": {
+        "value": "Large",
+        "provenance": "reported",
+        "method": "title from the Harness Session metadata",
+        "source": {
+          "sessionId": "large"
+        }
+      },
+      "topSessionSharePercent": {
+        "value": 99,
+        "provenance": "derived",
+        "method": "largest complete Session tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals",
+        "source": {
+          "sessionId": "large"
+        }
+      },
+      "topProject": {
+        "value": 1000,
+        "provenance": "reported",
+        "method": "project group sum of complete ModelCall token totals"
+      },
+      "topModel": {
+        "value": 990,
+        "provenance": "reported",
+        "method": "model group sum of complete ModelCall token totals"
+      },
+      "topTimeBucket": {
+        "value": 1000,
+        "provenance": "reported",
+        "method": "time bucket group sum of complete ModelCall token totals"
+      },
+      "toolCallCount": {
+        "value": 1,
+        "provenance": "derived",
+        "method": "count of selected ToolCall records"
+      },
+      "pairedToolResultCount": {
+        "value": 1,
+        "provenance": "derived",
+        "method": "count of ToolCall records with a paired result size"
+      },
+      "estimatedToolAmplifiedTokens": {
+        "value": 0,
+        "provenance": "estimated",
+        "method": "UTF-8 text characters divided by 4, multiplied by later ModelCall records in the same active context",
+        "source": {
+          "sessionId": "large",
+          "recordId": "tool-1",
+          "timestamp": "2026-09-08T08:00:00.000Z"
+        }
+      },
+      "lifecycleCount": {
+        "value": 0,
+        "provenance": "derived",
+        "method": "count of retry, compaction, subagent, and interrupted lifecycle records"
+      },
+      "extraLifecycleCount": {
+        "value": 0,
+        "provenance": "derived",
+        "method": "count of retry, interruption, and subagent lifecycle records"
+      },
+      "tokenAccountingStatus": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "the selected Reader did not provide a Token accounting invariant"
+      },
+      "keySessionTokenAccountingStatus": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "no Token-ranked Codex Session was available for Key Session accounting"
+      },
+      "responseUsageTotal": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "a complete deduplicated response Usage total was unavailable"
+      },
+      "cumulativeTurnTotal": {
+        "value": null,
+        "provenance": "unavailable",
+        "method": "a cumulative per-Turn total was unavailable for invariant validation"
+      }
+    },
+    "rankings": {
+      "sessions": [
+        {
+          "key": "large",
+          "displayName": "Large (large)",
+          "value": {
+            "value": 990,
+            "provenance": "reported",
+            "method": "Session group sum of complete ModelCall token totals"
+          },
+          "sharePercent": {
+            "value": 99,
+            "provenance": "derived",
+            "method": "Session tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals"
+          },
+          "count": {
+            "value": 2,
+            "provenance": "derived",
+            "method": "count of ModelCall records in Session group"
+          }
+        },
+        {
+          "key": "small",
+          "displayName": "Small (small)",
+          "value": {
+            "value": 10,
+            "provenance": "reported",
+            "method": "Session group sum of complete ModelCall token totals"
+          },
+          "sharePercent": {
+            "value": 1,
+            "provenance": "derived",
+            "method": "Session tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals"
+          },
+          "count": {
+            "value": 1,
+            "provenance": "derived",
+            "method": "count of ModelCall records in Session group"
+          }
+        }
+      ],
+      "projects": [
+        {
+          "key": "<current-project>",
+          "value": {
+            "value": 1000,
+            "provenance": "reported",
+            "method": "project group sum of complete ModelCall token totals"
+          },
+          "sharePercent": {
+            "value": 100,
+            "provenance": "derived",
+            "method": "project tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals"
+          },
+          "count": {
+            "value": 3,
+            "provenance": "derived",
+            "method": "count of ModelCall records in project group"
+          }
+        }
+      ],
+      "models": [
+        {
+          "key": "gpt-4.1",
+          "value": {
+            "value": 990,
+            "provenance": "reported",
+            "method": "model group sum of complete ModelCall token totals"
+          },
+          "sharePercent": {
+            "value": 99,
+            "provenance": "derived",
+            "method": "model tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals"
+          },
+          "count": {
+            "value": 2,
+            "provenance": "derived",
+            "method": "count of ModelCall records in model group"
+          }
+        },
+        {
+          "key": "other-model",
+          "value": {
+            "value": 10,
+            "provenance": "reported",
+            "method": "model group sum of complete ModelCall token totals"
+          },
+          "sharePercent": {
+            "value": 1,
+            "provenance": "derived",
+            "method": "model tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals"
+          },
+          "count": {
+            "value": 1,
+            "provenance": "derived",
+            "method": "count of ModelCall records in model group"
+          }
+        }
+      ],
+      "timeBuckets": [
+        {
+          "key": "2026-09-08",
+          "value": {
+            "value": 1000,
+            "provenance": "reported",
+            "method": "time bucket group sum of complete ModelCall token totals"
+          },
+          "sharePercent": {
+            "value": 100,
+            "provenance": "derived",
+            "method": "time bucket tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals"
+          },
+          "count": {
+            "value": 3,
+            "provenance": "derived",
+            "method": "count of ModelCall records in time bucket group"
+          }
+        }
+      ]
+    },
+    "turns": [],
+    "turnCandidates": [],
+    "keySessionTokenAccounting": [],
+    "report": {
+      "dailyUsage": [
+        {
+          "key": "2026-09-08",
+          "inputTokens": {
+            "value": 970,
+            "provenance": "derived",
+            "method": "day 2026-09-08 ordinary input is source-proven non-cache input"
+          },
+          "cachedInputTokens": {
+            "value": 0,
+            "provenance": "derived",
+            "method": "day 2026-09-08 cache-hit input is mutually exclusive"
+          },
+          "cacheWriteTokens": {
+            "value": 0,
+            "provenance": "derived",
+            "method": "day 2026-09-08 cache-build input is mutually exclusive"
+          },
+          "outputTokens": {
+            "value": 30,
+            "provenance": "derived",
+            "method": "day 2026-09-08 output is mutually exclusive"
+          },
+          "unclassifiedTokens": {
+            "value": 0,
+            "provenance": "derived",
+            "method": "day 2026-09-08 residual closes the reported Token total without reclassifying source fields"
+          },
+          "reasoningTokens": {
+            "value": 0,
+            "provenance": "derived",
+            "method": "day 2026-09-08 sum of source-reported reasoning Token fields; reasoning is not added to output"
+          },
+          "totalTokens": {
+            "value": 1000,
+            "provenance": "reported",
+            "method": "sum of non-cumulative ModelCall token totals or complete Harness composition for day 2026-09-08"
+          },
+          "modelCallCount": {
+            "value": 3,
+            "provenance": "derived",
+            "method": "count of ModelCall records in day 2026-09-08"
+          },
+          "apiEquivalentCost": {
+            "value": null,
+            "provenance": "unavailable",
+            "method": "currency requires at least one selected ModelCall with an exact Provider/model match and compatible non-zero price dimensions"
+          },
+          "sharePercent": {
+            "value": 100,
+            "provenance": "derived",
+            "method": "day 2026-09-08 tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals"
+          }
+        }
+      ],
+      "hourlyActivity": [
+        {
+          "key": "2026-09-08T08:00Z",
+          "modelCallCount": {
+            "value": 3,
+            "provenance": "derived",
+            "method": "count of ModelCall records in hour 2026-09-08T08:00Z"
+          },
+          "totalTokens": {
+            "value": 1000,
+            "provenance": "reported",
+            "method": "sum of non-cumulative ModelCall token totals or complete Harness composition for hour 2026-09-08T08:00Z"
+          },
+          "sharePercent": {
+            "value": 100,
+            "provenance": "derived",
+            "method": "hour 2026-09-08T08:00Z tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals"
+          }
+        }
+      ],
+      "hourlySupported": true,
+      "rollingWindow": {
+        "windowHours": 5,
+        "startAt": "2026-09-25T02:17:01.089Z",
+        "endAt": "2026-09-25T07:17:01.089Z",
+        "observedModelCallCount": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "count of timestamped ModelCall records observed in the latest five-hour window"
+        },
+        "observedTokens": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "no timestamped ModelCall records were observed in the latest five-hour observed activity"
+        },
+        "historicalPeakObservedTokens": {
+          "value": 1000,
+          "provenance": "derived",
+          "method": "maximum sum of complete ModelCall token totals in any five-hour timestamp window"
+        },
+        "providerQuota": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "no first-party Provider quota data is available from the selected Harness"
+        },
+        "remainingProviderQuota": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "remaining Provider quota is unavailable without first-party allowance data"
+        },
+        "resetAt": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "Provider reset time is unavailable without first-party allowance data"
+        }
+      },
+      "tools": [
+        {
+          "key": "read",
+          "calls": {
+            "value": 1,
+            "provenance": "derived",
+            "method": "count of ToolCall records for read"
+          },
+          "pairedResults": {
+            "value": 1,
+            "provenance": "derived",
+            "method": "count of paired ToolCall results for read"
+          },
+          "errors": {
+            "value": null,
+            "provenance": "unavailable",
+            "method": "error status was missing for at least one read ToolCall"
+          },
+          "injectedTokens": {
+            "value": 10,
+            "provenance": "estimated",
+            "method": "paired tool-result Unicode text characters divided by 4; content is not returned"
+          },
+          "amplifiedTokens": {
+            "value": 0,
+            "provenance": "estimated",
+            "method": "paired result text characters / 4 multiplied by later ModelCall records before the next observable active-context boundary"
+          },
+          "sharePercent": {
+            "value": null,
+            "provenance": "unavailable",
+            "method": "the complete selected token total was unavailable for tool read share calculation"
+          }
+        }
+      ],
+      "totalToolAmplifiedTokens": {
+        "value": 0,
+        "provenance": "estimated",
+        "method": "sum of per-tool UTF-8 text-character estimates divided by 4 and multiplied within active-context boundaries"
+      },
+      "apiEquivalentCost": {
+        "total": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "currency requires at least one selected ModelCall with an exact Provider/model match and compatible non-zero price dimensions"
+        },
+        "allUncachedTotal": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "the all-uncached comparison requires at least one selected ModelCall with compatible exact pricing"
+        },
+        "difference": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "cost difference requires at least one priced Usage with complete compatible cost dimensions"
+        },
+        "differencePercent": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "cost difference percentage requires at least one priced Usage with complete compatible cost dimensions"
+        },
+        "pricedTokens": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "Token total of ModelCalls with exact compatible resolved API pricing"
+        },
+        "relevantTokens": {
+          "value": 1000,
+          "provenance": "derived",
+          "method": "selected ModelCall Token total considered for API-equivalent pricing"
+        },
+        "coveragePercent": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "priced Token total numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "unpricedModels": [
+          "gpt-4.1",
+          "other-model"
+        ],
+        "limitations": [
+          "LiteLLM price lookup was not performed",
+          "no resolved price entry for openai/gpt-4.1",
+          "no resolved price entry for openai/other-model"
+        ],
+        "source": {
+          "kind": "litellm",
+          "version": "litellm-model-catalog",
+          "retrievedAt": null,
+          "effectiveDate": null,
+          "currency": "USD",
+          "unit": "USD per 1M tokens"
+        }
+      },
+      "cacheEconomics": {
+        "totalInputTokens": {
+          "value": 970,
+          "provenance": "derived",
+          "method": "sum of compatible request input Token buckets"
+        },
+        "inputTokens": {
+          "value": 970,
+          "provenance": "derived",
+          "method": "sum of compatible ordinary input Token buckets"
+        },
+        "cachedInputTokens": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "sum of compatible cache-read input Token buckets"
+        },
+        "cacheWriteTokens": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "sum of compatible cache-write input Token buckets"
+        },
+        "cacheReadRatePercent": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "cache-read Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "cacheWriteRatePercent": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "cache-write Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "coveragePercent": {
+          "value": 100,
+          "provenance": "derived",
+          "method": "cache composition coverage numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "observedApiEquivalentCost": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "currency requires at least one selected ModelCall with an exact Provider/model match and compatible non-zero price dimensions"
+        },
+        "allUncachedApiEquivalentCost": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "the all-uncached comparison requires at least one selected ModelCall with compatible exact pricing"
+        },
+        "cacheSavings": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "cache savings requires at least one priced Usage with complete compatible cost dimensions"
+        },
+        "cacheSavingsPercent": {
+          "value": null,
+          "provenance": "unavailable",
+          "method": "cache savings percentage requires at least one priced Usage with complete compatible cost dimensions"
+        },
+        "pricedUsageCoveragePercent": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "priced Usage numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "limitations": [
+          "LiteLLM price lookup was not performed",
+          "no resolved price entry for openai/gpt-4.1",
+          "no resolved price entry for openai/other-model"
+        ]
+      },
+      "firstRequestBurden": {
+        "sessionCount": {
+          "value": 2,
+          "provenance": "derived",
+          "method": "count of selected Sessions in the Audit Scope"
+        },
+        "validFirstRequestCount": {
+          "value": 2,
+          "provenance": "derived",
+          "method": "count of Sessions with one earliest valid, deduplicated and timestamped ModelCall"
+        },
+        "coveragePercent": {
+          "value": 100,
+          "provenance": "derived",
+          "method": "valid first-request Session numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "medianTokens": {
+          "value": 455,
+          "provenance": "derived",
+          "method": "median of earliest valid ModelCall Token totals in selected"
+        },
+        "totalTokens": {
+          "value": 910,
+          "provenance": "derived",
+          "method": "sum of one earliest valid ModelCall Token total per Session in selected"
+        },
+        "sharePercent": {
+          "value": 91,
+          "provenance": "derived",
+          "method": "selected first-request Token total tokens divided by complete selected Token total, expressed as percentage points and rounded to two decimals"
+        },
+        "compositionCoveragePercent": {
+          "value": 100,
+          "provenance": "derived",
+          "method": "selected compatible Token composition numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "inputTokens": {
+          "value": 890,
+          "provenance": "derived",
+          "method": "sum of compatible ordinary input in selected"
+        },
+        "cachedInputTokens": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "sum of compatible cache-read input in selected"
+        },
+        "cacheWriteTokens": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "sum of compatible cache-write input in selected"
+        },
+        "outputTokens": {
+          "value": 20,
+          "provenance": "derived",
+          "method": "sum of compatible output in selected"
+        },
+        "cacheReadRatePercent": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "selected cache-read Token count numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "coldSessionCount": {
+          "value": 2,
+          "provenance": "derived",
+          "method": "count of first requests with zero cache-read input in selected"
+        },
+        "coldSessionRatePercent": {
+          "value": 100,
+          "provenance": "derived",
+          "method": "selected cold first-request count numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "topLevel": null,
+        "subagent": null,
+        "identityCoveragePercent": {
+          "value": 0,
+          "provenance": "derived",
+          "method": "source-proven Session identity numerator divided by denominator, expressed as percentage points and rounded to two decimals"
+        },
+        "limitations": [
+          "top-level versus Subagent first-request groups require source-proven identity for every selected Session",
+          "首次请求负担 is an observed earliest request size, not an exact removable startup tax"
+        ]
+      },
+      "skills": []
+    },
+    "checks": [
+      {
+        "id": "long_session",
+        "outcome": "warning",
+        "method": "largest complete Session share is at least 40% with at least two ModelCall records",
+        "evidence": [
+          {
+            "value": 990,
+            "provenance": "derived",
+            "method": "sum of complete ModelCall token totals",
+            "source": {
+              "sessionId": "large"
+            }
+          },
+          {
+            "value": 2,
+            "provenance": "derived",
+            "method": "count of ModelCall records in the Session"
+          },
+          {
+            "value": 99,
+            "provenance": "derived",
+            "method": "largest complete Session tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals",
+            "source": {
+              "sessionId": "large"
+            }
+          }
+        ]
+      },
+      {
+        "id": "model_concentration",
+        "outcome": "notice",
+        "method": "largest complete model contribution share is at least 60% when more than one model is observed",
+        "evidence": [
+          {
+            "value": 990,
+            "provenance": "reported",
+            "method": "model group sum of complete ModelCall token totals"
+          },
+          {
+            "value": 99,
+            "provenance": "derived",
+            "method": "model tokens divided by complete selected tokens, expressed as percentage points and rounded to two decimals"
+          },
+          {
+            "value": 2,
+            "provenance": "derived",
+            "method": "count of ModelCall records in model group"
+          }
+        ]
+      },
+      {
+        "id": "data_quality",
+        "outcome": "pass",
+        "method": "coverage reports at least one record with no skipped records, partial Sessions, or warnings",
+        "evidence": [
+          {
+            "value": 1,
+            "provenance": "derived",
+            "method": "count of source files read"
+          },
+          {
+            "value": 4,
+            "provenance": "derived",
+            "method": "count of source records read"
+          },
+          {
+            "value": 0,
+            "provenance": "derived",
+            "method": "count of skipped records"
+          },
+          {
+            "value": 0,
+            "provenance": "derived",
+            "method": "count of partial Sessions"
+          },
+          {
+            "value": 0,
+            "provenance": "derived",
+            "method": "count of coverage warnings"
+          }
+        ]
+      }
+    ]
+  }
+}
