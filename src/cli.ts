@@ -44,7 +44,7 @@ import {
   type ReportRunScope,
   type ReportLane,
 } from "./report-run";
-import { normalizeLocale, renderHtml, renderShare, renderText, renderWeekText, resolveReportProjectName, subsetReportFonts, type ReportFontConfig } from "./report";
+import { normalizeLocale, renderHtml, renderReportJson, renderShare, renderText, renderWeekText, resolveReportProjectName, subsetReportFonts, type ReportFontConfig } from "./report";
 import { selectSkillCandidates, loadSkillSnapshot, validateSkillInsights } from "./skill-insights";
 import { checkEvalInput, readEvalCase, runEvalTrial } from "./eval-lab";
 import { readCodexResponseOutput, resolveCodexProvenance } from "./codex-provenance";
@@ -96,6 +96,7 @@ function usage(): string {
     "Usage: where-tokens-went inspect --harness <codex> --cwd <absolute-path> [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
     "       where-tokens-went inspect --harness <codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
     "       where-tokens-went compose-report --locale zh-CN|en-US --font <font-file> [--font-family <name>] --html <final-path> < composition JSON envelope",
+    "       where-tokens-went render-report --json <report.json> --html <final-path>",
     "       where-tokens-went report-run prepare --harness <codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
     "       where-tokens-went report-run evidence --run-dir <directory> < evidence selection JSON",
     "       where-tokens-went report-run evidence --run-dir <directory> --auto",
@@ -1424,6 +1425,60 @@ async function composeReportMain(args: string[]): Promise<number> {
   return 0;
 }
 
+function parseReportJson(value: unknown): ReportJson {
+  if (!isRecord(value) || value.version !== 1 || !isRecord(value.audit) || !isRecord(value.ai) || !isRecord(value.render)) {
+    throw new Error("render-report requires a version 1 report.json.");
+  }
+  const { audit, ai, render } = value;
+  const reportSynthesis = ai.reportSynthesis;
+  const keySessionAnalyses = ai.keySessionAnalyses;
+  const skillInsights = ai.skillInsights;
+  const font = render.font;
+  const validFallback = (fallback: unknown): boolean => fallback === null || typeof fallback === "string";
+  if (!isRecord(audit.scope) || !isRecord(audit.coverage) || !isRecord(audit.summary) || !isRecord(audit.rankings) || !isRecord(audit.report)
+    || !Array.isArray(audit.turns) || !Array.isArray(audit.checks)
+    || !isRecord(reportSynthesis) || !(reportSynthesis.result === null || isRecord(reportSynthesis.result)) || !validFallback(reportSynthesis.fallbackReason)
+    || !isRecord(keySessionAnalyses) || !Array.isArray(keySessionAnalyses.result) || !keySessionAnalyses.result.every(isRecord) || !validFallback(keySessionAnalyses.fallbackReason)
+    || !isRecord(skillInsights) || !Array.isArray(skillInsights.result) || !skillInsights.result.every(isRecord) || !validFallback(skillInsights.fallbackReason)
+    || (render.locale !== "zh-CN" && render.locale !== "en-US")
+    || !(render.projectName === null || typeof render.projectName === "string")
+    || !Array.isArray(render.firstUserMessages) || !render.firstUserMessages.every((record) => isRecord(record)
+      && typeof record.sessionId === "string" && typeof record.turnId === "string"
+      && (record.content === null || typeof record.content === "string")
+      && (record.unavailableReason === null || typeof record.unavailableReason === "string"))) {
+    throw new Error("render-report received a malformed report.json.");
+  }
+  if (!isRecord(font) || (font.source !== "bundled" && !(font.source === "custom" && typeof font.filePath === "string" && (font.family === null || typeof font.family === "string")))) {
+    throw new Error("render-report received a malformed report.json font setting.");
+  }
+  return value as unknown as ReportJson;
+}
+
+async function renderReportMain(args: string[]): Promise<number> {
+  let jsonPath: string | null = null;
+  let htmlPath: string | null = null;
+  for (let index = 0; index < args.length; index += 1) {
+    const flag = args[index];
+    if (flag === "--json") {
+      if (jsonPath) throw new Error("render-report accepts --json only once.");
+      jsonPath = requireValue(args, index, flag);
+      index += 1;
+    } else if (flag === "--html") {
+      if (htmlPath) throw new Error("render-report accepts --html only once.");
+      htmlPath = requireValue(args, index, flag);
+      index += 1;
+    } else {
+      throw new Error(`Unknown render-report argument: ${flag}.\n${usage()}`);
+    }
+  }
+  if (!jsonPath || !htmlPath) throw new Error(`render-report requires --json <report.json> and --html <final-path>.\n${usage()}`);
+  const report = parseReportJson(JSON.parse(await fs.readFile(jsonPath, "utf8")));
+  const html = await subsetReportFonts(renderReportJson(report));
+  const output = await writeAtomicLocal(htmlPath, html);
+  process.stdout.write("Output: final HTML report written to " + output + ".\n");
+  return 0;
+}
+
 async function readEvalTrials(directory: string): Promise<EvalTrial[]> {
   const files: string[] = [];
   const visit = async (current: string): Promise<void> => {
@@ -2434,6 +2489,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   try {
     if (args[0] === "eval") return await evalMain(args.slice(1));
     if (args[0] === "report-run") return await reportRunMain(args.slice(1));
+    if (args[0] === "render-report") return await renderReportMain(args.slice(1));
     if (args[0] === "compose-report") return await composeReportMain(args.slice(1));
     const options = parseArgs(args);
     await verifyInstalledSkill();

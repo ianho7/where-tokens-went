@@ -6,6 +6,7 @@ exports.resolveReportProjectName = resolveReportProjectName;
 exports.collectReportFontCharacters = collectReportFontCharacters;
 exports.subsetReportFonts = subsetReportFonts;
 exports.renderHtml = renderHtml;
+exports.renderReportJson = renderReportJson;
 exports.renderText = renderText;
 exports.renderWeekText = renderWeekText;
 exports.renderShare = renderShare;
@@ -433,12 +434,12 @@ function renderReportOverviewEvidence(result, overview, locale) {
     const labels = labelsFor(locale);
     return "<div class=\"report-overview-evidence\" data-evidence-refs=\"" + escapeHtml(overview.evidenceRefs.join(" ")) + "\" aria-label=\"" + escapeHtml(labels.header.overviewEvidence) + "\"><span class=\"report-overview-evidence__label\">" + escapeHtml(labels.header.overviewEvidence) + "</span>" + overview.evidenceRefs.map((reference) => "<span class=\"report-overview-evidence__item\" data-evidence-ref=\"" + escapeHtml(reference) + "\">" + escapeHtml(reportFindingEvidence(result, reference, locale)) + "</span>").join("") + "</div>";
 }
-function renderReportHeader(result, locale, composition) {
+function renderReportHeader(result, locale, composition, acceptedJson = false) {
     const labels = labelsFor(locale);
-    const metadata = readProjectMetadata(result.scope.cwd);
+    const metadata = acceptedJson ? { repositoryName: null, name: null } : readProjectMetadata(result.scope.cwd);
     const subject = result.scope.allProjects ? labels.allProjects : projectName(result, metadata, locale, composition);
     const eyebrow = labels.header.eyebrow(reportDateRange(result, locale));
-    const synthesis = validatedReportSynthesis(result, composition);
+    const synthesis = acceptedJson ? composition?.reportSynthesis ?? null : validatedReportSynthesis(result, composition);
     const overview = synthesis?.overview;
     const overviewSummary = overview?.summary ?? labels.header.overviewUnavailable;
     const overviewEvidence = overview ? renderReportOverviewEvidence(result, overview, locale) : "";
@@ -503,12 +504,14 @@ function primaryMechanismText(analysis, locale) {
         ? (locale === "zh-CN" ? "具体机制未知：" : "Mechanism unknown: ") + limitation
         : labels.primaryUnknownMechanism;
 }
-function renderPrimaryAnswer(result, locale, composition) {
+function renderPrimaryAnswer(result, locale, composition, acceptedJson = false) {
     const labels = labelsFor(locale);
     const top = result.rankings.sessions.find((entry) => numericValue(entry.value) !== null);
-    const validated = composition && composition.auditFingerprint === (0, key_session_analysis_1.auditFingerprint)(result)
-        ? (0, key_session_analysis_1.composeKeySessionAnalyses)(result, composition.keySessionAnalyses)
-        : { analyses: [], unavailable: [] };
+    const validated = acceptedJson
+        ? { analyses: composition?.keySessionAnalyses ?? [], unavailable: [] }
+        : composition && composition.auditFingerprint === (0, key_session_analysis_1.auditFingerprint)(result)
+            ? (0, key_session_analysis_1.composeKeySessionAnalyses)(result, composition.keySessionAnalyses)
+            : { analyses: [], unavailable: [] };
     const analysis = top ? validated.analyses.find((candidate) => candidate.sessionId === top.key) : undefined;
     const primaryFinding = analysis?.primaryFinding;
     const destination = top
@@ -728,9 +731,9 @@ function renderChecks(result, locale, note = labelsFor(locale).checksNote) {
         return "<li class=\"editorial-item\" data-outcome=\"" + escapeHtml(check.outcome) + "\"><div class=\"editorial-tags\" aria-label=\"" + escapeHtml(presented.outcomeLabel) + "\">" + severityTag + "</div><strong class=\"editorial-title\">" + presented.headlineHtml + "</strong><p class=\"editorial-detail\">" + presented.detailHtml + "</p><small class=\"editorial-method\">" + escapeHtml(labels.methodPrefix) + escapeHtml(presented.method) + "</small></li>";
     }).join("") + "</ul></section>";
 }
-function renderFindings(result, locale, composition) {
+function renderFindings(result, locale, composition, acceptedJson = false) {
     const labels = labelsFor(locale);
-    const synthesis = validatedReportSynthesis(result, composition);
+    const synthesis = acceptedJson ? composition?.reportSynthesis ?? null : validatedReportSynthesis(result, composition);
     if (!synthesis) {
         return renderChecks(result, locale, labels.reportFallbackNote + " " + labels.reportFallbackDetail);
     }
@@ -899,7 +902,7 @@ function firstSentence(text) {
     const match = trimmed.match(/^.*?[。！？]|^.*?[.!?](?=\s|$)/);
     return match ? match[0].trim() : trimmed;
 }
-function renderKeySessionAnalysis(result, locale, composition, localFirstUserMessages) {
+function renderKeySessionAnalysis(result, locale, composition, localFirstUserMessages, acceptedJson = false) {
     const labels = labelsFor(locale);
     const topSessions = result.rankings.sessions.slice(0, 3);
     if (topSessions.length === 0)
@@ -907,9 +910,11 @@ function renderKeySessionAnalysis(result, locale, composition, localFirstUserMes
     const promptRecords = localFirstUserMessages ?? composition?.firstUserMessages ?? [];
     const promptByTurn = new Map(promptRecords.map((record) => [record.sessionId + "\0" + record.turnId, record]));
     const keySessionMessages = labels.keySession;
-    const validated = composition
-        ? (0, key_session_analysis_1.composeKeySessionAnalyses)(result, composition.keySessionAnalyses)
-        : { analyses: [], unavailable: [keySessionMessages.noComposition] };
+    const validated = acceptedJson
+        ? { analyses: composition?.keySessionAnalyses ?? [], unavailable: [] }
+        : composition
+            ? (0, key_session_analysis_1.composeKeySessionAnalyses)(result, composition.keySessionAnalyses)
+            : { analyses: [], unavailable: [keySessionMessages.noComposition] };
     const bySession = new Map(validated.analyses.map((analysis) => [analysis.sessionId, analysis]));
     const blocks = topSessions.map((row, index) => {
         const turns = sessionTurns(result, row.key);
@@ -1248,11 +1253,11 @@ function renderSkillInsightProof(item, locale) {
     }).join("");
     return rendered ? "<div class=\"insight-proof\"><strong>" + escapeHtml(locale === "zh-CN" ? "关键对照：" : "Proof: ") + "</strong>" + rendered + "</div>" : "";
 }
-function renderSkillInsightsHtml(composition, locale) {
+function renderSkillInsightsHtml(composition, locale, acceptedJson = false) {
     const insights = composition?.skillInsights;
     if (!insights || insights.length === 0 || !composition?.skillInsightsSnapshotId)
         return "";
-    if (insights.some((item) => item.snapshotId !== composition.skillInsightsSnapshotId))
+    if (!acceptedJson && insights.some((item) => item.snapshotId !== composition.skillInsightsSnapshotId))
         return "";
     const cards = insights.map((item) => {
         const reveal = renderSkillInsightReveal(item, locale);
@@ -1861,22 +1866,22 @@ function renderStyles(fontConfig) {
     const faces = authorizedFontFaces(fontConfig);
     return "<style>" + faces.css + "\n" + stylesheet + (faces.family ? "\n" + configuredFontVariables(faces.family) : "") + "</style>";
 }
-function renderHtml(result, locale = "en-US", composition, localFirstUserMessages, fontConfig) {
+function renderHtml(result, locale = "en-US", composition, localFirstUserMessages, fontConfig, acceptedJson = false) {
     const labels = labelsFor(locale);
     const prompts = result.view === "share" ? [] : localFirstUserMessages ?? composition?.firstUserMessages ?? [];
     const modelBars = result.rankings.models.map((row) => ({ key: modelLabel(row.key, locale), value: row.value }));
     const parts = [
         "<!doctype html><html lang=\"" + labels.htmlLang + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" +
             escapeHtml(labels.title) + "</title>" + renderStyles(fontConfig) + "</head><body><main>",
-        renderReportHeader(result, locale, composition),
-        "<div class=\"report-stage report-stage--overview\">" + renderSectionMarker(labels.sectionMarkers.overview) + renderPrimaryAnswer(result, locale, composition) + "</div>",
+        renderReportHeader(result, locale, composition, acceptedJson),
+        "<div class=\"report-stage report-stage--overview\">" + renderSectionMarker(labels.sectionMarkers.overview) + renderPrimaryAnswer(result, locale, composition, acceptedJson) + "</div>",
         "<section><h2>" + escapeHtml(labels.scope) + "</h2>" + renderScope(result, locale) + "<h2>" + escapeHtml(labels.coverage) + "</h2>" + renderCoverage(result, locale) + "<p class=\"report-method-note\">" + escapeHtml(labels.methodNote) + "</p></section>",
         renderKpis(result, locale),
         renderSectionMarker(labels.sectionMarkers.diagnosis),
-        renderFindings(result, locale, composition),
+        renderFindings(result, locale, composition, acceptedJson),
         renderCacheHtml(result, locale),
         renderFirstRequestHtml(result, locale),
-        renderSkillInsightsHtml(composition, locale),
+        renderSkillInsightsHtml(composition, locale, acceptedJson),
         renderSkillsHtml(result, locale),
         renderSectionMarker(labels.sectionMarkers.patterns),
         result.weekComparison ? "<section><h2>" + escapeHtml(labels.weekView) + "</h2>" + renderWeek(result, locale) + "</section>" : "",
@@ -1890,7 +1895,7 @@ function renderHtml(result, locale = "en-US", composition, localFirstUserMessage
         "<section class=\"tool-impact\"><h2>" + escapeHtml(labels.tools) + "</h2><div class=\"ivory-group chart-ivory\"><div id=\"tool-chart\" class=\"echart\" role=\"img\" aria-label=\"" + escapeHtml(labels.charts.toolAria) + "\"></div></div>" + renderTools(result, locale) + "</section>",
         "<section><h2>" + escapeHtml(labels.sessionsByUsage) + "</h2>" + renderSessions(result, locale) + "</section>",
         renderSectionMarker(labels.sectionMarkers.trace),
-        renderKeySessionAnalysis(result, locale, composition, prompts),
+        renderKeySessionAnalysis(result, locale, composition, prompts, acceptedJson),
         renderSectionMarker(labels.sectionMarkers.caveats),
         "<section><h2>" + escapeHtml(labels.limitations) + "</h2>" +
             renderWarningList(result, locale) + "</section>",
@@ -1898,6 +1903,23 @@ function renderHtml(result, locale = "en-US", composition, localFirstUserMessage
         "</main></body></html>",
     ];
     return parts.join("");
+}
+function renderReportJson(report) {
+    const skillInsights = report.ai.skillInsights.result;
+    const composition = {
+        auditFingerprint: report.ai.reportSynthesis.result?.auditFingerprint ?? report.ai.keySessionAnalyses.result[0]?.auditFingerprint ?? "",
+        audit: report.audit,
+        reportSynthesis: report.ai.reportSynthesis.result,
+        keySessionAnalyses: report.ai.keySessionAnalyses.result,
+        skillInsights,
+        ...(skillInsights.length > 0 ? { skillInsightsSnapshotId: skillInsights[0].snapshotId } : {}),
+        projectName: report.render.projectName ?? undefined,
+        firstUserMessages: report.render.firstUserMessages,
+    };
+    const fontConfig = report.render.font.source === "custom"
+        ? { filePath: report.render.font.filePath, ...(report.render.font.family ? { family: report.render.font.family } : {}) }
+        : undefined;
+    return renderHtml(report.audit, report.render.locale, composition, report.render.firstUserMessages, fontConfig, true);
 }
 function renderTopLine(result, locale) {
     const labels = labelsFor(locale);
