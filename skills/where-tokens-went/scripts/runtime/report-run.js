@@ -120,6 +120,7 @@ const artifactFiles = {
     reportSynthesis: "report-synthesis.json",
     keySessionAnalyses: "key-session-analyses.json",
     composition: "composition.json",
+    reportJson: "report.json",
     html: "report.html",
     trace: "trace.jsonl",
 };
@@ -763,6 +764,7 @@ const SENSITIVE_RUN_ARTIFACTS = [
     "reportSynthesis",
     "keySessionAnalyses",
     "composition",
+    "reportJson",
 ];
 async function cleanupSensitiveRunArtifacts(run) {
     return withRunLock(run.runDir, async () => {

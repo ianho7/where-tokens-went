@@ -7,6 +7,7 @@ const { spawn } = require('node:child_process');
 
 const { createReportRun, withRunSpan, finalizeReportRun, readRunManifest, setRunEligibleStages, recordCompletedRunSpan, setRunUiDispatch, writeRunTextArtifact, writeRunArtifact, writeRunLaneArtifact, cleanupSensitiveRunArtifacts, startReportLane, recordRunSpan } = require('../dist/src/report-run.js');
 const { resolveApiPricing } = require('../dist/src/rates.js');
+const { renderShare } = require('../dist/src/report.js');
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 
 function runCli(args, env, input = '') {
@@ -132,6 +133,7 @@ test('sensitive Run artifacts have an explicit local cleanup path without removi
     }, root);
     await writeRunArtifact(run, 'evidence', { bounded: true });
     await writeRunArtifact(run, 'skillSnapshot', { bounded: true });
+    await writeRunArtifact(run, 'reportJson', { version: 1, audit: {}, ai: {}, render: { firstUserMessages: ['local-only'] } });
     await writeRunLaneArtifact(run, 'skill-insights', 'raw', { bounded: true }, 1);
     await writeRunTextArtifact(run, 'html', '<html>final</html>');
     const manifest = await cleanupSensitiveRunArtifacts(run);
@@ -139,8 +141,86 @@ test('sensitive Run artifacts have an explicit local cleanup path without removi
     assert.ok(manifest.retention.cleanedAt);
     await assert.rejects(() => readFile(path.join(run.runDir, 'evidence.json')));
     await assert.rejects(() => readFile(path.join(run.runDir, 'skill-snapshot.json')));
+    await assert.rejects(() => readFile(path.join(run.runDir, 'report.json')));
     await assert.rejects(() => readFile(path.join(run.runDir, 'lanes', 'skill-insights', 'attempt-1.raw.json')));
     assert.equal(await readFile(path.join(run.runDir, 'report.html'), 'utf8'), '<html>final</html>');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('report-run writes a three-area report.json from the redacted Codex baseline without rendering HTML', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-report-json-test-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '15');
+  const runDir = path.join(root, 'run');
+  const rateCachePath = path.join(root, 'rates-cache.json');
+  try {
+    await mkdir(project, { recursive: true });
+    await mkdir(sessions, { recursive: true });
+    const fixture = await readFile(path.join(__dirname, 'fixtures', 'codex-baseline', 'normal.jsonl'), 'utf8');
+    const models = new Set();
+    const bindScope = (value) => {
+      if (Array.isArray(value)) {
+        value.forEach(bindScope);
+      } else if (value && typeof value === 'object') {
+        for (const [key, nested] of Object.entries(value)) {
+          if (key === 'cwd' && typeof nested === 'string') value[key] = project;
+          else bindScope(nested);
+          if (key === 'model' && typeof nested === 'string' && nested) models.add(nested);
+        }
+      }
+    };
+    const records = fixture.trimEnd().split(/\r?\n/).map((line) => {
+      const record = JSON.parse(line);
+      bindScope(record);
+      return JSON.stringify(record);
+    });
+    await writeFile(path.join(sessions, 'rollout-normal.jsonl'), records.join('\n') + '\n', 'utf8');
+    const expiresAt = Date.now() + 60 * 60 * 1000;
+    const cachedUnavailablePrices = Object.fromEntries([...models].map((model) => ['openai|' + model, { rate: null, expiresAt }]));
+    await writeFile(rateCachePath, JSON.stringify(cachedUnavailablePrices), 'utf8');
+
+    const env = { CODEX_HOME: codexHome, RATES_CACHE_FILE: rateCachePath, TEMP: root, TMP: root };
+    const prepared = await runCli(['report-run', 'prepare', '--harness', 'codex', '--cwd', project, '--since', '10000d', '--locale', 'zh-CN', '--run-dir', runDir], env);
+    assert.equal(prepared.code, 0, prepared.stderr);
+    const audit = JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8'));
+    const composed = await runCli(['report-run', 'compose', '--run-dir', runDir, '--locale', 'zh-CN', '--json'], env);
+    assert.equal(composed.code, 0, composed.stderr);
+    const reportJson = JSON.parse(await readFile(path.join(runDir, 'report.json'), 'utf8'));
+    const serializedReport = JSON.stringify(reportJson);
+
+    assert.deepEqual(Object.keys(reportJson).sort(), ['ai', 'audit', 'render', 'version']);
+    assert.equal(reportJson.version, 1);
+    assert.deepEqual(reportJson.audit, audit);
+    assert.equal(reportJson.audit.scope.harness, 'codex');
+    assert.equal(reportJson.audit.scope.allProjects, false);
+    assert.equal(reportJson.audit.scope.cwd, '<current-project>');
+    assert.equal(reportJson.audit.summary.totalTokens.value, 1636883);
+    assert.equal(reportJson.audit.report.cacheEconomics.cachedInputTokens.value, 1453312);
+    assert.deepEqual(reportJson.audit.rankings.models.map((entry) => [entry.key, entry.value.value, entry.count.value]), [['codex-auto-review', 1636883, 15]]);
+    assert.deepEqual(reportJson.audit.report.tools.map((entry) => [entry.key, entry.calls.value, entry.pairedResults.value]), [['unknown-tool', 31, 30]]);
+    assert.ok(Object.values(reportJson.audit.summary).some((value) => value.value === null));
+    assert.equal(Object.hasOwn(reportJson.audit, 'firstUserMessages'), false);
+    assert.equal(reportJson.ai.reportSynthesis.result, null);
+    assert.ok(reportJson.ai.reportSynthesis.fallbackReason);
+    assert.deepEqual(reportJson.ai.keySessionAnalyses.result, []);
+    assert.ok(reportJson.ai.keySessionAnalyses.fallbackReason);
+    assert.deepEqual(reportJson.ai.skillInsights.result, []);
+    assert.ok(reportJson.ai.skillInsights.fallbackReason);
+    assert.equal(reportJson.render.locale, 'zh-CN');
+    assert.equal(reportJson.render.projectName, 'project');
+    assert.deepEqual(reportJson.render.font, { source: 'bundled' });
+    assert.ok(Array.isArray(reportJson.render.firstUserMessages));
+    assert.equal(serializedReport.includes(root), false);
+    const firstMessage = reportJson.render.firstUserMessages.find((record) => typeof record.content === 'string' && record.content.length > 20);
+    assert.ok(firstMessage, 'the local render projection carries a recognizable Turn prompt');
+    assert.equal(JSON.stringify(reportJson.audit).includes(firstMessage.content), false);
+    assert.equal(renderShare(audit, 'zh-CN').includes(firstMessage.content), false);
+    assert.equal(JSON.parse(composed.stdout).reportJsonPath, path.join(runDir, 'report.json'));
+    assert.ok(JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8')).artifacts.reportJson);
+    await assert.rejects(readFile(path.join(runDir, 'report.html')), { code: 'ENOENT' });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

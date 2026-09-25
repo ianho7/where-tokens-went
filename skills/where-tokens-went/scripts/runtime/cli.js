@@ -66,7 +66,7 @@ function usage() {
         "       where-tokens-went report-run evidence --run-dir <directory> < evidence selection JSON",
         "       where-tokens-went report-run evidence --run-dir <directory> --auto",
         "       where-tokens-went report-run ai-start|ai-accept|ai-fallback --run-dir <directory> --lane <lane> ...",
-        "       where-tokens-went report-run compose --run-dir <directory> --locale zh-CN|en-US --html <final-path>",
+        "       where-tokens-went report-run compose --run-dir <directory> --locale zh-CN|en-US (--json|--html <final-path>)",
         "       where-tokens-went report-run event|status|finalize|cleanup --run-dir <directory> ...",
         "       where-tokens-went eval contract|trial|review|baseline|baseline-bootstrap|generation-index|role-index|codex-output|optimize|promote|finalize-promotion|state ...",
     ].join("\n");
@@ -667,7 +667,45 @@ async function reportRunEvidenceMain(args) {
 }
 function parseRunComposeArgs(args) {
     const extracted = extractRunDirectory(args);
-    return { ...parseComposeArgs(extracted.rest), runDir: requireRunDirectory(extracted.runDir) };
+    let locale = "en-US";
+    let htmlPath = null;
+    let jsonOnly = false;
+    let fontPath = null;
+    let fontFamily = null;
+    for (let index = 0; index < extracted.rest.length; index += 1) {
+        const flag = extracted.rest[index];
+        if (flag === "--locale" || flag === "--lang") {
+            locale = (0, report_1.normalizeLocale)(requireValue(extracted.rest, index, flag));
+            index += 1;
+        }
+        else if (flag === "--html") {
+            if (htmlPath || jsonOnly)
+                throw new Error("report-run compose accepts exactly one output: --json or --html.");
+            htmlPath = requireValue(extracted.rest, index, flag);
+            index += 1;
+        }
+        else if (flag === "--json") {
+            if (htmlPath || jsonOnly)
+                throw new Error("report-run compose accepts exactly one output: --json or --html.");
+            jsonOnly = true;
+        }
+        else if (flag === "--font") {
+            fontPath = requireValue(extracted.rest, index, flag);
+            index += 1;
+        }
+        else if (flag === "--font-family") {
+            fontFamily = requireValue(extracted.rest, index, flag);
+            index += 1;
+        }
+        else {
+            throw new Error(`Unknown report-run compose argument: ${flag}.\n${usage()}`);
+        }
+    }
+    if (!htmlPath && !jsonOnly)
+        throw new Error(`report-run compose requires --json or --html.\n${usage()}`);
+    if (fontFamily && !fontPath)
+        throw new Error("--font-family requires --font <font-file>.");
+    return { runDir: requireRunDirectory(extracted.runDir), locale, htmlPath, jsonOnly, fontPath, fontFamily };
 }
 function assertRunContract(run, installedBundle, contract) {
     (0, report_run_1.assertRunBundleVersion)(run, installedBundle.bundleVersion);
@@ -1207,12 +1245,52 @@ async function reportRunComposeMain(args) {
             : [];
         const projectName = run.manifest.scope.cwd ? (0, report_1.resolveReportProjectName)(run.manifest.scope.cwd) ?? undefined : undefined;
         const renderComposition = projectName ? { ...composition, projectName } : composition;
+        const selectedSessionIds = new Set(composition.keySessionAnalyses.map((analysis) => analysis.sessionId));
+        const keySessionFallbackReason = audit.rankings.sessions.slice(0, 3).some((session) => !selectedSessionIds.has(session.key))
+            ? run.manifest.laneStatus["key-session-analysis"].reasonCode ?? "KEY_SESSION_ANALYSIS_UNAVAILABLE_OR_INVALID"
+            : null;
+        const reportJson = {
+            version: 1,
+            audit,
+            ai: {
+                reportSynthesis: {
+                    result: composition.reportSynthesis,
+                    fallbackReason: composition.reportSynthesis ? null : run.manifest.laneStatus["report-synthesis"].reasonCode ?? "REPORT_SYNTHESIS_UNAVAILABLE_OR_INVALID",
+                },
+                keySessionAnalyses: { result: composition.keySessionAnalyses, fallbackReason: keySessionFallbackReason },
+                skillInsights: {
+                    result: composition.skillInsights ?? [],
+                    fallbackReason: skillInsightsValid ? null : run.manifest.laneStatus["skill-insights"].reasonCode ?? "SKILL_INSIGHTS_UNAVAILABLE_OR_INVALID",
+                },
+            },
+            render: {
+                locale: options.locale,
+                projectName: projectName ?? null,
+                font: options.fontPath
+                    ? { source: "custom", filePath: options.fontPath, family: options.fontFamily?.trim() || null }
+                    : { source: "bundled" },
+                firstUserMessages,
+            },
+        };
+        await (0, report_run_1.writeRunArtifact)(run, "reportJson", reportJson);
+        if (options.jsonOnly) {
+            outputRunSummary(run, {
+                reportStatus: composition.reportSynthesis ? "ai-enhanced" : "fallback",
+                fallback: composition.reportSynthesis === null,
+                reportJsonPath: path.join(run.runDir, "report.json"),
+                next: ["render report.json"],
+            });
+            return 0;
+        }
+        const htmlPath = options.htmlPath;
+        if (!htmlPath)
+            throw new Error("report-run compose requires --html when JSON-only output is not selected.");
         const fontConfig = reportFontConfig(options.fontPath, options.fontFamily);
         const rendered = await (0, report_run_1.withRunSpan)(run, { phase: "render", operation: "render-html", source: "runner" }, async () => (0, report_1.renderHtml)(audit, options.locale, renderComposition, firstUserMessages, fontConfig));
         const subsetted = await (0, report_run_1.withRunSpan)(run, { phase: "font-subset", operation: "subset-report-fonts", source: "runner" }, async () => (0, report_1.subsetReportFonts)(rendered));
         const output = await (0, report_run_1.withRunSpan)(run, { phase: "html-write", operation: "write-final-html", source: "filesystem" }, async () => {
             await (0, report_run_1.writeRunTextArtifact)(run, "html", subsetted);
-            return writeAtomicLocal(options.htmlPath, subsetted);
+            return writeAtomicLocal(htmlPath, subsetted);
         });
         outputRunSummary(run, {
             reportStatus: composition.reportSynthesis ? "ai-enhanced" : "fallback",

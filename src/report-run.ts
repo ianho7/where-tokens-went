@@ -51,6 +51,7 @@ export type RunArtifactName =
   | "reportSynthesis"
   | "keySessionAnalyses"
   | "composition"
+  | "reportJson"
   | "html"
   | "trace";
 
@@ -219,6 +220,7 @@ const artifactFiles: Record<RunArtifactName, string> = {
   reportSynthesis: "report-synthesis.json",
   keySessionAnalyses: "key-session-analyses.json",
   composition: "composition.json",
+  reportJson: "report.json",
   html: "report.html",
   trace: "trace.jsonl",
 };
@@ -913,6 +915,7 @@ const SENSITIVE_RUN_ARTIFACTS: readonly RunArtifactName[] = [
   "reportSynthesis",
   "keySessionAnalyses",
   "composition",
+  "reportJson",
 ];
 
 export async function cleanupSensitiveRunArtifacts(run: ReportRun): Promise<ReportRunManifest> {

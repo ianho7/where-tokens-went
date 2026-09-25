@@ -1,3 +1,5 @@
+import type { ReportLocale } from "./report-messages";
+
 export type Harness = "claude" | "codex";
 
 export type Provenance = "reported" | "derived" | "estimated" | "unavailable";
@@ -6,7 +8,7 @@ export type CacheWriteTtl = "5m" | "1h" | "mixed";
 
 export type AuditView = "full" | "usage" | "window" | "report" | "tools" | "week" | "share" | "question";
 
-export type { ReportLocale } from "./report-messages";
+export type { ReportLocale };
 
 export type ApiPricingSourceKind = "litellm";
 
@@ -472,6 +474,22 @@ export interface ReportComposition {
   projectName?: string;
   /** Optional local-only projection used by the full HTML renderer. */
   firstUserMessages?: FirstUserMessageRecord[];
+}
+
+export interface ReportJson {
+  version: 1;
+  audit: AuditResult;
+  ai: {
+    reportSynthesis: { result: ReportSynthesis | null; fallbackReason: string | null };
+    keySessionAnalyses: { result: KeySessionAnalysis[]; fallbackReason: string | null };
+    skillInsights: { result: ValidatedSkillInsight[]; fallbackReason: string | null };
+  };
+  render: {
+    locale: ReportLocale;
+    projectName: string | null;
+    font: { source: "bundled" } | { source: "custom"; filePath: string; family: string | null };
+    firstUserMessages: FirstUserMessageRecord[];
+  };
 }
 
 export interface ContentEvidenceScope extends ReadScope {
