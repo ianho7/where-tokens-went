@@ -16,3 +16,5 @@ Run one development analysis against the fixed `report-synthesis` Prompt and `no
 6. Remove the temporary run directory after presenting the result.
 
 The deterministic CLI is model-free. It reads only the selected source Prompt and fixed synthetic fixture; it does not scan history, recompute an Audit, request pricing, render HTML, package or install Skills, or run report orchestration. The single analysis call is the fresh subagent dispatch in step 3.
+
+`check.pass` confirms mechanical structure, resolvable Evidence references, numeric claims with explicitly named units in fields that cite Evidence, and Audit integrity. Review prose without Evidence references (including `noStrongFindingReason`) yourself for Evidence fidelity and claims about unavailable facts.

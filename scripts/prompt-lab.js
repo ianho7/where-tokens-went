@@ -30,15 +30,62 @@ function evidenceNumbers(matches) {
   return numbers;
 }
 
+function evidenceUnit(match, index) {
+  if (match.kind === "summary") {
+    if (["modelCallCount", "activeBranchModelCallCount"].includes(match.key)) return "model calls";
+    if (match.key.endsWith("Tokens")) return "tokens";
+    if (match.key.endsWith("Percent")) return "percent";
+    if (["topProject", "topModel", "topTimeBucket"].includes(match.key)) return "tokens";
+  }
+  if (match.kind === "ranking" || match.kind === "turn") {
+    if (match.kind === "ranking") return ["tokens", "percent", "model calls"][index] ?? null;
+    return ["tokens", "percent", "model calls"][index] ?? null;
+  }
+  if (match.kind === "check") {
+    const [checkId, evidenceIndex] = match.key.split(":");
+    const selectedIndex = evidenceIndex === undefined ? index : Number(evidenceIndex);
+    const units = {
+      long_session: ["tokens", "model calls", "percent"],
+      tool_amplification: [null, "model calls", "tokens"],
+      model_concentration: ["tokens", "percent", "model calls"],
+    };
+    return units[checkId]?.[selectedIndex] ?? null;
+  }
+  return null;
+}
+
+function explicitUnit(text, endIndex, hasPercentSign) {
+  if (hasPercentSign) return "percent";
+  const rest = text.slice(endIndex);
+  if (/^\s*(?:tokens?\b)/iu.test(rest)) return "tokens";
+  if (/^\s*(?:percent(?:age)?\b)/iu.test(rest)) return "percent";
+  if (/^\s*(?:(?:次\s*)?模型调用|model\s+calls?\b)/iu.test(rest)) return "model calls";
+  return null;
+}
+
+function evidenceHasUnit(matches, value, unit) {
+  return matches.some((match) => match.evidence.some((item, index) =>
+    isRecord(item)
+    && item.provenance !== "unavailable"
+    && typeof item.value === "number"
+    && Number.isFinite(item.value)
+    && String(item.value) === value
+    && evidenceUnit(match, index) === unit));
+}
+
 function numberClaims(text) {
   const claims = [];
-  const pattern = /(?<![\p{L}\p{N}_])[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:%|％)?(?![\p{L}\p{N}_])/gu;
+  const pattern = /(?<![\p{L}\p{N}_])[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:%|％)?(?=$|[\s\p{P}\p{S}]|tokens?\b|percent(?:age)?\b|model\s+calls?\b|次\s*模型调用|模型调用)/gu;
   for (const match of text.matchAll(pattern)) {
     const number = Number(match[0].replace(/[,%％\s]/gu, ""));
-    if (Number.isFinite(number)) claims.push({ raw: match[0].trim(), value: String(number), index: match.index });
+    if (Number.isFinite(number)) {
+      const raw = match[0].trim();
+      claims.push({ raw, value: String(number), unit: explicitUnit(text, match.index + match[0].length, /[%％]/u.test(raw)), index: match.index });
+    }
   }
   for (const match of text.matchAll(/(?:为|是)\s*([零〇])(?=$|[\s，。；、,.!?！？])/gu)) {
-    claims.push({ raw: match[1], value: "0", index: match.index + match[0].lastIndexOf(match[1]) });
+    const index = match.index + match[0].lastIndexOf(match[1]);
+    claims.push({ raw: match[1], value: "0", unit: explicitUnit(text, index + match[1].length, false), index });
   }
   return claims;
 }
@@ -109,13 +156,17 @@ function validatePromptLabResult(audit, result) {
         const start = text.indexOf(identifier);
         return start >= 0 && claim.index >= start && claim.index < start + identifier.length;
       });
-      if (!insideIdentifier && !allowed.has(claim.value)) errors.push(`${label} contains a number not supported by its cited Evidence: ${claim.raw}`);
+      const supported = claim.unit
+        ? evidenceHasUnit(matches, claim.value, claim.unit)
+        : allowed.has(claim.value);
+      if (!insideIdentifier && !supported) {
+        errors.push(`${label} contains a number not supported by its cited Evidence: ${claim.raw}`);
+      }
     }
   };
 
   const overviewMatches = isRecord(result.overview) ? refsFor(result.overview.evidenceRefs, "overview") : [];
   if (isRecord(result.overview)) checkNumbers(result.overview.summary, overviewMatches, "overview.summary");
-  if (hasText(result.noStrongFindingReason)) checkNumbers(result.noStrongFindingReason, [], "noStrongFindingReason");
   if (Array.isArray(result.findings)) {
     for (const [index, finding] of result.findings.entries()) {
       if (!isRecord(finding)) continue;

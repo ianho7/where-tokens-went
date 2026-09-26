@@ -21,11 +21,39 @@ test("Prompt Lab binds only the source Report Synthesis Prompt and fixed Audit",
   assert.doesNotMatch(prepared.modelInput, /\{\{(?:locale|auditFingerprint|auditResultJson)\}\}/u);
 });
 
-test("thin Prompt Lab check accepts evidence-grounded zero, one, and duplicate Findings", () => {
+test("thin Prompt Lab check leaves Finding count and prose semantics to review", () => {
   const { audit } = preparePromptLabInput();
   const oneFinding = { title: "长任务占据了大部分用量", analysis: "该 Session 使用了 1000 Tokens。", evidenceRefs: ["summary:totalTokens"], support: "strong", uncertainty: null };
   for (const findings of [[], [oneFinding], [oneFinding, oneFinding]]) {
     assert.deepEqual(validatePromptLabResult(audit, synthesisFor(audit, findings)), { valid: true, errors: [] });
+  }
+});
+
+test("thin Prompt Lab check matches explicit units to cited Evidence fields", () => {
+  const { audit } = preparePromptLabInput();
+  const cases = [
+    ["3 Tokens", "summary:modelCallCount", false],
+    ["3 model calls", "summary:modelCallCount", true],
+    ["3 model calls", "summary:activeBranchModelCallCount", true],
+    ["3 次模型调用", "summary:modelCallCount", true],
+    ["3次模型调用", "summary:modelCallCount", true],
+    ["3模型调用", "summary:modelCallCount", true],
+    ["2 model calls", "ranking:sessions:large", true],
+    ["3 model calls", "ranking:projects:<current-project>", true],
+    ["2 model calls", "check:long_session:1", true],
+    ["2 model calls", "check:model_concentration:2", true],
+    ["3%", "summary:modelCallCount", false],
+    ["99%", "ranking:sessions:large", true],
+    ["1000 Tokens", "summary:totalTokens", true],
+    ["1000次模型调用", "summary:totalTokens", false],
+    ["1000模型调用", "summary:totalTokens", false],
+  ];
+  for (const [summary, evidenceRef, valid] of cases) {
+    const output = synthesisFor(audit);
+    output.overview.summary = summary;
+    output.overview.evidenceRefs = [evidenceRef];
+    const checked = validatePromptLabResult(audit, output);
+    assert.equal(checked.valid, valid, summary);
   }
 });
 
@@ -48,17 +76,15 @@ test("thin Prompt Lab check blocks stale Audit, invented references, and unsuppo
   assert.ok(checked.errors.some((error) => error.includes("not supported by its cited Evidence")));
 });
 
-test("thin Prompt Lab check recognizes unsupported Chinese zero numerals", () => {
+test("thin Prompt Lab check rejects unsupported Chinese zero numerals in cited overview prose", () => {
   const { audit } = preparePromptLabInput();
   for (const summary of ["工具结果放大值是零。", "工具结果放大值是〇。"]) {
     const output = synthesisFor(audit);
     output.overview.summary = summary;
     output.overview.evidenceRefs = ["ranking:sessions:large"];
-    output.noStrongFindingReason = summary;
     const checked = validatePromptLabResult(audit, output);
     assert.equal(checked.valid, false);
     assert.ok(checked.errors.some((error) => error.includes("not supported by its cited Evidence")));
-    assert.ok(checked.errors.some((error) => error.includes("noStrongFindingReason contains a number not supported by its cited Evidence")));
   }
 });
 
