@@ -2,13 +2,25 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { auditFingerprint, resolveReportEvidence } = require("../dist/src/key-session-analysis.js");
+const { auditFingerprint, resolveReportEvidence, validateKeySessionAnalysis } = require("../dist/src/key-session-analysis.js");
+const { validateSkillInsights } = require("../dist/src/skill-insights.js");
 
 const root = path.resolve(__dirname, "..");
-const promptPath = path.join(root, "prompts", "report-synthesis.md");
-const fixturePath = path.join(root, "tests", "fixtures", "prompt-lab", "report-synthesis-normal.json");
-const promptName = "report-synthesis";
-const fixtureName = "normal-synthetic";
+const auditFixturePath = path.join(root, "tests", "fixtures", "prompt-lab", "report-synthesis-normal.json");
+const promptConfigs = {
+  "report-synthesis": {
+    path: path.join(root, "prompts", "report-synthesis.md"),
+    fixture: "normal-synthetic",
+  },
+  "key-session-analysis": {
+    path: path.join(root, "prompts", "key-session-analysis.md"),
+    fixture: "partial-key-session",
+  },
+  "skill-insights": {
+    path: path.join(root, "prompts", "skill-insights.md"),
+    fixture: "skill-insights-snapshot-v2",
+  },
+};
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -75,7 +87,7 @@ function evidenceHasUnit(matches, value, unit) {
 
 function numberClaims(text) {
   const claims = [];
-  const pattern = /(?<![\p{L}\p{N}_])[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:%|％)?(?=$|[\s\p{P}\p{S}]|tokens?\b|percent(?:age)?\b|model\s+calls?\b|次\s*模型调用|模型调用)/gu;
+  const pattern = /(?:(?<![\p{L}\p{N}_])|(?<=\p{Script=Han}))[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:%|％)?(?=$|[\s\p{P}\p{S}]|tokens?\b|percent(?:age)?\b|model\s+calls?\b|次\s*模型调用|模型调用)/gu;
   for (const match of text.matchAll(pattern)) {
     const number = Number(match[0].replace(/[,%％\s]/gu, ""));
     if (Number.isFinite(number)) {
@@ -98,7 +110,7 @@ function hasNumericCostClaim(text) {
     || new RegExp(`(?<![\\p{L}\\p{N}_])${amount}(?![\\p{L}\\p{N}_])\\s*${cost}`, "iu").test(text);
 }
 
-function validatePromptLabResult(audit, result) {
+function validateReportSynthesisResult(audit, result) {
   const errors = [];
   const expectedFingerprint = auditFingerprint(audit);
   const reportedCost = resolveReportEvidence(audit, "summary:reportedCost");
@@ -180,75 +192,269 @@ function validatePromptLabResult(audit, result) {
   return { valid: errors.length === 0, errors: [...new Set(errors)] };
 }
 
-function preparePromptLabInput() {
-  const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
-  if (fixture.id !== fixtureName || !isRecord(fixture.auditResult) || !hasText(fixture.locale)) throw new Error("Prompt Lab fixture is malformed.");
-  const audit = fixture.auditResult;
-  const fingerprint = auditFingerprint(audit);
-  const prompt = fs.readFileSync(promptPath, "utf8")
-    .replaceAll("{{locale}}", fixture.locale)
+function checkSupportedNumbers(text, matches, label) {
+  const allowed = evidenceNumbers(matches);
+  for (const claim of numberClaims(text)) {
+    const supported = claim.unit
+      ? evidenceHasUnit(matches, claim.value, claim.unit)
+      : allowed.has(claim.value);
+    if (!supported) return `${label} contains a number not supported by its cited Evidence: ${claim.raw}`;
+  }
+  return null;
+}
+
+function validateKeySessionResult(prepared, result) {
+  const errors = [];
+  if (!Array.isArray(result)) return { valid: false, errors: ["Key Session Analysis output must be a JSON array."] };
+  for (const [index, analysis] of result.entries()) {
+    if (!isRecord(analysis)) {
+      errors.push(`analyses[${index}] must be an object.`);
+      continue;
+    }
+    const packets = prepared.contentEvidencePackets.filter((packet) => packet.sessionId === analysis.sessionId);
+    let validation;
+    try {
+      validation = validateKeySessionAnalysis(prepared.audit, analysis, packets);
+    } catch {
+      errors.push(`analyses[${index}] is malformed.`);
+      continue;
+    }
+    errors.push(...validation.errors.map((error) => `analyses[${index}]: ${error}`));
+
+    if (isRecord(analysis.primaryFinding) && Array.isArray(analysis.primaryFinding.evidenceIds)) {
+      const matches = analysis.primaryFinding.evidenceIds
+        .map((reference) => resolveReportEvidence(prepared.audit, reference))
+        .filter(Boolean);
+      for (const [field, text] of [
+        ["observation", analysis.primaryFinding.observation],
+        ["interpretation", analysis.primaryFinding.interpretation],
+        ...((Array.isArray(analysis.primaryFinding.alternativeExplanations)
+          ? analysis.primaryFinding.alternativeExplanations
+          : []).map((value, alternativeIndex) => [`alternativeExplanations[${alternativeIndex}]`, value])),
+      ]) {
+        if (!hasText(text)) continue;
+        const error = checkSupportedNumbers(text, matches, `analyses[${index}].primaryFinding.${field}`);
+        if (error) errors.push(error);
+      }
+    }
+    if (isRecord(analysis.recommendation) && Array.isArray(analysis.recommendation.targetEvidenceIds)) {
+      const matches = analysis.recommendation.targetEvidenceIds
+        .map((reference) => resolveReportEvidence(prepared.audit, reference))
+        .filter(Boolean);
+      for (const [field, text] of [
+        ["action", analysis.recommendation.action],
+        ["rationale", analysis.recommendation.rationale],
+        ["applicability", analysis.recommendation.applicability],
+        ["tradeoff", analysis.recommendation.tradeoff],
+        ["verification", analysis.recommendation.verification],
+      ]) {
+        if (!hasText(text)) continue;
+        const error = checkSupportedNumbers(text, matches, `analyses[${index}].recommendation.${field}`);
+        if (error) errors.push(error);
+      }
+    }
+  }
+  return { valid: errors.length === 0, errors: [...new Set(errors)] };
+}
+
+function bindSkillInsightsPrompt(source, locale, snapshot) {
+  const repeated = /\{\{#each skills\}\}([\s\S]*?)\{\{\/each\}\}/u;
+  const loop = source.match(repeated);
+  if (!loop) throw new Error("Skill Insights Prompt is missing its skills block.");
+  const skills = snapshot.selectedSkills.map((skill) => {
+    const metadata = { ...skill };
+    delete metadata.skillMdContent;
+    return loop[1]
+      .replaceAll("{{skillId}}", skill.skillId)
+      .replaceAll("{{skillName}}", skill.skillName)
+      .replaceAll("{{skillPath}}", skill.skillPath ?? "unavailable")
+      .replaceAll("{{contentState}}", skill.contentState)
+      .replaceAll("{{metadataJson}}", JSON.stringify(metadata, null, 2))
+      .replaceAll("{{skillMdContent}}", skill.skillMdContent ?? "");
+  }).join("\n\n");
+  return source.replace(repeated, skills)
+    .replaceAll("{{reportLocale}}", locale)
+    .replaceAll("{{analysisPeriod}}", "fixed Prompt Lab snapshot")
+    .replaceAll("{{skillSnapshotId}}", snapshot.snapshotId)
+    .replaceAll("{{globalUsageJson}}", JSON.stringify(snapshot.globalUsage, null, 2))
+    .replaceAll("{{candidateJson}}", JSON.stringify(snapshot.selectedCandidates, null, 2));
+}
+
+function bindAuditPrompt(source, promptName, locale, audit, fingerprint, packets = []) {
+  let prompt = source
+    .replaceAll("{{locale}}", locale)
     .replaceAll("{{auditFingerprint}}", fingerprint)
     .replaceAll("{{auditResultJson}}", JSON.stringify(audit, null, 2));
-  if (/\{\{(?:locale|auditFingerprint|auditResultJson)\}\}/u.test(prompt)) throw new Error("Prompt Lab left an unbound runtime value.");
+  if (promptName === "key-session-analysis") {
+    prompt = prompt.replaceAll("{{contentEvidencePacketsJson}}", JSON.stringify(packets, null, 2));
+  }
+  if (/\{\{(?:locale|auditFingerprint|auditResultJson|contentEvidencePacketsJson)\}\}/u.test(prompt)) {
+    throw new Error("Prompt Lab left an unbound runtime value.");
+  }
+  return prompt;
+}
+
+function preparePromptLabInput(promptName = "report-synthesis", fixtureName = null) {
+  const config = promptConfigs[promptName];
+  if (!config) throw new Error(`Unknown Prompt: ${promptName}`);
+  const selectedFixture = fixtureName ?? config.fixture;
+  if (selectedFixture !== config.fixture) throw new Error(`This Prompt supports only --fixture ${config.fixture}.`);
+  const sourcePrompt = fs.readFileSync(config.path, "utf8");
+
+  if (promptName === "skill-insights") {
+    const snapshotPath = path.join(root, "evals", "fixtures", "skill-insights-snapshot-v2.json");
+    const snapshot = JSON.parse(fs.readFileSync(snapshotPath, "utf8"));
+    if (!isRecord(snapshot) || snapshot.snapshotId !== "fixture-skill-snapshot-v2") {
+      throw new Error("Skill Insights Prompt Lab fixture is malformed.");
+    }
+    const modelInput = bindSkillInsightsPrompt(sourcePrompt, "zh-CN", snapshot);
+    if (/\{\{(?:reportLocale|analysisPeriod|skillSnapshotId|globalUsageJson|candidateJson|#each skills|\/each|skillId|skillName|skillPath|contentState|metadataJson|skillMdContent)\}\}/u.test(modelInput)) {
+      throw new Error("Prompt Lab left an unbound Skill Insights value.");
+    }
+    return {
+      promptName,
+      snapshot,
+      inputSummary: {
+        prompt: promptName,
+        fixture: selectedFixture,
+        locale: "zh-CN",
+        auditFingerprint: snapshot.auditFingerprint,
+        snapshotId: snapshot.snapshotId,
+        promptBytes: Buffer.byteLength(sourcePrompt),
+        evidenceBytes: Buffer.byteLength(JSON.stringify(snapshot)),
+        inputBytes: Buffer.byteLength(modelInput),
+      },
+      modelInput,
+    };
+  }
+
+  const fixture = JSON.parse(fs.readFileSync(auditFixturePath, "utf8"));
+  if (fixture.id !== "normal-synthetic" || !isRecord(fixture.auditResult) || !hasText(fixture.locale)) {
+    throw new Error("Prompt Lab Audit fixture is malformed.");
+  }
+  const audit = fixture.auditResult;
+  const fingerprint = auditFingerprint(audit);
+  if (promptName === "key-session-analysis") {
+    const caseFixture = JSON.parse(fs.readFileSync(path.join(root, "evals", "fixtures", "partial-key-session.json"), "utf8"));
+    const contentEvidencePackets = fixture.contentEvidencePackets;
+    if (caseFixture.case !== selectedFixture || caseFixture.lane !== promptName || !Array.isArray(contentEvidencePackets)) {
+      throw new Error("Key Session Analysis Prompt Lab fixture is malformed.");
+    }
+    const modelInput = bindAuditPrompt(sourcePrompt, promptName, fixture.locale, audit, fingerprint, contentEvidencePackets);
+    return {
+      promptName,
+      audit,
+      contentEvidencePackets,
+      inputSummary: {
+        prompt: promptName,
+        fixture: selectedFixture,
+        locale: fixture.locale,
+        auditFingerprint: fingerprint,
+        promptBytes: Buffer.byteLength(sourcePrompt),
+        auditBytes: Buffer.byteLength(JSON.stringify(audit)),
+        evidenceBytes: Buffer.byteLength(JSON.stringify(contentEvidencePackets)),
+        inputBytes: Buffer.byteLength(modelInput),
+      },
+      modelInput,
+    };
+  }
+
+  const modelInput = bindAuditPrompt(sourcePrompt, promptName, fixture.locale, audit, fingerprint);
   return {
+    promptName,
     audit,
     inputSummary: {
       prompt: promptName,
-      fixture: fixture.id,
+      fixture: selectedFixture,
       locale: fixture.locale,
       auditFingerprint: fingerprint,
-      promptBytes: Buffer.byteLength(prompt),
+      promptBytes: Buffer.byteLength(sourcePrompt),
       auditBytes: Buffer.byteLength(JSON.stringify(audit)),
+      inputBytes: Buffer.byteLength(modelInput),
     },
-    modelInput: prompt,
+    modelInput,
   };
 }
 
-function outputReferences(result) {
+function validatePromptLabResult(prepared, result) {
+  if (prepared.promptName === "report-synthesis") return validateReportSynthesisResult(prepared.audit, result);
+  if (prepared.promptName === "key-session-analysis") return validateKeySessionResult(prepared, result);
+  if (prepared.promptName === "skill-insights") {
+    const validation = validateSkillInsights(result, prepared.snapshot);
+    return { valid: validation.valid, errors: validation.errors };
+  }
+  return { valid: false, errors: ["Unknown Prompt."] };
+}
+
+function outputReferences(promptName, result) {
   const refs = [];
-  if (isRecord(result?.overview) && Array.isArray(result.overview.evidenceRefs)) refs.push(...result.overview.evidenceRefs);
-  if (Array.isArray(result?.findings)) {
-    for (const finding of result.findings) if (isRecord(finding) && Array.isArray(finding.evidenceRefs)) refs.push(...finding.evidenceRefs);
+  if (promptName === "report-synthesis") {
+    if (isRecord(result?.overview) && Array.isArray(result.overview.evidenceRefs)) refs.push(...result.overview.evidenceRefs);
+    if (Array.isArray(result?.findings)) {
+      for (const finding of result.findings) if (isRecord(finding) && Array.isArray(finding.evidenceRefs)) refs.push(...finding.evidenceRefs);
+    }
+  } else if (promptName === "key-session-analysis" && Array.isArray(result)) {
+    for (const analysis of result) {
+      if (isRecord(analysis?.primaryFinding) && Array.isArray(analysis.primaryFinding.evidenceIds)) refs.push(...analysis.primaryFinding.evidenceIds);
+      if (isRecord(analysis?.recommendation) && Array.isArray(analysis.recommendation.targetEvidenceIds)) refs.push(...analysis.recommendation.targetEvidenceIds);
+    }
+  } else if (promptName === "skill-insights" && Array.isArray(result?.insights)) {
+    for (const insight of result.insights) {
+      if (isRecord(insight?.reveal) && Array.isArray(insight.reveal.evidenceRefs)) refs.push(...insight.reveal.evidenceRefs);
+    }
   }
   return [...new Set(refs.filter((ref) => typeof ref === "string"))];
 }
 
 function parseArgs(args) {
-  const options = { prompt: promptName, fixture: fixtureName, result: null, help: false };
+  const options = { prompt: "report-synthesis", fixture: null, result: null, fallback: null, help: false };
   for (let index = 0; index < args.length; index += 1) {
     const flag = args[index];
     if (flag === "--help" || flag === "-h") options.help = true;
-    else if (flag === "--prompt" || flag === "--fixture" || flag === "--result") {
+    else if (flag === "--prompt" || flag === "--fixture" || flag === "--result" || flag === "--fallback") {
       if (!args[index + 1]) throw new Error(`${flag} requires a value.`);
-      options[flag.slice(2)] = args[++index];
+      const name = flag.slice(2);
+      options[name] = args[++index];
     } else throw new Error(`Unknown argument: ${flag}`);
   }
-  if (options.prompt !== promptName) throw new Error(`This Ticket supports only --prompt ${promptName}.`);
-  if (options.fixture !== fixtureName) throw new Error(`This Ticket supports only --fixture ${fixtureName}.`);
+  const config = promptConfigs[options.prompt];
+  if (!config) throw new Error(`Unknown Prompt: ${options.prompt}`);
+  if (options.fixture !== null && options.fixture !== config.fixture) throw new Error(`This Prompt supports only --fixture ${config.fixture}.`);
+  if (options.result && options.fallback) throw new Error("Choose either --result or --fallback.");
+  if (options.fallback !== null && !hasText(options.fallback)) throw new Error("--fallback requires a non-empty reason.");
+  options.fixture ??= config.fixture;
   return options;
 }
 
 function main(args = process.argv.slice(2)) {
   const options = parseArgs(args);
   if (options.help) {
-    process.stdout.write("Usage: npm run prompt:lab -- [--prompt report-synthesis] [--fixture normal-synthetic] [--result <model-output.json>]\n");
+    process.stdout.write([
+      "Usage: npm run prompt:lab -- --prompt <report-synthesis|key-session-analysis|skill-insights> [--fixture <fixed-fixture>] [--result <model-output.json> | --fallback <reason>]",
+      "Fixtures: report-synthesis=normal-synthetic, key-session-analysis=partial-key-session, skill-insights=skill-insights-snapshot-v2",
+      "Runs one selected Prompt per invocation; review wording and usefulness manually.",
+      "",
+    ].join("\n"));
     return 0;
   }
 
-  const prepared = preparePromptLabInput();
+  const prepared = preparePromptLabInput(options.prompt, options.fixture);
   let aiOutput = null;
   let check = { status: "awaiting-model-output", valid: null, errors: [] };
   if (options.result) {
     aiOutput = JSON.parse(fs.readFileSync(path.resolve(options.result), "utf8"));
-    const validation = validatePromptLabResult(prepared.audit, aiOutput);
+    const validation = validatePromptLabResult(prepared, aiOutput);
     check = { status: validation.valid ? "pass" : "fail", ...validation };
+  } else if (options.fallback) {
+    check = { status: "fallback", valid: null, errors: [], reason: options.fallback };
   }
+  const needsModelOutput = !options.result && !options.fallback;
   const output = {
     inputSummary: prepared.inputSummary,
-    ...(options.result ? {} : { modelInput: prepared.modelInput }),
-    ...(!options.result ? { hostAgentAction: "Send modelInput to the Host Agent once, then rerun with --result <model-output.json>." } : {}),
+    ...(needsModelOutput ? { modelInput: prepared.modelInput } : {}),
+    ...(needsModelOutput ? { hostAgentAction: `Send only this ${options.prompt} input to the Host Agent once, then rerun with --prompt ${options.prompt} --fixture ${options.fixture} --result <model-output.json>.` } : {}),
     aiOutput,
-    evidenceReferences: outputReferences(aiOutput),
+    evidenceReferences: outputReferences(options.prompt, aiOutput),
     check,
   };
   process.stdout.write(JSON.stringify(output, null, 2) + "\n");

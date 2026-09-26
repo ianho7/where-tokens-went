@@ -286,9 +286,73 @@
         }
       ]
     },
-    "turns": [],
+    "turns": [
+      {
+        "sessionId": "large",
+        "turnId": "large-turn",
+        "ordinal": { "value": 2, "provenance": "derived", "method": "synthetic Prompt Lab Turn" },
+        "tokens": {
+          "inputTokens": { "value": 960, "provenance": "reported" },
+          "cachedInputTokens": { "value": 0, "provenance": "reported" },
+          "cacheWriteTokens": { "value": 0, "provenance": "reported" },
+          "outputTokens": { "value": 30, "provenance": "reported" },
+          "unclassifiedTokens": { "value": 0, "provenance": "derived" },
+          "reasoningTokens": { "value": 0, "provenance": "reported" },
+          "totalTokens": { "value": 990, "provenance": "reported" }
+        },
+        "sessionSharePercent": { "value": 99, "provenance": "derived" },
+        "modelCallCount": { "value": 2, "provenance": "derived" },
+        "startedAt": { "value": "2026-09-08T08:00:00Z", "provenance": "reported" },
+        "endedAt": { "value": "2026-09-08T08:10:00Z", "provenance": "reported" },
+        "durationMs": { "value": 600000, "provenance": "reported" },
+        "timeToFirstTokenMs": { "value": 1000, "provenance": "reported" },
+        "observedSpanMs": { "value": 600000, "provenance": "derived" },
+        "toolCallCount": { "value": 1, "provenance": "derived" },
+        "pairedToolResultCount": { "value": 1, "provenance": "derived" },
+        "toolResultChars": { "value": 40, "provenance": "reported" },
+        "toolResultBytes": { "value": 40, "provenance": "reported" },
+        "errorCount": { "value": 0, "provenance": "derived" },
+        "lifecycleMarkers": [],
+        "evidenceId": "turn:large:large-turn",
+        "method": "synthetic Prompt Lab Turn Evidence",
+        "coverage": { "value": 1, "provenance": "derived" }
+      },
+      {
+        "sessionId": "small",
+        "turnId": "small-turn",
+        "ordinal": { "value": 1, "provenance": "derived", "method": "synthetic Prompt Lab Turn" },
+        "tokens": {
+          "inputTokens": { "value": 8, "provenance": "reported" },
+          "cachedInputTokens": { "value": 0, "provenance": "reported" },
+          "cacheWriteTokens": { "value": 0, "provenance": "reported" },
+          "outputTokens": { "value": 2, "provenance": "reported" },
+          "unclassifiedTokens": { "value": 0, "provenance": "derived" },
+          "reasoningTokens": { "value": 0, "provenance": "reported" },
+          "totalTokens": { "value": 10, "provenance": "reported" }
+        },
+        "sessionSharePercent": { "value": 1, "provenance": "derived" },
+        "modelCallCount": { "value": 1, "provenance": "derived" },
+        "startedAt": { "value": "2026-09-08T08:20:00Z", "provenance": "reported" },
+        "endedAt": { "value": "2026-09-08T08:21:00Z", "provenance": "reported" },
+        "durationMs": { "value": 60000, "provenance": "reported" },
+        "timeToFirstTokenMs": { "value": 500, "provenance": "reported" },
+        "observedSpanMs": { "value": 60000, "provenance": "derived" },
+        "toolCallCount": { "value": 0, "provenance": "derived" },
+        "pairedToolResultCount": { "value": 0, "provenance": "derived" },
+        "toolResultChars": { "value": 0, "provenance": "derived" },
+        "toolResultBytes": { "value": 0, "provenance": "derived" },
+        "errorCount": { "value": 0, "provenance": "derived" },
+        "lifecycleMarkers": [],
+        "evidenceId": "turn:small:small-turn",
+        "method": "synthetic Prompt Lab Turn Evidence",
+        "coverage": { "value": 1, "provenance": "derived" }
+      }
+    ],
     "turnCandidates": [],
-    "keySessionTokenAccounting": [],
+    "keySessionTokenAccounting": [
+      { "sessionId": "large", "status": "reconciled", "method": "synthetic Prompt Lab fixture" },
+      { "sessionId": "small", "status": "reconciled", "method": "synthetic Prompt Lab fixture" }
+    ],
     "report": {
       "dailyUsage": [
         {
@@ -731,5 +795,25 @@
         ]
       }
     ]
-  }
+  },
+  "contentEvidencePackets": [
+    {
+      "scope": { "harness": "codex", "cwd": "<current-project>", "allProjects": false, "since": "2026-09-01T00:00:00Z" },
+      "sessionId": "large",
+      "turnIds": ["large-turn"],
+      "selectionReason": "Selected from the synthetic Audit's largest Session.",
+      "unreadScope": "Other turns in this Session are outside this fixed packet.",
+      "items": [],
+      "warnings": ["The fixed partial-evidence case contains no readable Session content."]
+    },
+    {
+      "scope": { "harness": "codex", "cwd": "<current-project>", "allProjects": false, "since": "2026-09-01T00:00:00Z" },
+      "sessionId": "small",
+      "turnIds": ["small-turn"],
+      "selectionReason": "Selected from the synthetic Audit's remaining Session.",
+      "unreadScope": "Other turns in this Session are outside this fixed packet.",
+      "items": [],
+      "warnings": ["The fixed partial-evidence case contains no readable Session content."]
+    }
+  ]
 }
