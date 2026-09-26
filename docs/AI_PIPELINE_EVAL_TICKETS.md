@@ -1,4 +1,6 @@
-# AI Pipeline and Eval Tickets
+# AI Pipeline and Eval Tickets (historical overview)
+
+> Ticket 07 retired the formal Eval promotion path from active development. Fast Loop means one fixed fixture, one selected Prompt, one model call, a thin factual/Evidence check, and human JSON review. Release Loop means relevant deterministic tests and real regressions for product runtime changes, adding HTML or installed-Skill acceptance only when the changed boundary requires it. This document's prior Eval map is historical; no older issue status or workflow DAG state is changed here.
 
 **Status:** approved, then reopened by the 2026-09-20 evidence-integrity review. The issue files are authoritative for current status and acceptance.
 

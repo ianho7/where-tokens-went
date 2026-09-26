@@ -6,7 +6,9 @@ disable-model-invocation: true
 
 # prompt-lab
 
-Run one development analysis with exactly one selected Prompt and its fixed fixture. Use the Prompt named in the request; if none is named, ask the user which one to run.
+## Fast Loop
+
+The Fast Loop is the default for a Prompt-only change: one fixed fixture, one selected Prompt, one model call, the lane's thin factual/Evidence check, and human review of the JSON. Use the Prompt named in the request; if none is named, ask the user which one to run. A Prompt edit does not require packaging, installation, a full Report Run, HTML, repeated trials, an accepted baseline, or promotion.
 
 | Prompt | Fixed fixture |
 | --- | --- |
@@ -24,3 +26,7 @@ Run one development analysis with exactly one selected Prompt and its fixed fixt
 The deterministic CLI is model-free. It reads only the selected source Prompt and fixed fixture, then runs that lane's existing validator. It does not run sibling Prompts, scan history, recompute an Audit, request pricing, render HTML, package or install Skills, or run report orchestration. The single analysis call is the fresh subagent dispatch in step 3.
 
 `check.pass` means the selected lane's deterministic checks passed; review wording, Evidence fidelity, and recommendation usefulness yourself. A fallback records that no valid model result was available; it is not a validator pass.
+
+## Release Loop
+
+Use the Release Loop when a change affects runtime behavior, validators, privacy, fallback, composition, rendering, or Skill distribution. Run the relevant deterministic tests and real regression cases, then inspect one relevant AI result with the same thin check and human review. Check JSON-to-HTML only when composition or rendering changed. Run installed-Skill acceptance once when the installed delivery path changed or a release explicitly requires it. Do not repeat full Report Runs for Prompt-only edits, and do not use formal Eval promotion, accepted baselines, graders, optimizers, provenance records, or score thresholds as a development gate.

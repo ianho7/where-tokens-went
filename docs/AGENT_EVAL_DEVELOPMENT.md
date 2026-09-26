@@ -1,4 +1,6 @@
-# `where-tokens-went` 的 Agent / Skill Eval 开发研究笔记
+# `where-tokens-went` 的 Agent / Skill Eval 开发研究笔记（历史）
+
+> Ticket 07 已退役正式 Eval 晋升门槛。当前 Fast Loop：一个固定 fixture、一个选定 Prompt、一次模型调用、薄事实/Evidence 检查、人工查看 JSON。Release Loop：运行受影响的确定性规则与真实回归；只有改动触及 HTML 或安装交付边界时才验 HTML 或安装 Skill。下方研究结论仅供历史参考，不是当前流程。
 
 ## 结论
 

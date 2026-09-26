@@ -23,17 +23,16 @@ The formal external project name and current CLI/Skill/plugin namespace is `wher
 - A real or test report is complete only when the final HTML is written and opened, AI output is valid or an explicit fallback is recorded, and UI dispatch is observed as `completed` or `queued`; version-preflight failure, install recovery, or Run-version drift is reported as a failed/incomplete outcome.
 - Run-scoped bounded Evidence and raw lane JSON are local-sensitive artifacts with explicit cleanup; after final HTML acceptance, use `report-run cleanup --run-dir <directory>` and retain only the final HTML, canonical Audit, manifest, and trace.
 
-## Eval workflow
+## Prompt development loops
 
-- The executable protocol is [docs/AI_PIPELINE_EVAL_EXECUTION.md](docs/AI_PIPELINE_EVAL_EXECUTION.md). Read it before changing Eval contracts, Prompt Lab, grading, optimizer, promotion, or final acceptance behavior.
-- Deterministic targeted tests run on every code change. Lane-only `eval contract` and `eval trial` reuse frozen inputs and do not scan history, price models, process fonts, render HTML, open UI, install, or package.
-- Formal Eval promotion runs baseline/candidate trials through contract grading, blind dimensioned quality grading, bounded optimizer revisions (maximum three), regression and held-out gates, then explicit `eval review` and `eval promote`. Optimizer and lane Eval commands never edit `prompts/`.
-- The one-time Skill Insights v2 product release follows the bounded acceptance path in [docs/AI_PIPELINE_EVAL_EXECUTION.md](docs/AI_PIPELINE_EVAL_EXECUTION.md), not formal Eval promotion. Keep the stale accepted baseline untouched; compare actual current/candidate outputs on two distinct frozen inputs, validate Evidence, obtain independent review, then package and open one accepted final HTML. A diagnostic pass alone does not authorize the source Prompt change.
-- Verify the current authoritative Prompt's installed report path independently of candidate promotion; a rejected candidate is a valid Eval result, not a runtime acceptance blocker. Keep candidate Prompts outside `prompts/`; after eligible promotion, package/sync and repeat installed-Skill report acceptance on the new bundle. Convert every confirmed acceptance failure into a regression Case.
+- [docs/AI_PIPELINE_EVAL_EXECUTION.md](docs/AI_PIPELINE_EVAL_EXECUTION.md) defines the Fast Loop and Release Loop. Fast Loop is the default for one Prompt or wording change: one fixed fixture, one selected Prompt, one model call, a thin factual/Evidence check, and human review of the JSON.
+- Use the repository's `prompt-lab` Skill and `npm run prompt:lab` for that loop. Prompt edits do not require packaging, installation, a full Report Run, HTML, repeated trials, a baseline, or formal promotion.
+- Release Loop applies to user-visible runtime, validator, privacy, fallback, composition, renderer, or distribution changes. Run the relevant deterministic checks and real regression cases; inspect one relevant AI output with the thin check and human review. Use JSON-to-HTML or installed-Skill acceptance only when the changed boundary requires it.
+- Formal Eval promotion, accepted-baseline, grader/optimizer/provenance, and repeated Run ceremonies are retired from the development path. Keep runtime validators, deterministic Audit rules, privacy boundaries, Report Run delivery, and explicit fallback behavior.
 
 ## Evidence and acceptance boundary
 
-- For Prompt, Skill, Eval, performance, privacy, concurrency, state-machine, promotion, or cross-system changes, the implementer cannot be the sole acceptor. Completion requires direct evidence for every acceptance criterion plus independent Standards and Spec reviews; any unresolved P0/P1 finding blocks completion.
+- For shared runtime contracts, privacy, concurrency, state-machine, or cross-system changes, the implementer cannot be the sole acceptor. Completion requires direct evidence for every acceptance criterion plus independent review; any unresolved P0/P1 finding blocks completion. A daily Prompt Fast Loop uses the selected output's thin factual check and human review, without a baseline/grader/promotion ceremony.
 - Ticket state, checkboxes, prior Session claims, command exit 0, schema/field presence, caller-supplied scores or execution metadata, repeated registration of one output, relabeled identical inputs, undersized fixtures, and empty-but-valid output do not by themselves prove behavior.
 - A hash proves captured-artifact integrity, not that model execution, independent grading, timing, Token use, held-out evaluation, or review occurred. Promotion-critical evidence must bind to resolvable execution records; preserve unobservable values as `unavailable`.
 - Before this work, read [docs/AI_PIPELINE_EVAL_SPEC.md](docs/AI_PIPELINE_EVAL_SPEC.md), the executable protocol above, and the affected Ticket. This boundary does not add independent-review overhead to a genuinely local Fast Path change that does not alter a shared contract.
@@ -69,7 +68,7 @@ Build the smallest end-to-end path that improves the Aha moment in [docs/MVP.md]
 - Preserve unknown and missing values. Attach `reported`, `derived`, `estimated`, or `unavailable` to every diagnostic value that could be mistaken for an exact measurement.
 - Add the smallest runnable check for each non-trivial parser or counting rule, preferably using a minimal redacted sample from the user's real history.
 - Prefer one Reader function and one shared analysis path over registries, factories, services, databases, or extension frameworks.
-- Formal Eval loop changes must use the persisted `eval state` sequence (`freeze → generator → contract-grade → blind-quality-grade → optimize → regression → held-out → review → promote`); skipped phases fail, repeated completed phases are idempotent, and promotion-critical commands must bind to that state artifact.
+- Prompt edits stay in the Fast Loop unless they also change a user-visible runtime contract; in that case, use the smallest relevant Release Loop checks.
 
 Repository scripts and configuration are the source of truth for commands and dependencies; keep this file focused on behavior that is not obvious from the tree.
 

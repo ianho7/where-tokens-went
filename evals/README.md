@@ -1,8 +1,7 @@
-# where-tokens-went Eval assets
+# Historical Eval artifacts
 
-This directory contains redacted, immutable Eval contracts and fixtures. Real
-history packets and model transcripts stay under the local `.scratch/` boundary.
+These redacted Cases, Rubrics, candidate Prompts, baseline metadata, and review records are retained as historical development evidence. They are not loaded by the current Prompt Lab, are not an active accepted baseline, and do not gate Prompt changes.
 
-The accepted baseline is a record of the Prompt/runtime identities and the
-deterministic contract state at the time it was frozen. Candidate artifacts are
-written to a separate experiment directory and never replace the baseline.
+The active workflow is the Fast Loop and Release Loop in `docs/AI_PIPELINE_EVAL_EXECUTION.md`. The Prompt Lab reads the selected Prompt and one fixed fixture; confirmed product regressions remain in the owner-level deterministic tests.
+
+Raw history packets and model transcripts remain local under `.scratch/` and are not part of these tracked records.

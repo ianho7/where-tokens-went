@@ -1,6 +1,16 @@
-# AI Pipeline and Eval Architecture Spec
+# AI Pipeline and Eval Architecture Spec (archived)
 
-## Status
+> Superseded by Ticket 07. Formal promotion, accepted baselines, graders, optimizers, and Eval provenance are not active development gates. Product runtime behavior remains governed by docs/MVP.md and docs/DESIGN.md.
+
+## Active Fast Loop and Release Loop
+
+**Fast Loop:** one fixed fixture, one selected Prompt, one model call, a thin factual/Evidence check, and human review of the JSON. Prompt-only changes do not require baselines, scores, promotion, repeated trials, package/install, Report Run, E2E, or HTML.
+
+**Release Loop:** for runtime, validator, privacy, fallback, composition, rendering, or distribution changes, run relevant deterministic owner tests and real regressions; inspect one relevant AI result with the same thin check and human review. Use JSON-to-HTML or installed-Skill acceptance only when the changed boundary requires it.
+
+The sections below are the former formal Eval specification, retained as historical reference only. Do not execute their promotion workflow.
+
+## Historical status
 
 Approved, reopened after the 2026-09-20 acceptance review. Runtime delivery and formal Prompt promotion have separate acceptance gates; a rejected candidate does not by itself block acceptance of the current authoritative Prompt's report path. The one-time Skill Insights v2 product release has the narrower gate below.
 

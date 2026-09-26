@@ -1,4 +1,8 @@
-# AI Pipeline Eval Execution
+# AI Pipeline Eval Execution (archived)
+
+> Ticket 07 retired the formal Eval protocol below. Use the repository's prompt-lab Skill for the active Fast Loop: one fixed fixture, one selected Prompt, one model call, a thin factual/Evidence check, and human JSON review. Prompt-only changes do not require baseline, score, promotion, repeated Run, package/install, E2E, or HTML.
+
+> The Release Loop runs relevant deterministic owner tests and real regressions for runtime/validator/privacy/fallback/composition/rendering/distribution changes; it adds JSON-to-HTML or installed-Skill acceptance only when the changed boundary requires it. The formal commands and gates below are retained as history, not current procedure.
 
 This is the executable development protocol for `where-tokens-went`. The authoritative runtime Prompts are `prompts/report-synthesis.md`, `prompts/key-session-analysis.md`, and `prompts/skill-insights.md`; packaged copies are generated and must not be edited directly.
 

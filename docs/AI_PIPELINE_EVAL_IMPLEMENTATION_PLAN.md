@@ -1,6 +1,8 @@
-# AI Pipeline and Eval-Driven Development Implementation Plan
+# AI Pipeline and Eval-Driven Development Implementation Plan (archived)
 
 > Planning history. For current acceptance sequencing, use `docs/AI_PIPELINE_EVAL_SPEC.md`, `docs/AI_PIPELINE_EVAL_EXECUTION.md`, and the current 0016/0021 Tickets: current-Prompt report delivery is accepted independently of candidate promotion; post-promotion report regression applies only after a legal promotion.
+
+> Ticket 07 supersedes the formal candidate/baseline/grader/optimizer/provenance path described here. Active Fast Loop: one fixture, one Prompt, one model call, thin factual check, human JSON review. Active Release Loop: relevant deterministic tests and real regressions, with HTML or installed-Skill acceptance only when the changed product boundary requires it. The former plan below is historical reference, not a current gate.
 
 ## Objective
 
