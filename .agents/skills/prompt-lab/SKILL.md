@@ -1,20 +1,26 @@
 ---
 name: prompt-lab
-description: Run one fixed report-synthesis Prompt Lab case and show its checked output.
+description: Run one selected Prompt Lab lane with its fixed fixture and inspect its checked output.
 disable-model-invocation: true
 ---
 
 # prompt-lab
 
-Run one development analysis against the fixed `report-synthesis` Prompt and `normal-synthetic` Audit fixture.
+Run one development analysis with exactly one selected Prompt and its fixed fixture. Use the Prompt named in the request; if none is named, ask the user which one to run.
 
-1. Create a fresh temporary run directory under `.scratch/prompt-lab/` and run `npm run --silent prompt:lab -- --prompt report-synthesis --fixture normal-synthetic`, redirecting its JSON output to `prepared.json` in that directory. Stop if the command fails.
-2. Read `prepared.json`. Confirm `inputSummary.prompt` is `report-synthesis`, `inputSummary.fixture` is `normal-synthetic`, and `check.status` is `awaiting-model-output`. Keep the full `modelInput` local; do not print it in the conversation.
-3. Dispatch exactly one fresh analysis subagent. Give it the complete `modelInput` as its sole analysis input and ask it to follow that Prompt once, returning only the resulting JSON object with no fences or commentary. Do not let it use tools or delegate. Do not retry or send a second analysis call if it errors or returns malformed JSON.
-4. Capture the subagent's JSON response unchanged as `ai-output.json` in the same run directory. If the response is malformed or the subagent errors, report that result without making another analysis call.
-5. Run `npm run --silent prompt:lab -- --prompt report-synthesis --fixture normal-synthetic --result <absolute-path-to-ai-output.json>`, capturing its JSON output. Read and show the `inputSummary`, `aiOutput`, `evidenceReferences`, and `check` fields even when the check command exits nonzero. A `check.status` of `fail` is the result; do not regenerate.
+| Prompt | Fixed fixture |
+| --- | --- |
+| `report-synthesis` | `normal-synthetic` |
+| `key-session-analysis` | `partial-key-session` |
+| `skill-insights` | `skill-insights-snapshot-v2` |
+
+1. Create a fresh temporary run directory under `.scratch/prompt-lab/`. Run `npm run --silent prompt:lab -- --prompt <selected-prompt> --fixture <matching-fixture>`, redirecting its JSON output to `prepared.json` in that directory. Stop if the command fails.
+2. Read `prepared.json`. Confirm `inputSummary.prompt` and `inputSummary.fixture` match the selected row, and `check.status` is `awaiting-model-output`. Keep the full `modelInput` local; do not print it in the conversation.
+3. Dispatch exactly one fresh analysis subagent. Give it the complete selected `modelInput` as its sole analysis input and ask it to follow that Prompt once, returning only the resulting JSON value with no fences or commentary. Do not let it use tools or delegate. Do not run sibling Prompts or retry the analysis call.
+4. Capture the response unchanged as `ai-output.json` in the same run directory. If the subagent errors or the response is not valid JSON, run `npm run --silent prompt:lab -- --prompt <selected-prompt> --fixture <matching-fixture> --fallback "<brief reason>"`. Otherwise run `npm run --silent prompt:lab -- --prompt <selected-prompt> --fixture <matching-fixture> --result <absolute-path-to-ai-output.json>`. Save either command's output as `checked.json`.
+5. Read and show `inputSummary`, `aiOutput`, `evidenceReferences`, and `check` from `checked.json`. A `check.status` of `fail` is the result; do not regenerate or retry.
 6. Remove the temporary run directory after presenting the result.
 
-The deterministic CLI is model-free. It reads only the selected source Prompt and fixed synthetic fixture; it does not scan history, recompute an Audit, request pricing, render HTML, package or install Skills, or run report orchestration. The single analysis call is the fresh subagent dispatch in step 3.
+The deterministic CLI is model-free. It reads only the selected source Prompt and fixed fixture, then runs that lane's existing validator. It does not run sibling Prompts, scan history, recompute an Audit, request pricing, render HTML, package or install Skills, or run report orchestration. The single analysis call is the fresh subagent dispatch in step 3.
 
-`check.pass` confirms mechanical structure, resolvable Evidence references, numeric claims with explicitly named units in fields that cite Evidence, and Audit integrity. Review prose without Evidence references (including `noStrongFindingReason`) yourself for Evidence fidelity and claims about unavailable facts.
+`check.pass` means the selected lane's deterministic checks passed; review wording, Evidence fidelity, and recommendation usefulness yourself. A fallback records that no valid model result was available; it is not a validator pass.
