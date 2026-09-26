@@ -724,6 +724,7 @@ test('Codex analysis exposes Turn trajectory evidence and neutral candidates', a
     { timestamp: first, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-small', duration_ms: 500, time_to_first_token_ms: 100 } },
     { timestamp: second, type: 'turn_context', payload: { turn_id: 'turn-large', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
     { timestamp: second, type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-large' } },
+    { timestamp: second, type: 'item_started', payload: { type: 'item_started', turn_id: 'turn-large', item: { type: 'AgentMessage', id: 'assistant-message-1', content: [] } } },
     { timestamp: second, type: 'item_started', payload: { type: 'item_started', turn_id: 'turn-large', item: { type: 'custom_tool_call', id: 'tool-1', name: 'Read', input: 'x' } } },
     { timestamp: second, type: 'item_completed', payload: { type: 'item_completed', turn_id: 'turn-large', item: { type: 'custom_tool_call_output', id: 'tool-1', name: 'Read', output: 'large-result' } } },
     response(second, 'turn-response-2', 'turn-large', 80),
@@ -740,6 +741,7 @@ test('Codex analysis exposes Turn trajectory evidence and neutral candidates', a
     assert.equal(result.turns.length, 2);
     assert.equal(result.turns.find((turn) => turn.turnId === 'turn-large').tokens.totalTokens.value, 80);
     assert.equal(result.turns.find((turn) => turn.turnId === 'turn-large').toolCallCount.value, 1);
+    assert.equal(result.turns.find((turn) => turn.turnId === 'turn-large').pairedToolResultCount.value, 1);
     assert.equal(result.turns.find((turn) => turn.turnId === 'turn-large').lifecycleMarkers.includes('compaction'), true);
     assert.equal(result.turnCandidates.some((candidate) => candidate.kind === 'turn_concentration'), true);
     assert.equal(result.turnCandidates.some((candidate) => candidate.kind === 'waiting_hotspot'), true);

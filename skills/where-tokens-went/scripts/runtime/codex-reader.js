@@ -303,6 +303,13 @@ const knownCodexTypes = new Set([
     "token_usage_record", "task_started", "task_complete", "task_completed", "item_started", "item_completed", "compacted",
     "turn_aborted", "interrupted", "error", "compaction", "subagent", "skill", "skill_input", "skill_invocation", "skill_listing", "skill-listing",
 ]);
+const codexToolLifecycleItemTypes = new Set([
+    "commandexecution", "command_execution", "filechange", "file_change", "mcp_tool_call", "mcptoolcall",
+    "collabtoolcall", "collab_tool_call", "collabagenttoolcall", "collab_agent_tool_call", "websearch", "web_search",
+    "functioncall", "function_call", "functioncalloutput", "function_call_output", "customtoolcall", "custom_tool_call",
+    "customtoolcalloutput", "custom_tool_call_output", "dynamictoolcall", "dynamic_tool_call", "toolcall", "tool_call",
+    "toolresult", "tool_result", "shellcommand", "shell_command",
+]);
 function accountingSensitiveCodexType(type) {
     return /usage|token|response|assistant|message|tool|call|turn|retry|interrupt|compact|subagent|error/i.test(type);
 }
@@ -391,10 +398,12 @@ function captureFirstUserMessage(pending, record, payload, turnId) {
 function toolEvent(record, payload) {
     const type = stringValue(payload.type, record.type)?.toLowerCase() ?? "";
     const item = firstObject(payload.item, payload.tool_item, payload.toolItem);
+    const itemType = stringValue(item?.type)?.toLowerCase() ?? "";
+    if ((type === "item_started" || type === "item_completed") && !codexToolLifecycleItemTypes.has(itemType))
+        return null;
     const callId = stringValue(payload.call_id, payload.callId, payload.tool_call_id, payload.toolCallId, item?.call_id, item?.callId, item?.id);
     if (!callId)
         return null;
-    const itemType = stringValue(item?.type)?.toLowerCase() ?? "";
     const isResult = type.includes("output") || type.includes("result") || type.includes("completed") || itemType.includes("output") || itemType.includes("result");
     const isCall = type.includes("function_call") || type.includes("custom_tool_call") || type.includes("tool_call") || type.includes("shell_command") || type === "item_started" || itemType.includes("call") || itemType.includes("command");
     if (!isCall && !isResult)

@@ -200,7 +200,9 @@ test('report-run writes a three-area report.json from the redacted Codex baselin
     assert.equal(reportJson.audit.summary.totalTokens.value, 1636883);
     assert.equal(reportJson.audit.report.cacheEconomics.cachedInputTokens.value, 1453312);
     assert.deepEqual(reportJson.audit.rankings.models.map((entry) => [entry.key, entry.value.value, entry.count.value]), [['codex-auto-review', 1636883, 15]]);
-    assert.deepEqual(reportJson.audit.report.tools.map((entry) => [entry.key, entry.calls.value, entry.pairedResults.value]), [['unknown-tool', 31, 30]]);
+    assert.equal(reportJson.audit.summary.toolCallCount.value, 0);
+    assert.equal(reportJson.audit.summary.pairedToolResultCount.value, 0);
+    assert.deepEqual(reportJson.audit.report.tools, []);
     assert.ok(Object.values(reportJson.audit.summary).some((value) => value.value === null));
     assert.equal(Object.hasOwn(reportJson.audit, 'firstUserMessages'), false);
     assert.equal(reportJson.ai.reportSynthesis.result, null);
