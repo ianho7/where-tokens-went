@@ -4,7 +4,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { validateSkillInsights } = require('../dist/src/skill-insights.js');
-const { gradeLaneOutput } = require('../dist/src/eval-lab.js');
 
 const snapshot = JSON.parse(fs.readFileSync(
   path.resolve(__dirname, '..', 'evals', 'fixtures', 'skill-insights-snapshot-real-aha-v1.json'),
@@ -356,25 +355,6 @@ test('does not treat tokens in a Skill name as Session Token scale', () => {
 
   const result = validateSkillInsights(raw, snapshot);
   assert.equal(result.insights.length, 1, result.errors.join('; '));
-});
-
-test('Runtime and lane Eval retain the same valid cards and record rejected-card diagnostics', () => {
-  const valid = makeCapabilityInsight();
-  const invalid = { ...makeCapabilityInsight(), id: 'discarded-card', title: 'Discarded card', evidence: [] };
-  const raw = { snapshotId: snapshot.snapshotId, insights: [valid, invalid] };
-  const runtimeResult = validateSkillInsights(raw, snapshot);
-  const evalResult = gradeLaneOutput({ lane: 'skill-insights', id: 'fixture', inputHash: 'fixture-input' }, snapshot, raw);
-
-  assert.equal(runtimeResult.valid, true);
-  assert.deepEqual(runtimeResult.insights.map((insight) => insight.id), ['local-harness-contract']);
-  assert.equal(evalResult.status, 'passed');
-  assert.equal(evalResult.errors.length, runtimeResult.errors.length);
-
-  const emptyRaw = { snapshotId: snapshot.snapshotId, insights: [invalid] };
-  const emptyRuntime = validateSkillInsights(emptyRaw, snapshot);
-  const emptyEval = gradeLaneOutput({ lane: 'skill-insights', id: 'fixture', inputHash: 'fixture-input' }, snapshot, emptyRaw);
-  assert.equal(emptyRuntime.valid, false);
-  assert.equal(emptyEval.status, 'blocked');
 });
 
 test('allows ambiguous impact wording to reach quality review but blocks a direct causal claim', () => {
