@@ -258,6 +258,49 @@ export interface CodexFailureVerificationResult {
   error?: string;
 }
 
+function eventPayload(record: JsonlRecord): Record<string, unknown> {
+  return isRecord(record.payload) ? record.payload : {};
+}
+
+function resolveTurnTerminalEvent(turnRecords: JsonlRecord[]): {
+  terminalRecord: JsonlRecord;
+  terminalType: string;
+  status: "failed" | "interrupted" | "completed";
+  error?: string;
+} | null {
+  const candidates: Array<{
+    terminalRecord: JsonlRecord;
+    terminalType: string;
+    status: "failed" | "interrupted" | "completed";
+    error?: string;
+  }> = [];
+
+  for (const record of turnRecords) {
+    const payload = eventPayload(record);
+    const directType = typeof record.type === "string" ? record.type : "";
+    const payloadType = typeof payload.type === "string" ? payload.type : typeof payload.kind === "string" ? payload.kind : typeof payload.event === "string" ? payload.event : "";
+    const eventType = (directType && directType !== "event_msg" && directType !== "record") ? directType : (payloadType || directType);
+
+    if (eventType === "task_complete" || eventType === "task_completed") {
+      const statusStr = (typeof payload.status === "string" ? payload.status : typeof payload.outcome === "string" ? payload.outcome : typeof payload.stop_reason === "string" ? payload.stop_reason : "").toLowerCase();
+      const errorStr = typeof payload.error === "string" ? payload.error : isRecord(payload.error) ? JSON.stringify(payload.error) : undefined;
+      const hasError = /error|fail/.test(statusStr) || Boolean(payload.error);
+      const isInterrupted = /abort|interrupt|cancel/.test(statusStr);
+      if (hasError) {
+        candidates.push({ terminalRecord: record, terminalType: eventType, status: "failed", error: errorStr });
+      } else if (isInterrupted) {
+        candidates.push({ terminalRecord: record, terminalType: eventType, status: "interrupted" });
+      } else {
+        candidates.push({ terminalRecord: record, terminalType: eventType, status: "completed" });
+      }
+    } else if (eventType === "turn_aborted" || eventType === "interrupted") {
+      candidates.push({ terminalRecord: record, terminalType: eventType, status: "interrupted" });
+    }
+  }
+
+  return candidates.length > 0 ? candidates[candidates.length - 1] : null;
+}
+
 export async function verifyCodexFailureProvenance(request: CodexFailureVerificationRequest): Promise<CodexFailureVerificationResult> {
   const { rolloutPath, rolloutHash, records } = await loadRollout(request.rolloutPath);
 
@@ -282,54 +325,39 @@ export async function verifyCodexFailureProvenance(request: CodexFailureVerifica
 
   if (turnRecords.length === 0) fail("CODEX_PROVENANCE_TURN_MISSING");
 
+  const terminalEvent = resolveTurnTerminalEvent(turnRecords);
+  if (!terminalEvent) {
+    if (request.expectedStatus === "failed") fail("CODEX_PROVENANCE_TERMINAL_FAILURE_EVENT_MISSING");
+    if (request.expectedStatus === "interrupted") fail("CODEX_PROVENANCE_TERMINAL_INTERRUPTION_EVENT_MISSING");
+    fail("CODEX_PROVENANCE_STATUS_UNKNOWN");
+  }
+
   if (request.expectedStatus === "failed") {
-    const errorRecord = turnRecords.find((record) => {
-      if (record.type === "event_msg") {
-        const payload = isRecord(record.payload) ? record.payload : null;
-        if (payload?.type === "error" || payload?.type === "stream_error") return true;
-        if (payload?.type === "turn_complete") {
-          const status = typeof payload.status === "string" ? payload.status.toLowerCase() : "";
-          const outcome = typeof payload.outcome === "string" ? payload.outcome.toLowerCase() : "";
-          if (/error|fail/.test(status) || /error|fail/.test(outcome) || payload.error) return true;
-        }
-      }
-      return false;
-    });
-    if (!errorRecord) fail("CODEX_PROVENANCE_FAILURE_EVENT_MISSING");
-    const payload = recordPayload(errorRecord);
+    if (terminalEvent.status !== "failed") {
+      fail("CODEX_PROVENANCE_TERMINAL_FAILURE_EVENT_MISSING");
+    }
     return {
       verified: true,
       rolloutPath,
       rolloutHash,
       sessionId: request.sessionId,
       turnId: request.turnId,
-      failureType: String(payload.type ?? "error"),
-      error: typeof payload.error === "string" ? payload.error : undefined,
+      failureType: terminalEvent.terminalType,
+      error: terminalEvent.error,
     };
   }
 
   if (request.expectedStatus === "interrupted") {
-    const interruptRecord = turnRecords.find((record) => {
-      if (record.type === "event_msg") {
-        const payload = isRecord(record.payload) ? record.payload : null;
-        if (payload?.type === "turn_aborted" || payload?.type === "interrupted") return true;
-        if (payload?.type === "turn_complete") {
-          const status = typeof payload.status === "string" ? payload.status.toLowerCase() : "";
-          const outcome = typeof payload.outcome === "string" ? payload.outcome.toLowerCase() : "";
-          if (/abort|interrupt|cancel/.test(status) || /abort|interrupt|cancel/.test(outcome)) return true;
-        }
-      }
-      return false;
-    });
-    if (!interruptRecord) fail("CODEX_PROVENANCE_INTERRUPTION_EVENT_MISSING");
-    const payload = recordPayload(interruptRecord);
+    if (terminalEvent.status !== "interrupted") {
+      fail("CODEX_PROVENANCE_TERMINAL_INTERRUPTION_EVENT_MISSING");
+    }
     return {
       verified: true,
       rolloutPath,
       rolloutHash,
       sessionId: request.sessionId,
       turnId: request.turnId,
-      failureType: String(payload.type ?? "interrupted"),
+      failureType: terminalEvent.terminalType,
     };
   }
 

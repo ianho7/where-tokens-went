@@ -44,13 +44,33 @@ async function setupTestFixture() {
     { timestamp, type: 'response_item', payload: { type: 'message', role: 'user', turn_id: 'turn-1', content: 'Synthetic prompt for regression fixture.' } },
   ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
 
-  // Real failed generation rollout in Codex persistence
+  // Real terminal failed generation rollout in Codex persistence
   const failedRolloutPath = path.join(sessions, 'rollout-failed.jsonl');
   await writeFile(failedRolloutPath, [
     { timestamp, type: 'session_meta', payload: { id: 'session-fail-1', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0', model_provider: 'openai' } },
     { timestamp, type: 'turn_context', payload: { turn_id: 'turn-fail-1', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
     { timestamp, type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-fail-1' } },
     { timestamp, type: 'event_msg', payload: { type: 'stream_error', turn_id: 'turn-fail-1', error: 'Model stream terminated abnormally' } },
+    { timestamp, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-fail-1', status: 'error', error: 'Model stream terminated abnormally' } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+
+  // Rollout with transient stream_error but no terminal failure event
+  const streamErrorOnlyRolloutPath = path.join(sessions, 'rollout-stream-only.jsonl');
+  await writeFile(streamErrorOnlyRolloutPath, [
+    { timestamp, type: 'session_meta', payload: { id: 'session-stream-only-1', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0', model_provider: 'openai' } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'turn-stream-only-1', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp, type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-stream-only-1' } },
+    { timestamp, type: 'event_msg', payload: { type: 'stream_error', turn_id: 'turn-stream-only-1', error: 'Transient connection drop' } },
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
+
+  // Rollout with transient stream_error that recovered and completed successfully
+  const streamErrorRecoveredRolloutPath = path.join(sessions, 'rollout-stream-recovered.jsonl');
+  await writeFile(streamErrorRecoveredRolloutPath, [
+    { timestamp, type: 'session_meta', payload: { id: 'session-recovered-1', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0', model_provider: 'openai' } },
+    { timestamp, type: 'turn_context', payload: { turn_id: 'turn-recovered-1', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
+    { timestamp, type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-recovered-1' } },
+    { timestamp, type: 'event_msg', payload: { type: 'stream_error', turn_id: 'turn-recovered-1', error: 'Transient connection drop' } },
+    { timestamp, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-recovered-1', status: 'ok' } },
   ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
 
   // Real interrupted generation rollout in Codex persistence
@@ -67,11 +87,22 @@ async function setupTestFixture() {
   await writeFile(completedRolloutPath, [
     { timestamp, type: 'session_meta', payload: { id: 'session-completed-1', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0', model_provider: 'openai' } },
     { timestamp, type: 'turn_context', payload: { turn_id: 'turn-completed-1', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
-    { timestamp, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-completed-1' } },
+    { timestamp, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-completed-1', status: 'ok' } },
   ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
 
   const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
-  return { root, project, codexHome, sessions, failedRolloutPath, interruptedRolloutPath, completedRolloutPath, env };
+  return {
+    root,
+    project,
+    codexHome,
+    sessions,
+    failedRolloutPath,
+    streamErrorOnlyRolloutPath,
+    streamErrorRecoveredRolloutPath,
+    interruptedRolloutPath,
+    completedRolloutPath,
+    env,
+  };
 }
 
 async function prepareRun(fixture, runSubdir) {
@@ -400,7 +431,19 @@ test('AC 3: table-driven illegal unavailable requests are rejected and Run canno
         name: 'caller-created-rollout-lacks-failure-event',
         receipt: (ctx) => ({ kind: 'host-agent-failure', source: 'codex-host-agent', runId: ctx.runId, lane: 'report-synthesis', attempt: ctx.attempt, spanId: ctx.spanId, reasonCode: 'HOST_GENERATION_FAILED', provenance: { harness: 'codex', status: 'failed', rolloutPath: fixture.completedRolloutPath, sessionId: 'session-completed-1', turnId: 'turn-completed-1' } }),
         args: ['report-run', 'ai-fallback', '--run-dir', runDir, '--lane', 'report-synthesis', '--status', 'unavailable', '--reason-code', 'HOST_GENERATION_FAILED'],
-        expectedError: /CODEX_PROVENANCE_FAILURE_EVENT_MISSING/,
+        expectedError: /CODEX_PROVENANCE_TERMINAL_FAILURE_EVENT_MISSING/,
+      },
+      {
+        name: 'stream-error-only-without-terminal-failure',
+        receipt: (ctx) => ({ kind: 'host-agent-failure', source: 'codex-host-agent', runId: ctx.runId, lane: 'report-synthesis', attempt: ctx.attempt, spanId: ctx.spanId, reasonCode: 'HOST_GENERATION_FAILED', provenance: { harness: 'codex', status: 'failed', rolloutPath: fixture.streamErrorOnlyRolloutPath, sessionId: 'session-stream-only-1', turnId: 'turn-stream-only-1' } }),
+        args: ['report-run', 'ai-fallback', '--run-dir', runDir, '--lane', 'report-synthesis', '--status', 'unavailable', '--reason-code', 'HOST_GENERATION_FAILED'],
+        expectedError: /CODEX_PROVENANCE_TERMINAL_FAILURE_EVENT_MISSING/,
+      },
+      {
+        name: 'stream-error-followed-by-successful-complete',
+        receipt: (ctx) => ({ kind: 'host-agent-failure', source: 'codex-host-agent', runId: ctx.runId, lane: 'report-synthesis', attempt: ctx.attempt, spanId: ctx.spanId, reasonCode: 'HOST_GENERATION_FAILED', provenance: { harness: 'codex', status: 'failed', rolloutPath: fixture.streamErrorRecoveredRolloutPath, sessionId: 'session-recovered-1', turnId: 'turn-recovered-1' } }),
+        args: ['report-run', 'ai-fallback', '--run-dir', runDir, '--lane', 'report-synthesis', '--status', 'unavailable', '--reason-code', 'HOST_GENERATION_FAILED'],
+        expectedError: /CODEX_PROVENANCE_TERMINAL_FAILURE_EVENT_MISSING/,
       },
     ];
 
@@ -521,12 +564,12 @@ test('AC 4: model output validation failure creates validator fallback with raw/
 });
 
 // ---------------------------------------------------------------------------
-// Scenario 5: AC 5 - Bound Host failure receipt independently verified from Harness persistence
+// Scenario 5: AC 5 - Bound Host failure receipt verified from Harness persistence
 // ---------------------------------------------------------------------------
 test('AC 5: bound Host failure receipt verified from Harness persistence closes lane as generation unavailable with durationMs null', async () => {
   const validFailureCases = [
     {
-      name: 'generation-failed',
+      name: 'explicit-terminal-failure',
       reasonCode: 'HOST_GENERATION_FAILED',
       provenanceStatus: 'failed',
       getRolloutPath: (fixture) => fixture.failedRolloutPath,
@@ -534,7 +577,7 @@ test('AC 5: bound Host failure receipt verified from Harness persistence closes 
       turnId: 'turn-fail-1',
     },
     {
-      name: 'generation-interrupted',
+      name: 'explicit-turn-aborted',
       reasonCode: 'HOST_GENERATION_INTERRUPTED',
       provenanceStatus: 'interrupted',
       getRolloutPath: (fixture) => fixture.interruptedRolloutPath,
