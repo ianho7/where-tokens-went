@@ -784,23 +784,21 @@ async function readHostResponseTiming(run, lane, currentLane, outputHash) {
     try {
         contents = await fs.readFile(file, "utf8");
     }
-    catch (error) {
-        if (isRecord(error) && error.code === "ENOENT")
-            return null;
-        throw error;
+    catch {
+        return { status: "unavailable", reasonCode: "HOST_TIMING_UNAVAILABLE" };
     }
     let parsed;
     try {
         parsed = JSON.parse(contents);
     }
     catch {
-        throw new Error("HOST_RESPONSE_INVALID:json");
+        return { status: "unavailable", reasonCode: "HOST_TIMING_INVALID" };
     }
     const value = isRecord(parsed) ? parsed : null;
     const provenance = value && isRecord(value.provenance) ? value.provenance : null;
     const expectedPromptHash = lanePromptHash(run.manifest, lane);
     const errors = [];
-    if (!value || value.kind !== "host-agent-response" || value.source !== "codex-host-agent")
+    if (!value || value.kind !== "host-agent-response" || (value.source !== "codex-host-agent" && value.source !== "host-agent"))
         errors.push("kind/source");
     if (!value || value.runId !== run.manifest.runId || value.lane !== lane || value.auditFingerprint !== run.manifest.auditFingerprint)
         errors.push("run binding");
@@ -808,11 +806,21 @@ async function readHostResponseTiming(run, lane, currentLane, outputHash) {
         errors.push("contract binding");
     if (!value || value.outputHash !== outputHash)
         errors.push("output hash");
+    if (value && typeof value.attempt === "number" && value.attempt !== currentLane.attempts)
+        errors.push("attempt binding");
+    const activeSpanId = run.manifest.stageStatus[lane]?.spanId;
+    if (value && typeof value.spanId === "string" && activeSpanId && value.spanId !== activeSpanId)
+        errors.push("span binding");
     if (!provenance || provenance.status !== "completed" || typeof provenance.threadId !== "string" || typeof provenance.turnId !== "string" || typeof provenance.responseItemId !== "string" || typeof provenance.durationMs !== "number" || !Number.isFinite(provenance.durationMs) || provenance.durationMs < 0)
         errors.push("provenance");
+    if (provenance && typeof provenance.endedAt === "string" && currentLane.spanStartedAt) {
+        if (Date.parse(provenance.endedAt) < Date.parse(currentLane.spanStartedAt))
+            errors.push("expired");
+    }
     if (errors.length > 0)
-        throw new Error(`HOST_RESPONSE_INVALID:${errors.join(",")}`);
+        return { status: "unavailable", reasonCode: "HOST_TIMING_INVALID" };
     return {
+        status: "observed",
         durationMs: provenance.durationMs,
         metadata: {
             timingScope: "host-agent-wall",
@@ -911,13 +919,17 @@ async function reportRunAiAcceptMain(args) {
         }
     }
     const validationStatus = validationAccepted ? "accepted" : "rejected";
+    const timing = hostTiming.status === "observed"
+        ? { status: "observed", durationMs: hostTiming.durationMs }
+        : { status: "unavailable", reasonCode: hostTiming.reasonCode };
     await (0, report_run_1.writeRunLaneArtifact)(run, options.lane, "validation", {
         version: 1, runId: run.manifest.runId, lane: options.lane, attempt, status: validationStatus,
         outputHash,
         errors,
         rejectionReasons: [...new Set([...errors.map((error) => error.code), ...validationRejectionReasons])],
+        generationTiming: timing,
         ...(unsupportedClaimsDropped > 0 ? { unsupportedClaimsDropped } : {}),
-        ...(hostTiming ? { generation: hostTiming.metadata } : {}),
+        ...(hostTiming.status === "observed" ? { generation: hostTiming.metadata } : {}),
     }, attempt);
     let acceptedRef = null;
     if (validationAccepted) {
@@ -934,30 +946,59 @@ async function reportRunAiAcceptMain(args) {
             value: accepted,
         });
     }
-    const durationMs = hostTiming?.durationMs ?? (currentLane.spanStartedAt ? Math.max(0, Date.now() - Date.parse(currentLane.spanStartedAt)) : null);
-    await (0, report_run_1.finishReportLane)(run, options.lane, attempt, spanId, currentLane.spanStartedAt ?? new Date().toISOString(), validationAccepted ? "accepted" : "failed", durationMs, validationAccepted ? null : errors[0]?.code ?? "AI_VALIDATION_FAILED", acceptedRef?.file ?? null, hostTiming ? "host-agent" : "runner", hostTiming?.metadata);
-    process.stdout.write(JSON.stringify({ runId: run.manifest.runId, lane: options.lane, attempt, status: validationStatus, outputHash, rawArtifact: rawRef.file, validationArtifact: `lanes/${options.lane}/attempt-${attempt}.validation.json`, acceptedArtifact: acceptedRef?.file ?? null, errors }) + "\n");
-    return validationAccepted ? 0 : 2;
+    else {
+        const reasonCode = errors[0]?.code ?? "AI_VALIDATION_FAILED";
+        await (0, report_run_1.writeRunLaneArtifact)(run, options.lane, "fallback", {
+            version: 1,
+            runId: run.manifest.runId,
+            lane: options.lane,
+            attempt,
+            status: "fallback",
+            reasonCode,
+            validationArtifact: `lanes/${options.lane}/attempt-${attempt}.validation.json`,
+            outputHash,
+        }, attempt);
+    }
+    const laneStatus = validationAccepted ? "accepted" : "fallback";
+    const reasonCode = validationAccepted ? null : errors[0]?.code ?? "AI_VALIDATION_FAILED";
+    const durationMs = hostTiming.status === "observed" ? hostTiming.durationMs : null;
+    const traceMetadata = hostTiming.status === "observed"
+        ? { ...hostTiming.metadata, generationTimingStatus: "observed" }
+        : { generationTimingStatus: "unavailable", generationTimingReasonCode: hostTiming.reasonCode };
+    await (0, report_run_1.finishReportLane)(run, options.lane, attempt, spanId, currentLane.spanStartedAt ?? new Date().toISOString(), laneStatus, durationMs, reasonCode, acceptedRef?.file ?? null, hostTiming.status === "observed" ? "host-agent" : "runner", traceMetadata);
+    process.stdout.write(JSON.stringify({ runId: run.manifest.runId, lane: options.lane, attempt, status: laneStatus, validationStatus, ...(reasonCode ? { reasonCode } : {}), generationTiming: timing, outputHash, rawArtifact: rawRef.file, validationArtifact: `lanes/${options.lane}/attempt-${attempt}.validation.json`, acceptedArtifact: acceptedRef?.file ?? null, errors }) + "\n");
+    return 0;
 }
 function parseAiFallbackArgs(args) {
     const extracted = extractRunDirectory(args);
     let lane = null;
-    let status = "fallback";
-    let reasonCode = "AI_UNAVAILABLE";
+    let status = "unavailable";
+    let reasonCode = null;
+    let attempt;
+    let spanId;
     for (let index = 0; index < extracted.rest.length; index += 1) {
         const flag = extracted.rest[index];
         if (flag === "--lane")
             lane = parseLane(requireValue(extracted.rest, index, flag));
         else if (flag === "--status") {
             const value = requireValue(extracted.rest, index, flag);
-            if (value !== "fallback" && value !== "unavailable")
-                throw new Error("--status must be fallback or unavailable.");
-            status = value;
+            if (value !== "unavailable")
+                throw new Error("--status must be unavailable.");
+            status = "unavailable";
         }
         else if (flag === "--reason-code") {
             reasonCode = requireValue(extracted.rest, index, flag);
             if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(reasonCode))
                 throw new Error("--reason-code must be a short safe label.");
+        }
+        else if (flag === "--attempt") {
+            const value = Number(requireValue(extracted.rest, index, flag));
+            if (!Number.isInteger(value) || value < 1)
+                throw new Error("--attempt must be a positive integer.");
+            attempt = value;
+        }
+        else if (flag === "--span-id") {
+            spanId = requireValue(extracted.rest, index, flag);
         }
         else
             throw new Error(`Unknown ai-fallback argument: ${flag}.`);
@@ -965,7 +1006,7 @@ function parseAiFallbackArgs(args) {
     }
     if (!lane)
         throw new Error("--lane is required.");
-    return { runDir: requireRunDirectory(extracted.runDir), lane, status, reasonCode };
+    return { runDir: requireRunDirectory(extracted.runDir), lane, status, reasonCode, attempt, spanId };
 }
 async function reportRunAiFallbackMain(args) {
     const options = parseAiFallbackArgs(args);
@@ -976,10 +1017,48 @@ async function reportRunAiFallbackMain(args) {
     const currentLane = run.manifest.laneStatus[options.lane];
     if (!currentLane || currentLane.status !== "running")
         throw new Error(`Lane ${options.lane} is not running; start it with report-run ai-start.`);
-    const attempt = currentLane.attempts;
-    const spanId = run.manifest.stageStatus[options.lane]?.spanId;
+    const attempt = options.attempt ?? currentLane.attempts;
+    if (attempt !== currentLane.attempts)
+        throw new Error(`Lane ${options.lane} attempt does not match the current Run attempt.`);
+    const spanId = options.spanId ?? run.manifest.stageStatus[options.lane]?.spanId;
     if (!spanId)
         throw new Error(`Lane ${options.lane} span is unavailable.`);
+    const activeSpanId = run.manifest.stageStatus[options.lane]?.spanId;
+    if (!activeSpanId || spanId !== activeSpanId)
+        throw new Error("RUN_LANE_SPAN_MISMATCH");
+    if (!options.reasonCode) {
+        throw new Error("REASON_CODE_REQUIRED: ai-fallback requires an explicit --reason-code.");
+    }
+    if (/timing/i.test(options.reasonCode)) {
+        throw new Error(`TIMING_CANNOT_AUTHORIZE_UNAVAILABLE: Timing telemetry is passive and cannot authorize lane degradation (${options.reasonCode}).`);
+    }
+    if (!(0, report_run_1.isAllowedGenerationFailureReason)(options.reasonCode)) {
+        throw new Error(`ILLEGAL_REASON_CODE: '${options.reasonCode}' is not an allowed generation failure category. Allowed: ${report_run_1.ALLOWED_GENERATION_FAILURE_REASONS.join(", ")}`);
+    }
+    const receiptCandidates = [
+        path.join(run.runDir, `lanes/${options.lane}/host-failure.json`),
+        path.join(run.runDir, `lanes/${options.lane}/host-response.json`),
+    ];
+    let receiptData = null;
+    let receiptFile = null;
+    for (const candidate of receiptCandidates) {
+        try {
+            const contents = await fs.readFile(candidate, "utf8");
+            receiptData = JSON.parse(contents);
+            receiptFile = path.relative(run.runDir, candidate);
+            break;
+        }
+        catch {
+            // Continue to next candidate
+        }
+    }
+    if (!receiptData) {
+        throw new Error(`HOST_FAILURE_RECEIPT_REQUIRED: ai-fallback for lane ${options.lane} requires a bound Host failure receipt in the lane directory.`);
+    }
+    const validation = await (0, report_run_1.validateHostFailureReceipt)(run, options.lane, currentLane, receiptData, options.reasonCode, activeSpanId, attempt);
+    if (!validation.valid) {
+        throw new Error(`HOST_FAILURE_RECEIPT_INVALID: ${validation.errors.join(", ")}`);
+    }
     const fallbackRef = await (0, report_run_1.writeRunLaneArtifact)(run, options.lane, "fallback", {
         version: 1,
         runId: run.manifest.runId,
@@ -987,9 +1066,13 @@ async function reportRunAiFallbackMain(args) {
         attempt,
         status: options.status,
         reasonCode: options.reasonCode,
+        failureReceipt: receiptFile,
     }, attempt);
-    const durationMs = currentLane.spanStartedAt ? Math.max(0, Date.now() - Date.parse(currentLane.spanStartedAt)) : null;
-    await (0, report_run_1.finishReportLane)(run, options.lane, attempt, spanId, currentLane.spanStartedAt ?? new Date().toISOString(), options.status, durationMs, options.reasonCode, null);
+    await (0, report_run_1.finishReportLane)(run, options.lane, attempt, spanId, currentLane.spanStartedAt ?? new Date().toISOString(), "unavailable", null, options.reasonCode, null, "host-agent", {
+        generationTimingStatus: "unavailable",
+        hostObservationSource: validation.receipt.source,
+        failureReceiptFile: receiptFile,
+    });
     process.stdout.write(JSON.stringify({ runId: run.manifest.runId, lane: options.lane, attempt, status: options.status, reasonCode: options.reasonCode, fallbackArtifact: fallbackRef.file }) + "\n");
     return 0;
 }
@@ -1013,6 +1096,14 @@ async function reportRunComposeMain(args) {
     const composeStdin = await readStdin();
     if (composeStdin.trim())
         throw new Error("REPORT_COMPOSE_STDIN_FORBIDDEN: normal report-run compose reads only registered Run lane artifacts.");
+    const eligibleLanes = Object.keys(run.manifest.laneStatus).filter((lane) => run.manifest.eligibleStages.includes(lane));
+    const runningLanes = eligibleLanes.filter((lane) => {
+        const current = run.manifest.laneStatus[lane];
+        return current.status === "running";
+    });
+    if (runningLanes.length > 0) {
+        throw new Error(`REPORT_COMPOSE_LANES_INCOMPLETE: eligible AI lanes still running: ${runningLanes.join(", ")}`);
+    }
     await (0, report_run_1.setReportRunStatus)(run, "composing");
     let synthesisCandidate = null;
     let analyses = [];

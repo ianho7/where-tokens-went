@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import type { Harness, ReportLocale, SessionRecord } from "./types";
 import { readCurrentBundleVersion, type BundleVersion } from "./bundle-version";
+import { verifyCodexFailureProvenance } from "./codex-provenance";
 
 export type ReportRunStatus =
   | "started"
@@ -740,6 +741,119 @@ function laneArtifactKey(lane: ReportLane, file: string): string {
   return `${lane}/${path.basename(file)}`;
 }
 
+export const ALLOWED_GENERATION_FAILURE_REASONS = [
+  "HOST_GENERATION_FAILED",
+  "HOST_GENERATION_INTERRUPTED",
+] as const;
+
+export type GenerationFailureReason = typeof ALLOWED_GENERATION_FAILURE_REASONS[number];
+
+export function isAllowedGenerationFailureReason(reason: string): reason is GenerationFailureReason {
+  return (ALLOWED_GENERATION_FAILURE_REASONS as readonly string[]).includes(reason);
+}
+
+export interface HostFailureProvenance {
+  harness: "codex";
+  status: "failed" | "interrupted";
+  rolloutPath: string;
+  sessionId: string;
+  turnId: string;
+  threadId?: string;
+  error?: string;
+}
+
+export interface HostFailureReceipt {
+  kind: "host-agent-failure";
+  source: "codex-host-agent";
+  runId: string;
+  lane: ReportLane;
+  attempt: number;
+  spanId: string;
+  reasonCode: GenerationFailureReason;
+  provenance: HostFailureProvenance;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export async function validateHostFailureReceipt(
+  run: ReportRun,
+  lane: ReportLane,
+  currentLane: ReportRunManifest["laneStatus"][ReportLane],
+  receipt: unknown,
+  expectedReasonCode: string,
+  activeSpanId: string,
+  attempt: number,
+): Promise<{ valid: true; receipt: HostFailureReceipt } | { valid: false; errors: string[] }> {
+  if (!isRecord(receipt)) return { valid: false, errors: ["receipt is not a JSON object"] };
+  const record = receipt;
+  const errors: string[] = [];
+
+  if (record.kind !== "host-agent-failure") {
+    errors.push(`invalid kind '${String(record.kind)}' (expected 'host-agent-failure')`);
+  }
+
+  if (record.source !== "codex-host-agent") {
+    errors.push(`unauthorized observation source '${String(record.source)}' (expected 'codex-host-agent')`);
+  }
+
+  if (record.runId !== run.manifest.runId) {
+    errors.push(`runId mismatch (expected ${run.manifest.runId}, got ${String(record.runId)})`);
+  }
+
+  if (record.lane !== lane) {
+    errors.push(`lane mismatch (expected ${lane}, got ${String(record.lane)})`);
+  }
+
+  if (typeof record.attempt !== "number" || record.attempt !== attempt) {
+    errors.push(`attempt mismatch or missing (expected ${attempt}, got ${String(record.attempt)})`);
+  }
+
+  if (typeof record.spanId !== "string" || record.spanId !== activeSpanId) {
+    errors.push(`spanId mismatch or missing (expected ${activeSpanId}, got ${String(record.spanId)})`);
+  }
+
+  if (typeof record.reasonCode !== "string" || record.reasonCode !== expectedReasonCode) {
+    errors.push(`reasonCode mismatch or missing (expected ${expectedReasonCode}, got ${String(record.reasonCode)})`);
+  }
+
+  if (!isRecord(record.provenance)) {
+    errors.push("provenance is missing or not an object");
+  } else {
+    const prov = record.provenance;
+    if (prov.status !== "failed" && prov.status !== "interrupted") {
+      errors.push(`provenance status '${String(prov.status)}' is not an explicit failure or interruption`);
+    } else {
+      if (expectedReasonCode === "HOST_GENERATION_FAILED" && prov.status !== "failed") {
+        errors.push("provenance status must be 'failed' for HOST_GENERATION_FAILED");
+      }
+      if (expectedReasonCode === "HOST_GENERATION_INTERRUPTED" && prov.status !== "interrupted") {
+        errors.push("provenance status must be 'interrupted' for HOST_GENERATION_INTERRUPTED");
+      }
+    }
+
+    if (typeof prov.rolloutPath !== "string" || typeof prov.sessionId !== "string" || typeof prov.turnId !== "string") {
+      errors.push("provenance missing required rolloutPath, sessionId, or turnId");
+    } else {
+      try {
+        await verifyCodexFailureProvenance({
+          rolloutPath: prov.rolloutPath,
+          sessionId: prov.sessionId,
+          turnId: prov.turnId,
+          expectedStatus: prov.status as "failed" | "interrupted",
+        });
+      } catch (error) {
+        errors.push(`Harness persistence verification failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  return errors.length === 0
+    ? { valid: true, receipt: record as unknown as HostFailureReceipt }
+    : { valid: false, errors };
+}
+
 function laneArtifactFile(lane: ReportLane, kind: "input" | "prompt" | "raw" | "validation" | "accepted" | "fallback", attempt?: number): string {
   if (kind === "input") return `lanes/${lane}/input.json`;
   if (kind === "prompt") return `lanes/${lane}/prompt.json`;
@@ -848,10 +962,13 @@ export async function finishReportLane(
 ): Promise<void> {
   await mutateRun(run, (manifest) => {
     const current = manifest.laneStatus[lane];
+    const totalDurationMs = durationMs === null || (attempt > 1 && current.totalDurationMs === null)
+      ? null
+      : (current.totalDurationMs ?? 0) + durationMs;
     manifest.laneStatus[lane] = {
       ...current,
       status,
-      totalDurationMs: (current.totalDurationMs ?? 0) + (durationMs ?? 0),
+      totalDurationMs,
       lastDurationMs: durationMs,
       reasonCode,
       acceptedArtifact,
@@ -864,7 +981,7 @@ export async function finishReportLane(
     runId: manifest.runId,
     spanId,
     phase: lane,
-    operation: "ai-accept",
+    operation: status === "fallback" || status === "unavailable" ? "ai-fallback" : "ai-accept",
     source,
     attempt,
     startedAt,
@@ -872,7 +989,7 @@ export async function finishReportLane(
     durationMs,
     status: status === "accepted" ? "completed" : status,
     ...(reasonCode ? { errorCode: reasonCode } : {}),
-    ...(metadata ? { metadata } : {}),
+    ...(metadata ? { metadata } : { metadata: { generationTimingStatus: durationMs === null ? "unavailable" : "observed" } }),
   }]);
 }
 

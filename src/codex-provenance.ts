@@ -240,3 +240,98 @@ export async function resolveCodexProvenance(request: CodexProvenanceRequest): P
     outputHash,
   };
 }
+
+export interface CodexFailureVerificationRequest {
+  rolloutPath: string;
+  sessionId: string;
+  turnId: string;
+  expectedStatus: "failed" | "interrupted";
+}
+
+export interface CodexFailureVerificationResult {
+  verified: boolean;
+  rolloutPath: string;
+  rolloutHash: string;
+  sessionId: string;
+  turnId: string;
+  failureType: string;
+  error?: string;
+}
+
+export async function verifyCodexFailureProvenance(request: CodexFailureVerificationRequest): Promise<CodexFailureVerificationResult> {
+  const { rolloutPath, rolloutHash, records } = await loadRollout(request.rolloutPath);
+
+  const session = records.find((record) => record.type === "session_meta");
+  const sessionPayload = session ? recordPayload(session) : null;
+  if (!sessionPayload || (sessionPayload.originator !== "Codex Desktop" && sessionPayload.originator !== "Codex CLI") || typeof sessionPayload.cli_version !== "string") {
+    fail("CODEX_PROVENANCE_HARNESS_MARKER_MISSING");
+  }
+  const sessionIdentities = sessionPayload ? [sessionPayload.session_id, sessionPayload.id].filter((value): value is string => typeof value === "string" && value.length > 0) : [];
+  if (!sessionIdentities.includes(request.sessionId)) fail("CODEX_PROVENANCE_SESSION_MISMATCH");
+
+  const turnRecords = records.filter((record) => {
+    const payload = isRecord(record.payload) ? record.payload : null;
+    if (record.type === "turn_context" || record.type === "event_msg") {
+      return payload?.turn_id === request.turnId;
+    }
+    if (record.type === "response_item") {
+      return turnIdFromResponse(payload ?? {}) === request.turnId;
+    }
+    return false;
+  });
+
+  if (turnRecords.length === 0) fail("CODEX_PROVENANCE_TURN_MISSING");
+
+  if (request.expectedStatus === "failed") {
+    const errorRecord = turnRecords.find((record) => {
+      if (record.type === "event_msg") {
+        const payload = isRecord(record.payload) ? record.payload : null;
+        if (payload?.type === "error" || payload?.type === "stream_error") return true;
+        if (payload?.type === "turn_complete") {
+          const status = typeof payload.status === "string" ? payload.status.toLowerCase() : "";
+          const outcome = typeof payload.outcome === "string" ? payload.outcome.toLowerCase() : "";
+          if (/error|fail/.test(status) || /error|fail/.test(outcome) || payload.error) return true;
+        }
+      }
+      return false;
+    });
+    if (!errorRecord) fail("CODEX_PROVENANCE_FAILURE_EVENT_MISSING");
+    const payload = recordPayload(errorRecord);
+    return {
+      verified: true,
+      rolloutPath,
+      rolloutHash,
+      sessionId: request.sessionId,
+      turnId: request.turnId,
+      failureType: String(payload.type ?? "error"),
+      error: typeof payload.error === "string" ? payload.error : undefined,
+    };
+  }
+
+  if (request.expectedStatus === "interrupted") {
+    const interruptRecord = turnRecords.find((record) => {
+      if (record.type === "event_msg") {
+        const payload = isRecord(record.payload) ? record.payload : null;
+        if (payload?.type === "turn_aborted" || payload?.type === "interrupted") return true;
+        if (payload?.type === "turn_complete") {
+          const status = typeof payload.status === "string" ? payload.status.toLowerCase() : "";
+          const outcome = typeof payload.outcome === "string" ? payload.outcome.toLowerCase() : "";
+          if (/abort|interrupt|cancel/.test(status) || /abort|interrupt|cancel/.test(outcome)) return true;
+        }
+      }
+      return false;
+    });
+    if (!interruptRecord) fail("CODEX_PROVENANCE_INTERRUPTION_EVENT_MISSING");
+    const payload = recordPayload(interruptRecord);
+    return {
+      verified: true,
+      rolloutPath,
+      rolloutHash,
+      sessionId: request.sessionId,
+      turnId: request.turnId,
+      failureType: String(payload.type ?? "interrupted"),
+    };
+  }
+
+  fail("CODEX_PROVENANCE_STATUS_UNKNOWN");
+}

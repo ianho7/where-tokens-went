@@ -311,10 +311,12 @@ test('report-run reuses one frozen Audit and completes fallback HTML without lar
     await mkdir(project, { recursive: true });
     await mkdir(sessions, { recursive: true });
     await writeFile(path.join(sessions, 'rollout-fixture.jsonl'), [
-      { timestamp, type: 'session_meta', payload: { id: 'run-session', cwd: project } },
+      { timestamp, type: 'session_meta', payload: { id: 'run-session', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0', model_provider: 'openai' } },
       { timestamp, type: 'turn_context', payload: { turn_id: 'run-turn', cwd: project } },
       { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'run-response', turn_id: 'run-turn', usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 }, turn_token_usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 } } },
       { timestamp, type: 'response_item', payload: { type: 'message', role: 'user', turn_id: 'run-turn', content: 'bounded fixture prompt' } },
+      { timestamp, type: 'turn_context', payload: { turn_id: 'fail-turn', cwd: project } },
+      { timestamp, type: 'event_msg', payload: { type: 'stream_error', turn_id: 'fail-turn', error: 'simulated model stream failure' } },
     ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
 
     const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
@@ -359,7 +361,25 @@ test('report-run reuses one frozen Audit and completes fallback HTML without lar
     for (const lane of ['report-synthesis', 'key-session-analysis', 'skill-insights']) {
       const started = await runCli(['report-run', 'ai-start', '--run-dir', runDir, '--lane', lane], env);
       assert.equal(started.code, 0, started.stderr);
-      const fallback = await runCli(['report-run', 'ai-fallback', '--run-dir', runDir, '--lane', lane, '--status', 'unavailable', '--reason-code', 'AI_UNAVAILABLE'], env);
+      const ticket = JSON.parse(started.stdout);
+      await writeFile(path.join(runDir, 'lanes', lane, 'host-failure.json'), JSON.stringify({
+        kind: 'host-agent-failure',
+        source: 'codex-host-agent',
+        runId: preparedSummary.runId,
+        lane,
+        attempt: ticket.attempt,
+        spanId: ticket.spanId,
+        reasonCode: 'HOST_GENERATION_FAILED',
+        provenance: {
+          harness: 'codex',
+          status: 'failed',
+          rolloutPath: path.join(sessions, 'rollout-fixture.jsonl'),
+          sessionId: 'run-session',
+          turnId: 'fail-turn',
+          error: 'simulated model stream failure',
+        },
+      }));
+      const fallback = await runCli(['report-run', 'ai-fallback', '--run-dir', runDir, '--lane', lane, '--status', 'unavailable', '--reason-code', 'HOST_GENERATION_FAILED'], env);
       assert.equal(fallback.code, 0, fallback.stderr);
     }
     await event({ event: 'start', spanId: 'open-1', phase: 'codex-open', operation: 'open-final-html', source: 'ui', startedAt: timestamp });

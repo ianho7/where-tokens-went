@@ -11,7 +11,7 @@
     "prompt:lab": "node scripts/prompt-lab.js",
     "build": "node scripts/build-echarts.js && tsc -p tsconfig.json && node scripts/write-build-manifest.js && node scripts/copy-report-styles.js",
     "test": "npm run package-skills && npm run install-skills && node --test tests/codex-inspect.test.js",
-    "test:targeted": "node --test tests/p0-regressions.test.js tests/prompt-lab.test.js tests/skill-insights-validator.test.js tests/report-run.test.js tests/report-run-lanes.test.js tests/report-run-concurrency.test.js tests/scoped-inventory-cache.test.js",
+    "test:targeted": "node --test tests/p0-regressions.test.js tests/prompt-lab.test.js tests/skill-insights-validator.test.js tests/report-run.test.js tests/report-run-lanes.test.js tests/report-run-concurrency.test.js tests/scoped-inventory-cache.test.js tests/ai-lane-timing-decoupling.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "package-skills": "npm run build && node scripts/package-skills.js",
     "install-skills": "node scripts/install-skills.js",

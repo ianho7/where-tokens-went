@@ -43,10 +43,12 @@ test('lane-only start/accept and artifact-only compose retain accepted content w
     await mkdir(sessions, { recursive: true });
     const timestamp = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     await writeFile(path.join(sessions, 'rollout-lane.jsonl'), [
-      { timestamp, type: 'session_meta', payload: { id: 'lane-session', cwd: project } },
+      { timestamp, type: 'session_meta', payload: { id: 'lane-session', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0', model_provider: 'openai' } },
       { timestamp, type: 'turn_context', payload: { turn_id: 'lane-turn', cwd: project } },
       { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'lane-response', turn_id: 'lane-turn', usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 }, turn_token_usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 } } },
       { timestamp, type: 'response_item', payload: { type: 'message', role: 'user', turn_id: 'lane-turn', content: 'Recognizable fixture prompt for the final report route.' } },
+      { timestamp, type: 'turn_context', payload: { turn_id: 'fail-turn', cwd: project } },
+      { timestamp, type: 'event_msg', payload: { type: 'stream_error', turn_id: 'fail-turn', error: 'simulated model stream failure' } },
     ].map((record) => JSON.stringify(record)).join('\n') + '\n');
     const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
     const prepared = await runCli(['report-run', 'prepare', '--harness', 'codex', '--cwd', project, '--since', '10000d', '--locale', 'en-US', '--run-dir', runDir], env);
@@ -74,7 +76,25 @@ test('lane-only start/accept and artifact-only compose retain accepted content w
     for (const lane of ['key-session-analysis', 'skill-insights']) {
       const laneStart = await runCli(['report-run', 'ai-start', '--run-dir', runDir, '--lane', lane], env);
       assert.equal(laneStart.code, 0, laneStart.stderr);
-      const fallback = await runCli(['report-run', 'ai-fallback', '--run-dir', runDir, '--lane', lane, '--status', 'unavailable', '--reason-code', 'AI_UNAVAILABLE'], env);
+      const laneTicket = JSON.parse(laneStart.stdout);
+      await writeFile(path.join(runDir, 'lanes', lane, 'host-failure.json'), JSON.stringify({
+        kind: 'host-agent-failure',
+        source: 'codex-host-agent',
+        runId: summary.runId,
+        lane,
+        attempt: laneTicket.attempt,
+        spanId: laneTicket.spanId,
+        reasonCode: 'HOST_GENERATION_FAILED',
+        provenance: {
+          harness: 'codex',
+          status: 'failed',
+          rolloutPath: path.join(sessions, 'rollout-lane.jsonl'),
+          sessionId: 'lane-session',
+          turnId: 'fail-turn',
+          error: 'simulated model stream failure',
+        },
+      }));
+      const fallback = await runCli(['report-run', 'ai-fallback', '--run-dir', runDir, '--lane', lane, '--status', 'unavailable', '--reason-code', 'HOST_GENERATION_FAILED'], env);
       assert.equal(fallback.code, 0, fallback.stderr);
     }
     const composed = await runCli(['report-run', 'compose', '--run-dir', runDir, '--locale', 'en-US', '--json', '--font', fontPath, '--font-family', 'ticket-local-font'], env);
@@ -121,11 +141,33 @@ test('lane-only start/accept and artifact-only compose retain accepted content w
     const manifest = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
     assert.equal(manifest.status, 'completed');
     assert.equal(manifest.laneStatus['report-synthesis'].status, 'accepted');
+    assert.equal(manifest.laneStatus['report-synthesis'].lastDurationMs, null);
+    assert.equal(manifest.laneStatus['report-synthesis'].totalDurationMs, null);
+    assert.equal(manifest.laneStatus['key-session-analysis'].status, 'unavailable');
+    assert.equal(manifest.laneStatus['key-session-analysis'].reasonCode, 'HOST_GENERATION_FAILED');
+    assert.equal(manifest.laneStatus['key-session-analysis'].lastDurationMs, null);
+    assert.equal(manifest.laneStatus['skill-insights'].status, 'unavailable');
+    assert.equal(manifest.laneStatus['skill-insights'].reasonCode, 'HOST_GENERATION_FAILED');
+    assert.equal(manifest.laneStatus['skill-insights'].lastDurationMs, null);
     assert.equal(manifest.uiDispatch, 'completed');
     assert.ok(manifest.laneArtifacts['report-synthesis/accepted.json']);
     assert.ok(manifest.artifacts.reportJson);
     assert.ok(manifest.artifacts.html);
     assert.equal(manifest.degraded, true);
+    const trace = (await readFile(path.join(runDir, 'trace.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+    const laneEnds = trace.filter((event) => event.event === 'end' && ['report-synthesis', 'key-session-analysis', 'skill-insights'].includes(event.phase));
+    const acceptedEnd = laneEnds.find((event) => event.phase === 'report-synthesis');
+    const keyEnd = laneEnds.find((event) => event.phase === 'key-session-analysis');
+    const skillEnd = laneEnds.find((event) => event.phase === 'skill-insights');
+    assert.equal(acceptedEnd.operation, 'ai-accept');
+    assert.equal(acceptedEnd.durationMs, null);
+    assert.equal(acceptedEnd.metadata.generationTimingStatus, 'unavailable');
+    assert.equal(keyEnd.operation, 'ai-fallback');
+    assert.equal(keyEnd.errorCode, 'HOST_GENERATION_FAILED');
+    assert.equal(keyEnd.durationMs, null);
+    assert.equal(skillEnd.operation, 'ai-fallback');
+    assert.equal(skillEnd.errorCode, 'HOST_GENERATION_FAILED');
+    assert.equal(skillEnd.durationMs, null);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

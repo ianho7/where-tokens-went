@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_RUN_STAGES = void 0;
+exports.ALLOWED_GENERATION_FAILURE_REASONS = exports.DEFAULT_RUN_STAGES = void 0;
 exports.assertLocalSensitiveRunDirectory = assertLocalSensitiveRunDirectory;
 exports.createReportRun = createReportRun;
 exports.openReportRun = openReportRun;
@@ -48,6 +48,8 @@ exports.finishRunSpan = finishRunSpan;
 exports.finalizeReportRun = finalizeReportRun;
 exports.writeRunArtifact = writeRunArtifact;
 exports.writeRunTextArtifact = writeRunTextArtifact;
+exports.isAllowedGenerationFailureReason = isAllowedGenerationFailureReason;
+exports.validateHostFailureReceipt = validateHostFailureReceipt;
 exports.writeRunLaneArtifact = writeRunLaneArtifact;
 exports.writeRunLaneRawArtifact = writeRunLaneRawArtifact;
 exports.readRunLaneArtifact = readRunLaneArtifact;
@@ -71,6 +73,7 @@ const path = __importStar(require("node:path"));
 const node_crypto_1 = require("node:crypto");
 const node_perf_hooks_1 = require("node:perf_hooks");
 const bundle_version_1 = require("./bundle-version");
+const codex_provenance_1 = require("./codex-provenance");
 function isWithin(root, target) {
     const relative = path.relative(path.resolve(root), path.resolve(target));
     return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
@@ -606,6 +609,79 @@ async function writeRunTextArtifact(run, name, contents) {
 function laneArtifactKey(lane, file) {
     return `${lane}/${path.basename(file)}`;
 }
+exports.ALLOWED_GENERATION_FAILURE_REASONS = [
+    "HOST_GENERATION_FAILED",
+    "HOST_GENERATION_INTERRUPTED",
+];
+function isAllowedGenerationFailureReason(reason) {
+    return exports.ALLOWED_GENERATION_FAILURE_REASONS.includes(reason);
+}
+function isRecord(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+async function validateHostFailureReceipt(run, lane, currentLane, receipt, expectedReasonCode, activeSpanId, attempt) {
+    if (!isRecord(receipt))
+        return { valid: false, errors: ["receipt is not a JSON object"] };
+    const record = receipt;
+    const errors = [];
+    if (record.kind !== "host-agent-failure") {
+        errors.push(`invalid kind '${String(record.kind)}' (expected 'host-agent-failure')`);
+    }
+    if (record.source !== "codex-host-agent") {
+        errors.push(`unauthorized observation source '${String(record.source)}' (expected 'codex-host-agent')`);
+    }
+    if (record.runId !== run.manifest.runId) {
+        errors.push(`runId mismatch (expected ${run.manifest.runId}, got ${String(record.runId)})`);
+    }
+    if (record.lane !== lane) {
+        errors.push(`lane mismatch (expected ${lane}, got ${String(record.lane)})`);
+    }
+    if (typeof record.attempt !== "number" || record.attempt !== attempt) {
+        errors.push(`attempt mismatch or missing (expected ${attempt}, got ${String(record.attempt)})`);
+    }
+    if (typeof record.spanId !== "string" || record.spanId !== activeSpanId) {
+        errors.push(`spanId mismatch or missing (expected ${activeSpanId}, got ${String(record.spanId)})`);
+    }
+    if (typeof record.reasonCode !== "string" || record.reasonCode !== expectedReasonCode) {
+        errors.push(`reasonCode mismatch or missing (expected ${expectedReasonCode}, got ${String(record.reasonCode)})`);
+    }
+    if (!isRecord(record.provenance)) {
+        errors.push("provenance is missing or not an object");
+    }
+    else {
+        const prov = record.provenance;
+        if (prov.status !== "failed" && prov.status !== "interrupted") {
+            errors.push(`provenance status '${String(prov.status)}' is not an explicit failure or interruption`);
+        }
+        else {
+            if (expectedReasonCode === "HOST_GENERATION_FAILED" && prov.status !== "failed") {
+                errors.push("provenance status must be 'failed' for HOST_GENERATION_FAILED");
+            }
+            if (expectedReasonCode === "HOST_GENERATION_INTERRUPTED" && prov.status !== "interrupted") {
+                errors.push("provenance status must be 'interrupted' for HOST_GENERATION_INTERRUPTED");
+            }
+        }
+        if (typeof prov.rolloutPath !== "string" || typeof prov.sessionId !== "string" || typeof prov.turnId !== "string") {
+            errors.push("provenance missing required rolloutPath, sessionId, or turnId");
+        }
+        else {
+            try {
+                await (0, codex_provenance_1.verifyCodexFailureProvenance)({
+                    rolloutPath: prov.rolloutPath,
+                    sessionId: prov.sessionId,
+                    turnId: prov.turnId,
+                    expectedStatus: prov.status,
+                });
+            }
+            catch (error) {
+                errors.push(`Harness persistence verification failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+    }
+    return errors.length === 0
+        ? { valid: true, receipt: record }
+        : { valid: false, errors };
+}
 function laneArtifactFile(lane, kind, attempt) {
     if (kind === "input")
         return `lanes/${lane}/input.json`;
@@ -698,10 +774,13 @@ async function startReportLane(run, lane, inputArtifact) {
 async function finishReportLane(run, lane, attempt, spanId, startedAt, status, durationMs, reasonCode, acceptedArtifact, source = "runner", metadata) {
     await mutateRun(run, (manifest) => {
         const current = manifest.laneStatus[lane];
+        const totalDurationMs = durationMs === null || (attempt > 1 && current.totalDurationMs === null)
+            ? null
+            : (current.totalDurationMs ?? 0) + durationMs;
         manifest.laneStatus[lane] = {
             ...current,
             status,
-            totalDurationMs: (current.totalDurationMs ?? 0) + (durationMs ?? 0),
+            totalDurationMs,
             lastDurationMs: durationMs,
             reasonCode,
             acceptedArtifact,
@@ -714,7 +793,7 @@ async function finishReportLane(run, lane, attempt, spanId, startedAt, status, d
             runId: manifest.runId,
             spanId,
             phase: lane,
-            operation: "ai-accept",
+            operation: status === "fallback" || status === "unavailable" ? "ai-fallback" : "ai-accept",
             source,
             attempt,
             startedAt,
@@ -722,7 +801,7 @@ async function finishReportLane(run, lane, attempt, spanId, startedAt, status, d
             durationMs,
             status: status === "accepted" ? "completed" : status,
             ...(reasonCode ? { errorCode: reasonCode } : {}),
-            ...(metadata ? { metadata } : {}),
+            ...(metadata ? { metadata } : { metadata: { generationTimingStatus: durationMs === null ? "unavailable" : "observed" } }),
         }]);
 }
 async function setRunUiDispatch(run, status) {
