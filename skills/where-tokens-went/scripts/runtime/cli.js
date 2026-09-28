@@ -792,26 +792,43 @@ function buildLaneTicket(run, lane, snapshotId) {
 }
 async function startLaneInternal(run, lane) {
     const audit = await readCanonicalAudit(run);
-    let input;
+    const promptHash = lanePromptHash(run.manifest, lane);
+    const bundleVersion = run.manifest.bundleVersion;
+    if (!bundleVersion)
+        throw new Error("Bundle version is unavailable for Report Run.");
+    const auditFingerprint = run.manifest.auditFingerprint;
+    if (!auditFingerprint)
+        throw new Error("Audit fingerprint is unavailable for Report Run.");
+    const context = {
+        runId: run.manifest.runId,
+        lane,
+        scope: run.manifest.scope,
+        locale: run.manifest.scope.locale,
+        auditFingerprint,
+        bundleVersion,
+        promptHash,
+    };
+    let projection;
     let snapshotId;
     if (lane === "report-synthesis") {
-        input = { version: 1, runId: run.manifest.runId, lane, locale: run.manifest.scope.locale, auditFingerprint: run.manifest.auditFingerprint, audit };
+        projection = (0, report_run_1.projectReportSynthesisInput)(context, audit);
     }
     else if (lane === "key-session-analysis") {
         const evidence = run.manifest.artifacts.evidence ? await (0, report_run_1.readRunArtifact)(run.runDir, "evidence") : null;
         if (!evidence)
             throw new Error("Key Session Analysis requires report-run evidence --auto before ai-start.");
-        input = { version: 1, runId: run.manifest.runId, lane, locale: run.manifest.scope.locale, auditFingerprint: run.manifest.auditFingerprint, audit, evidence };
+        projection = (0, report_run_1.projectKeySessionAnalysisInput)(context, audit, evidence);
     }
     else {
         if (!run.manifest.artifacts.skillSnapshot)
             throw new Error("Skill Insights requires a frozen Skill Snapshot.");
         const snapshot = await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot");
         snapshotId = snapshot.snapshotId;
-        input = { version: 1, runId: run.manifest.runId, lane, locale: run.manifest.scope.locale, auditFingerprint: run.manifest.auditFingerprint, snapshot };
+        projection = (0, report_run_1.projectSkillInsightsInput)(context, snapshot);
     }
-    const inputRef = await (0, report_run_1.writeRunLaneArtifact)(run, lane, "input", input);
-    const promptRef = await (0, report_run_1.writeRunLaneArtifact)(run, lane, "prompt", { version: 1, lane, promptHash: lanePromptHash(run.manifest, lane), bundleVersion: run.manifest.bundleVersion });
+    const inputRef = await (0, report_run_1.writeRunLaneArtifact)(run, lane, "input", projection);
+    await (0, report_run_1.recordRunProjection)(run, lane, inputRef);
+    const promptRef = await (0, report_run_1.writeRunLaneArtifact)(run, lane, "prompt", { version: 1, lane, promptHash, bundleVersion });
     const started = await (0, report_run_1.startReportLane)(run, lane, inputRef.file);
     return {
         runId: run.manifest.runId,
@@ -819,9 +836,9 @@ async function startLaneInternal(run, lane) {
         attempt: started.attempt,
         spanId: started.spanId,
         locale: run.manifest.scope.locale,
-        auditFingerprint: run.manifest.auditFingerprint,
-        bundleVersion: run.manifest.bundleVersion,
-        promptHash: lanePromptHash(run.manifest, lane),
+        auditFingerprint,
+        bundleVersion,
+        promptHash,
         runtimeHash: run.manifest.runtimeHash,
         inputArtifact: inputRef.file,
         promptArtifact: promptRef.file,
@@ -936,8 +953,7 @@ async function reportRunAiAcceptMain(args) {
     if (!activeSpanId || spanId !== activeSpanId)
         throw new Error("RUN_LANE_SPAN_MISMATCH");
     const input = await (0, report_run_1.readRunLaneArtifact)(run.runDir, options.lane, "input");
-    if (input.runId !== run.manifest.runId || input.auditFingerprint !== run.manifest.auditFingerprint)
-        throw new Error("Lane input artifact is not bound to this Report Run.");
+    (0, report_run_1.validateLaneProjection)(run, options.lane, input, lanePromptHash(run.manifest, options.lane));
     const rawText = await readStdin();
     const outputHash = sha256Text(rawText);
     let raw;

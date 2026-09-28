@@ -18,7 +18,7 @@ You receive:
 
 - `locale`: the required language for all generated prose;
 - `auditFingerprint`: the exact fingerprint of the current Audit;
-- `auditResult`: the complete structured sanitized `AuditResult`;
+- `auditResult`: the structured `KeySessionAnalysisProjection` (Lane Input Projection) containing only the Top 3 Token-ranked Sessions, their token accounting, and their turn records from the current Audit Scope;
 - `contentEvidencePackets`: in-memory Content Evidence for only the selected Token-ranked Sessions and Turns.
 
 The Audit Scope is fixed. Use only Sessions in `auditResult.rankings.sessions.slice(0, 3)` and only Content Evidence packets from the same Harness, project selection, and time range.

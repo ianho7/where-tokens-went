@@ -43,7 +43,15 @@ import {
   withRunSpan,
   isLaneTerminal,
   REPORT_LANES,
+  buildLaneProjection,
+  projectReportSynthesisInput,
+  projectKeySessionAnalysisInput,
+  projectSkillInsightsInput,
+  recordRunProjection,
+  validateLaneProjection,
   type ExternalSpanEvent,
+  type LaneProjection,
+  type LaneProjectionContext,
   type ReportRun,
   type ReportRunManifest,
   type ReportRunScope,
@@ -862,22 +870,41 @@ function buildLaneTicket(run: ReportRun, lane: ReportLane, snapshotId?: string):
 
 async function startLaneInternal(run: ReportRun, lane: ReportLane): Promise<LaneTicket> {
   const audit = await readCanonicalAudit(run);
-  let input: Record<string, unknown>;
+  const promptHash = lanePromptHash(run.manifest, lane);
+  const bundleVersion = run.manifest.bundleVersion;
+  if (!bundleVersion) throw new Error("Bundle version is unavailable for Report Run.");
+  const auditFingerprint = run.manifest.auditFingerprint;
+  if (!auditFingerprint) throw new Error("Audit fingerprint is unavailable for Report Run.");
+
+  const context: LaneProjectionContext = {
+    runId: run.manifest.runId,
+    lane,
+    scope: run.manifest.scope,
+    locale: run.manifest.scope.locale,
+    auditFingerprint,
+    bundleVersion,
+    promptHash,
+  };
+
+  let projection: LaneProjection;
   let snapshotId: string | undefined;
+
   if (lane === "report-synthesis") {
-    input = { version: 1, runId: run.manifest.runId, lane, locale: run.manifest.scope.locale, auditFingerprint: run.manifest.auditFingerprint, audit };
+    projection = projectReportSynthesisInput(context, audit);
   } else if (lane === "key-session-analysis") {
-    const evidence = run.manifest.artifacts.evidence ? await readRunArtifact(run.runDir, "evidence") : null;
+    const evidence = run.manifest.artifacts.evidence ? await readRunArtifact(run.runDir, "evidence") as { packets: ContentEvidencePacket[] } : null;
     if (!evidence) throw new Error("Key Session Analysis requires report-run evidence --auto before ai-start.");
-    input = { version: 1, runId: run.manifest.runId, lane, locale: run.manifest.scope.locale, auditFingerprint: run.manifest.auditFingerprint, audit, evidence };
+    projection = projectKeySessionAnalysisInput(context, audit, evidence);
   } else {
     if (!run.manifest.artifacts.skillSnapshot) throw new Error("Skill Insights requires a frozen Skill Snapshot.");
     const snapshot = await readRunArtifact(run.runDir, "skillSnapshot") as SkillSnapshotArtifact;
     snapshotId = snapshot.snapshotId;
-    input = { version: 1, runId: run.manifest.runId, lane, locale: run.manifest.scope.locale, auditFingerprint: run.manifest.auditFingerprint, snapshot };
+    projection = projectSkillInsightsInput(context, snapshot);
   }
-  const inputRef = await writeRunLaneArtifact(run, lane, "input", input);
-  const promptRef = await writeRunLaneArtifact(run, lane, "prompt", { version: 1, lane, promptHash: lanePromptHash(run.manifest, lane), bundleVersion: run.manifest.bundleVersion });
+
+  const inputRef = await writeRunLaneArtifact(run, lane, "input", projection);
+  await recordRunProjection(run, lane, inputRef);
+  const promptRef = await writeRunLaneArtifact(run, lane, "prompt", { version: 1, lane, promptHash, bundleVersion });
   const started = await startReportLane(run, lane, inputRef.file);
   return {
     runId: run.manifest.runId,
@@ -885,9 +912,9 @@ async function startLaneInternal(run: ReportRun, lane: ReportLane): Promise<Lane
     attempt: started.attempt,
     spanId: started.spanId,
     locale: run.manifest.scope.locale,
-    auditFingerprint: run.manifest.auditFingerprint,
-    bundleVersion: run.manifest.bundleVersion,
-    promptHash: lanePromptHash(run.manifest, lane),
+    auditFingerprint,
+    bundleVersion,
+    promptHash,
     runtimeHash: run.manifest.runtimeHash,
     inputArtifact: inputRef.file,
     promptArtifact: promptRef.file,
@@ -993,7 +1020,7 @@ async function reportRunAiAcceptMain(args: string[]): Promise<number> {
   const activeSpanId = run.manifest.stageStatus[options.lane]?.spanId;
   if (!activeSpanId || spanId !== activeSpanId) throw new Error("RUN_LANE_SPAN_MISMATCH");
   const input = await readRunLaneArtifact(run.runDir, options.lane, "input") as Record<string, unknown>;
-  if (input.runId !== run.manifest.runId || input.auditFingerprint !== run.manifest.auditFingerprint) throw new Error("Lane input artifact is not bound to this Report Run.");
+  validateLaneProjection(run, options.lane, input, lanePromptHash(run.manifest, options.lane));
   const rawText = await readStdin();
   const outputHash = sha256Text(rawText);
   let raw: unknown;

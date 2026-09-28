@@ -54,6 +54,13 @@ exports.validateHostFailureReceipt = validateHostFailureReceipt;
 exports.writeRunLaneArtifact = writeRunLaneArtifact;
 exports.writeRunLaneRawArtifact = writeRunLaneRawArtifact;
 exports.readRunLaneArtifact = readRunLaneArtifact;
+exports.computeProjectionHash = computeProjectionHash;
+exports.projectReportSynthesisInput = projectReportSynthesisInput;
+exports.projectKeySessionAnalysisInput = projectKeySessionAnalysisInput;
+exports.projectSkillInsightsInput = projectSkillInsightsInput;
+exports.buildLaneProjection = buildLaneProjection;
+exports.validateLaneProjection = validateLaneProjection;
+exports.recordRunProjection = recordRunProjection;
 exports.startReportLane = startReportLane;
 exports.finishReportLane = finishReportLane;
 exports.setRunUiDispatch = setRunUiDispatch;
@@ -300,6 +307,7 @@ function initialManifest(scope, runId) {
         degraded: false,
         uiDispatch: "unavailable",
         laneArtifacts: {},
+        projections: {},
         retention: { workspace: "local-sensitive", policy: "explicit-cleanup", cleanedAt: null },
     };
 }
@@ -758,6 +766,209 @@ async function readRunLaneArtifact(runDir, lane, kind, attempt) {
     if (contents.byteLength !== ref.bytes || hashBytes(contents) !== ref.sha256)
         throw new Error(`Report Run lane artifact integrity check failed: ${lane}/${kind}${attempt ? `/${attempt}` : ""}`);
     return JSON.parse(contents.toString("utf8"));
+}
+function stableSort(value) {
+    if (Array.isArray(value))
+        return value.map(stableSort);
+    if (value && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, nested]) => [key, stableSort(nested)]));
+    }
+    return value;
+}
+function computeProjectionHash(payload) {
+    const { projectionHash: _omitted, ...body } = payload;
+    const canonicalJson = JSON.stringify(stableSort(body));
+    return (0, node_crypto_1.createHash)("sha256").update(canonicalJson).digest("hex");
+}
+function projectReportSynthesisInput(context, audit) {
+    if (!audit || typeof audit !== "object") {
+        throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: report-synthesis requires an audit object.");
+    }
+    if (!audit.summary || !audit.rankings || !Array.isArray(audit.checks)) {
+        throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: report-synthesis requires audit summary, rankings, and checks.");
+    }
+    const projectedAudit = {
+        scope: audit.scope ?? context.scope,
+        coverage: audit.coverage,
+        summary: audit.summary,
+        rankings: audit.rankings,
+        turns: audit.turns ?? [],
+        checks: audit.checks,
+        ...(audit.keySessionTokenAccounting ? { keySessionTokenAccounting: audit.keySessionTokenAccounting } : {}),
+        report: {
+            totalToolAmplifiedTokens: audit.report?.totalToolAmplifiedTokens,
+            apiEquivalentCost: audit.report?.apiEquivalentCost,
+            cacheEconomics: audit.report?.cacheEconomics,
+            firstRequestBurden: audit.report?.firstRequestBurden,
+            tools: audit.report?.tools ?? [],
+            skills: audit.report?.skills ?? [],
+        },
+    };
+    const body = {
+        version: 1,
+        runId: context.runId,
+        lane: "report-synthesis",
+        scope: audit.scope ?? context.scope,
+        locale: context.locale,
+        auditFingerprint: context.auditFingerprint,
+        bundleVersion: context.bundleVersion,
+        promptHash: context.promptHash,
+        projectionSchemaVersion: 1,
+        audit: projectedAudit,
+        omittedFields: [
+            "view",
+            "weekComparison",
+            "turnCandidates",
+            "report.dailyUsage",
+            "report.hourlyActivity",
+            "report.rollingWindow",
+            "report.hourlySupported",
+        ],
+    };
+    const projectionHash = computeProjectionHash(body);
+    return { ...body, projectionHash };
+}
+function projectKeySessionAnalysisInput(context, audit, evidence) {
+    if (!audit || typeof audit !== "object") {
+        throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: key-session-analysis requires an audit object.");
+    }
+    if (!audit.rankings?.sessions || !Array.isArray(audit.rankings.sessions)) {
+        throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: key-session-analysis requires audit.rankings.sessions.");
+    }
+    if (!evidence || !Array.isArray(evidence.packets)) {
+        throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: key-session-analysis requires canonical evidence packets.");
+    }
+    const topSessions = audit.rankings.sessions.slice(0, 3);
+    const topSessionIds = new Set(topSessions.map((session) => session.key));
+    const topTurns = (audit.turns ?? []).filter((turn) => topSessionIds.has(turn.sessionId));
+    const topAccounting = (audit.keySessionTokenAccounting ?? []).filter((entry) => topSessionIds.has(entry.sessionId));
+    const scopedPackets = evidence.packets.filter((packet) => topSessionIds.has(packet.sessionId) &&
+        packet.scope.harness === audit.scope.harness &&
+        packet.scope.allProjects === audit.scope.allProjects &&
+        packet.scope.since === audit.scope.since);
+    const projectedAudit = {
+        scope: audit.scope ?? context.scope,
+        coverage: audit.coverage,
+        summary: audit.summary,
+        rankings: {
+            sessions: topSessions,
+        },
+        turns: topTurns,
+        ...(topAccounting.length > 0 ? { keySessionTokenAccounting: topAccounting } : {}),
+    };
+    const body = {
+        version: 1,
+        runId: context.runId,
+        lane: "key-session-analysis",
+        scope: audit.scope ?? context.scope,
+        locale: context.locale,
+        auditFingerprint: context.auditFingerprint,
+        bundleVersion: context.bundleVersion,
+        promptHash: context.promptHash,
+        projectionSchemaVersion: 1,
+        audit: projectedAudit,
+        sessions: topSessions,
+        turns: topTurns,
+        keySessionTokenAccounting: topAccounting,
+        contentEvidencePackets: scopedPackets,
+        omittedFields: [
+            "rankings.projects",
+            "rankings.models",
+            "rankings.timeBuckets",
+            "sessionsOutsideTop3",
+            "turnsOutsideTop3",
+            "checks",
+            "report",
+            "turnCandidates",
+            "view",
+            "weekComparison",
+        ],
+    };
+    const projectionHash = computeProjectionHash(body);
+    return { ...body, projectionHash };
+}
+function projectSkillInsightsInput(context, snapshot) {
+    if (!snapshot || typeof snapshot !== "object" || !snapshot.snapshotId || !snapshot.globalUsage || !Array.isArray(snapshot.selectedSkills)) {
+        throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: skill-insights requires snapshot with snapshotId, globalUsage, and selectedSkills.");
+    }
+    const body = {
+        version: 1,
+        runId: context.runId,
+        lane: "skill-insights",
+        scope: context.scope,
+        locale: context.locale,
+        auditFingerprint: context.auditFingerprint,
+        bundleVersion: context.bundleVersion,
+        promptHash: context.promptHash,
+        projectionSchemaVersion: 1,
+        snapshotId: snapshot.snapshotId,
+        snapshot,
+        omittedFields: [
+            "audit",
+            "evidence",
+            "turns",
+            "sessions",
+            "rankings",
+            "checks",
+            "report",
+        ],
+    };
+    const projectionHash = computeProjectionHash(body);
+    return { ...body, projectionHash };
+}
+function buildLaneProjection(lane, context, inputs) {
+    if (lane === "report-synthesis") {
+        return projectReportSynthesisInput(context, inputs.audit);
+    }
+    if (lane === "key-session-analysis") {
+        return projectKeySessionAnalysisInput(context, inputs.audit, inputs.evidence ?? null);
+    }
+    if (lane === "skill-insights") {
+        return projectSkillInsightsInput(context, inputs.snapshot ?? null);
+    }
+    throw new Error(`Unknown lane: ${lane}`);
+}
+function validateLaneProjection(run, lane, candidate, expectedPromptHash) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+        throw new Error("LANE_PROJECTION_INVALID: Lane input projection must be an object.");
+    }
+    const projection = candidate;
+    if (projection.runId !== run.manifest.runId) {
+        throw new Error(`LANE_PROJECTION_IDENTITY_TAMPERED: Projection runId '${projection.runId}' does not match Run '${run.manifest.runId}'.`);
+    }
+    if (projection.lane !== lane) {
+        throw new Error(`LANE_PROJECTION_IDENTITY_TAMPERED: Projection lane '${projection.lane}' does not match expected '${lane}'.`);
+    }
+    if (projection.auditFingerprint !== run.manifest.auditFingerprint) {
+        throw new Error(`LANE_PROJECTION_IDENTITY_TAMPERED: Projection auditFingerprint does not match Run.`);
+    }
+    if (projection.bundleVersion !== run.manifest.bundleVersion) {
+        throw new Error(`LANE_PROJECTION_IDENTITY_TAMPERED: Projection bundleVersion does not match Run.`);
+    }
+    const promptHash = expectedPromptHash ?? run.manifest.promptHashes[lane === "report-synthesis" ? "reportSynthesis" : lane === "key-session-analysis" ? "keySessionAnalysis" : "skillInsights"];
+    if (promptHash && projection.promptHash !== promptHash) {
+        throw new Error(`LANE_PROJECTION_IDENTITY_TAMPERED: Projection promptHash does not match Run.`);
+    }
+    if (projection.projectionSchemaVersion !== 1) {
+        throw new Error(`LANE_PROJECTION_INVALID: Unsupported projectionSchemaVersion '${projection.projectionSchemaVersion}'.`);
+    }
+    if (typeof projection.projectionHash !== "string" || !/^[0-9a-f]{64}$/i.test(projection.projectionHash)) {
+        throw new Error("LANE_PROJECTION_INVALID: Projection projectionHash must be a valid sha256 hex string.");
+    }
+    const expectedHash = computeProjectionHash(projection);
+    if (projection.projectionHash !== expectedHash) {
+        throw new Error("LANE_PROJECTION_IDENTITY_TAMPERED: Projection content hash verification failed.");
+    }
+    return { valid: true };
+}
+async function recordRunProjection(run, lane, ref) {
+    await mutateRun(run, (manifest) => {
+        if (!manifest.projections)
+            manifest.projections = {};
+        manifest.projections[lane] = ref;
+    });
 }
 async function startReportLane(run, lane, inputArtifact) {
     const spanId = (0, node_crypto_1.randomUUID)();

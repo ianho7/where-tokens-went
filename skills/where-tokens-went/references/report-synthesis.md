@@ -30,7 +30,7 @@ You receive:
 
 - `locale`: the required language for all generated prose;
 - `auditFingerprint`: the exact fingerprint of the current Audit;
-- `auditResult`: the complete structured `AuditResult` for the current Audit Scope.
+- `auditResult`: the structured `ReportSynthesisProjection` (Lane Input Projection) for the current Audit Scope, containing the necessary summary metrics, rankings, turns, automated checks, report metrics, and token accounting, with presentation and rendering payloads omitted.
 
 The Audit Scope is fixed. Do not introduce data from another Harness, project selection, time range, report, or conversation.
 

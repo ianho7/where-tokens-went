@@ -4,7 +4,7 @@ This document defines the authoritative Host Agent Prompts, contracts, systemic 
 
 ## Immutable Evidence Snapshot Contract
 
-The input contains one immutable Skill Evidence Snapshot. Copy its exact `snapshotId` into the top-level output envelope. Do not derive, refresh, or recompute Skill metrics from any other source. The validator and renderer accept Skill Insights only when that `snapshotId` matches the snapshot used for analysis.
+The input contains one immutable Skill Evidence Snapshot provided via the Skill Insights Lane Input Projection. Copy its exact `snapshotId` into the top-level output envelope. Do not derive, refresh, or recompute Skill metrics from any other source. The validator and renderer accept Skill Insights only when that `snapshotId` matches the snapshot used for analysis.
 
 ---
 
