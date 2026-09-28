@@ -28,7 +28,11 @@ User in Codex / Claude Code conversation
      one final standalone HTML composition and open
 ```
 
-Only one Reader runs per invocation. There is no source registry scan, background collector, shared database, persistent content index, model service, or cross-Harness aggregation in MVP. The CLI remains the sole authority for facts; the Host Agent owns interpretation. The Host Agent is already the AI runtime: the internal CLI must not acquire Provider credentials or start a second model client.
+Only one Reader runs per invocation. There is no source registry scan, background collector, shared database, persistent content index, model service, or cross-Harness aggregation in MVP. The CLI remains the sole authority for facts; Harness-native model execution owns interpretation. The internal CLI must not acquire Provider credentials or start a second model client.
+
+The Report Orchestrator owns workflow progression. It freezes the Run, prepares Evidence and immutable Lane Input Projections, issues all eligible Lane tickets, waits for terminal Lane states, applies bounded retry and fallback rules, composes and renders the report, and verifies completion. The Host Capability Bridge performs only capabilities unavailable to local code: dispatching native Lane Workers and opening the final HTML inside the Host UI. It does not decide the next Report Run step.
+
+Native Lane Workers preserve the zero-configuration product boundary. Codex dispatches up to three isolated Subagents concurrently; when native concurrency is unavailable, the same tickets run sequentially without changing inputs, validators, artifacts, or fallback rules. A Lane Worker cannot widen Audit Scope, compose, open, finalize, or clean the Run. Provider-backed model clients remain outside the MVP.
 
 `$where-tokens-went` and `where-tokens-went inspect` are different boundaries. The former is the public conversational Skill invocation and owns the complete report lifecycle. The latter is an internal deterministic calculation command and a developer debugging surface. Direct CLI HTML, when explicitly requested, is a deterministic fallback preview; it must not be opened as the normal Skill result before Host Agent synthesis.
 
@@ -352,7 +356,7 @@ The Audit Overview and AI-authored report narrative apply in this increment only
 
 ## Performance, scale, and caching architecture
 
-The pipeline must operate efficiently on large real-world histories (e.g. 1,000+ files, 300k+ records) without requiring native binaries (such as Rust). Total deterministic report-generation wall time (excluding LLM inference) for a standard 7-day scope must remain under 2.0 seconds.
+The pipeline must operate efficiently on large real-world histories (e.g. 1,000+ files, 300k+ records) without requiring native binaries (such as Rust). Performance evidence separates local deterministic work, remote pricing, font processing, Host Capability Bridge actions, Lane Outer Spans, UI dispatch, and total delivery wall time. Model-generation timing remains unavailable unless the Harness exposes an authoritative model-call boundary; no fixed model-duration threshold is a product acceptance gate. Same-Scope baseline comparisons must report observed improvement and limitations instead of treating one variable model response as a deterministic regression.
 
 Key architectural requirements:
 - **Algorithmic Complexity & In-Memory Indexing**: All shared analysis phases over ModelCall and ToolCall records must maintain (N + M)$ linear time complexity. Inner nested loops ((N \times M)$) over large record arrays are strictly prohibited. Multi-relation lookups (e.g. associating ToolCalls with Sessions or Turns) must be pre-indexed into hash maps (Map<string, T[]>).
@@ -363,6 +367,9 @@ Key architectural requirements:
 - **Append-Only Session Indexing**: Historical session files (JSONL) are append-only. Readers must maintain a lightweight session index (.scratch/session-index.json) tracking fastIdentity (path, size, mtimeMs). Unmodified files reuse pre-parsed session summaries directly (0 ms read); actively growing files seek to lastParsedOffset and incrementally parse appended lines only. Cold-path discovery uses a 16 KB CWD header probe adapter to skip non-target workspace files without parsing.
 - **Font Superset Cache**: Font subsetting must implement a superset cache (requiredChars subset of cachedChars) rather than brittle exact hash matching. When an existing compiled WOFF2 covers all characters of the current report, it is reused directly, bypassing 2+ seconds of WASM compilation.
 - **Three-Track DAG AI Concurrency**: Report synthesis, key session analysis, and Skill Insights must be orchestrated as a directed acyclic graph with concurrency capped at 3 (AI_CONCURRENCY = 3). Skill Insights starts from the immutable Skill Snapshot while report synthesis starts from `audit.json` and content-read feeds key-session-analysis; each lane has independent validation and fallback state.
+- **Code-owned orchestration**: the Report Orchestrator dispatches every eligible Lane before waiting for any result, retains one canonical state machine, and automatically advances deterministic phases. The Host Capability Bridge does not manually choose or sequence CLI commands.
+- **Lane Input Projections**: report synthesis, key session analysis, and Skill Insights each receive a deterministic bounded projection tailored to their authoritative Prompt. Canonical `audit.json`, bounded Content Evidence, and the immutable Skill Snapshot remain the validation and composition authorities. Projection size is measured and reported, not constrained by an arbitrary byte cap.
+- **Timing provenance**: Lane Outer Spans may prove dispatch overlap and identify scheduling delay. They must not populate model-generation duration unless the Harness exposes a smaller authoritative model-call boundary. Uninstrumented Wall-clock Gaps retain an unknown cause.
 
 ## Privacy boundary
 

@@ -41,6 +41,8 @@ import {
   writeRunLaneRawArtifact,
   writeRunTextArtifact,
   withRunSpan,
+  isLaneTerminal,
+  REPORT_LANES,
   type ExternalSpanEvent,
   type ReportRun,
   type ReportRunManifest,
@@ -73,6 +75,8 @@ function usage(): string {
     "       where-tokens-went inspect --harness <codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
     "       where-tokens-went compose-report --locale zh-CN|en-US --font <font-file> [--font-family <name>] --html <final-path> < composition JSON envelope",
     "       where-tokens-went render-report --json <report.json> --html <final-path> [--run-dir <directory>]",
+    "       where-tokens-went report-run run-all start --harness <codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
+    "       where-tokens-went report-run run-all finish --run-dir <directory> [--html <final-path>]",
     "       where-tokens-went report-run prepare --harness <codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
     "       where-tokens-went report-run evidence --run-dir <directory> < evidence selection JSON",
     "       where-tokens-went report-run evidence --run-dir <directory> --auto",
@@ -577,13 +581,15 @@ async function recordPricingTiming(run: ReportRun, event: PricingRequestTimingEv
   });
 }
 
-async function reportRunPrepareMain(args: string[]): Promise<number> {
-  const { runDir, rest } = extractRunDirectory(args);
+async function prepareReportRunInternal(
+  args: string[],
+  runDir: string | null,
+  installedBundle: Awaited<ReturnType<typeof verifyInstalledSkill>>,
+): Promise<ReportRun> {
   const frozenNow = Date.now();
-  const options = parseArgs(["inspect", ...rest], frozenNow);
+  const options = parseArgs(["inspect", ...args], frozenNow);
   if (options.view !== "full") throw new Error("report-run prepare only supports the full report workflow.");
   if (options.htmlPath || options.sharePath) throw new Error("report-run prepare does not write HTML or share output.");
-  const installedBundle = await verifyInstalledSkill();
   const scope: ReportRunScope = {
     harness: options.harness,
     cwd: options.cwd,
@@ -629,12 +635,78 @@ async function reportRunPrepareMain(args: string[]): Promise<number> {
     assertRunBundleVersion(run, finalBundle.bundleVersion);
     await writeRunArtifact(run, "skillSnapshot", snapshot);
     await setReportRunStatus(run, "prepared");
-    outputRunSummary(run, { next: ["evidence", "report-synthesis", "key-session-analysis", "skill-insights", "compose", "finalize"] });
-    return 0;
+    return run;
   } catch (error) {
     if (run) await markPreparedRunFailed(run);
     throw error;
   }
+}
+
+async function reportRunPrepareMain(args: string[]): Promise<number> {
+  const { runDir, rest } = extractRunDirectory(args);
+  const installedBundle = await verifyInstalledSkill();
+  const run = await prepareReportRunInternal(rest, runDir, installedBundle);
+  outputRunSummary(run, { next: ["evidence", "report-synthesis", "key-session-analysis", "skill-insights", "compose", "finalize"] });
+  return 0;
+}
+
+async function autoEvidenceRunInternal(run: ReportRun): Promise<ContentEvidencePacket[]> {
+  const audit = await readCanonicalAudit(run);
+  const input: EvidenceInput = await withRunSpan(run, { phase: "content-selection", operation: "auto-evidence-selection", source: "runner" }, async () => ({
+    selections: run.manifest.topSessions.slice(0, 3).map((session) => ({
+      sessionId: session.sessionId,
+      turnIds: audit.turns.filter((turn) => turn.sessionId === session.sessionId).slice(0, 8).map((turn) => turn.turnId),
+      selectionReason: "Audit Top 3 Token-ranked Session auto selection",
+      unreadScope: "remaining Turns in the same selected Session and Audit Scope",
+    })),
+  }));
+  const maxItemsPerSession = input.maxItemsPerSession ?? 24;
+  const maxCharsPerItem = input.maxCharsPerItem ?? 1200;
+  const existing = run.manifest.artifacts.evidence ? await readRunArtifact(run.runDir, "evidence") : null;
+  if (existing !== null) {
+    if (!evidenceArtifactMatches(existing, run, input)) throw new Error("Report Run already contains Evidence for a different selection or limit; start a new run for a different request.");
+    const cached = existing as RunEvidenceArtifact;
+    await recordCompletedRunSpan(run, {
+      phase: "content-read",
+      operation: "reuse-content-evidence",
+      source: "filesystem",
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      durationMs: 0,
+      status: "reused",
+      metadata: { itemCount: cached.packets.reduce((sum, packet) => sum + packet.items.length, 0) },
+    });
+    await setReportRunStatus(run, "evidence-ready");
+    return cached.packets;
+  }
+  const scope = scopeFromManifest(run.manifest) as ContentEvidenceRequest["scope"];
+  const evidenceRequest: ContentEvidenceRequest = {
+    scope: { ...scope, harness: run.manifest.scope.harness },
+    audit,
+    selections: input.selections,
+    maxItemsPerSession,
+    maxCharsPerItem,
+    sessionFiles: (run.manifest.topSessions ?? [])
+      .filter((s) => typeof s.filePath === 'string' && s.filePath.length > 0)
+      .map((s) => ({ sessionId: s.sessionId, filePath: s.filePath! })),
+  };
+  const packets = await withRunSpan(run, { phase: "content-read", operation: "read-content-evidence", source: "filesystem" }, async () => {
+    const value = await readContentEvidence(evidenceRequest);
+    const artifact: RunEvidenceArtifact = {
+      version: 1,
+      runId: run.manifest.runId,
+      auditFingerprint: run.manifest.auditFingerprint!,
+      scope: run.manifest.scope,
+      selections: input.selections,
+      maxItemsPerSession,
+      maxCharsPerItem,
+      packets: value,
+    };
+    await writeRunArtifact(run, "evidence", artifact);
+    return value;
+  });
+  await setReportRunStatus(run, "evidence-ready");
+  return packets;
 }
 
 async function reportRunEvidenceMain(args: string[]): Promise<number> {
@@ -644,17 +716,15 @@ async function reportRunEvidenceMain(args: string[]): Promise<number> {
   const installedBundle = await verifyInstalledSkill();
   const run = await openReportRun(requireRunDirectory(runDir));
   assertRunBundleVersion(run, installedBundle.bundleVersion);
+  if (auto) {
+    const existing = run.manifest.artifacts.evidence ? await readRunArtifact(run.runDir, "evidence") as RunEvidenceArtifact : null;
+    const isReused = existing !== null;
+    const packets = await autoEvidenceRunInternal(run);
+    outputRunSummary(run, { evidence: packetSummary(packets), reused: isReused });
+    return 0;
+  }
   const audit = await readCanonicalAudit(run);
-  const input: EvidenceInput = auto
-    ? await withRunSpan(run, { phase: "content-selection", operation: "auto-evidence-selection", source: "runner" }, async () => ({
-      selections: run.manifest.topSessions.slice(0, 3).map((session) => ({
-        sessionId: session.sessionId,
-        turnIds: audit.turns.filter((turn) => turn.sessionId === session.sessionId).slice(0, 8).map((turn) => turn.turnId),
-        selectionReason: "Audit Top 3 Token-ranked Session auto selection",
-        unreadScope: "remaining Turns in the same selected Session and Audit Scope",
-      })),
-    }))
-    : await withRunSpan(run, { phase: "content-selection", operation: "parse-evidence-selection", source: "runner" }, async () => parseEvidenceInput(await readStdin()));
+  const input: EvidenceInput = await withRunSpan(run, { phase: "content-selection", operation: "parse-evidence-selection", source: "runner" }, async () => parseEvidenceInput(await readStdin()));
   const maxItemsPerSession = input.maxItemsPerSession ?? 24;
   const maxCharsPerItem = input.maxCharsPerItem ?? 1200;
   const existing = run.manifest.artifacts.evidence ? await readRunArtifact(run.runDir, "evidence") : null;
@@ -756,12 +826,41 @@ function assertRunContract(run: ReportRun, installedBundle: Awaited<ReturnType<t
   if (run.manifest.runtimeHash !== contract.runtimeHash || run.manifest.promptHashes.reportSynthesis !== contract.promptHashes.reportSynthesis || run.manifest.promptHashes.keySessionAnalysis !== contract.promptHashes.keySessionAnalysis || run.manifest.promptHashes.skillInsights !== contract.promptHashes.skillInsights) throw new Error("Report Prompt or runtime contract changed during execution; the Run cannot continue. Run npm run install-local.");
 }
 
-async function reportRunAiStartMain(args: string[]): Promise<number> {
-  const { runDir, lane } = parseLaneCommandArgs(args);
-  const installedBundle = await verifyInstalledSkill();
-  const run = await openReportRun(runDir);
-  const contract = await resolveRunContractMetadata();
-  assertRunContract(run, installedBundle, contract);
+interface LaneTicket {
+  runId: string;
+  lane: ReportLane;
+  attempt: number;
+  spanId: string;
+  locale: ReportLocale;
+  auditFingerprint: string | null;
+  bundleVersion: string | null;
+  promptHash: string | null;
+  runtimeHash: string | null;
+  inputArtifact: string;
+  promptArtifact: string;
+  snapshotId?: string;
+}
+
+function buildLaneTicket(run: ReportRun, lane: ReportLane, snapshotId?: string): LaneTicket {
+  const current = run.manifest.laneStatus[lane];
+  const spanId = run.manifest.stageStatus[lane]?.spanId ?? "";
+  return {
+    runId: run.manifest.runId,
+    lane,
+    attempt: current.attempts,
+    spanId,
+    locale: run.manifest.scope.locale,
+    auditFingerprint: run.manifest.auditFingerprint,
+    bundleVersion: run.manifest.bundleVersion,
+    promptHash: lanePromptHash(run.manifest, lane),
+    runtimeHash: run.manifest.runtimeHash,
+    inputArtifact: current.inputArtifact ?? `lanes/${lane}/input.json`,
+    promptArtifact: `lanes/${lane}/prompt.json`,
+    ...(snapshotId ? { snapshotId } : {}),
+  };
+}
+
+async function startLaneInternal(run: ReportRun, lane: ReportLane): Promise<LaneTicket> {
   const audit = await readCanonicalAudit(run);
   let input: Record<string, unknown>;
   let snapshotId: string | undefined;
@@ -780,7 +879,7 @@ async function reportRunAiStartMain(args: string[]): Promise<number> {
   const inputRef = await writeRunLaneArtifact(run, lane, "input", input);
   const promptRef = await writeRunLaneArtifact(run, lane, "prompt", { version: 1, lane, promptHash: lanePromptHash(run.manifest, lane), bundleVersion: run.manifest.bundleVersion });
   const started = await startReportLane(run, lane, inputRef.file);
-  process.stdout.write(JSON.stringify({
+  return {
     runId: run.manifest.runId,
     lane,
     attempt: started.attempt,
@@ -793,7 +892,17 @@ async function reportRunAiStartMain(args: string[]): Promise<number> {
     inputArtifact: inputRef.file,
     promptArtifact: promptRef.file,
     ...(snapshotId ? { snapshotId } : {}),
-  }) + "\n");
+  };
+}
+
+async function reportRunAiStartMain(args: string[]): Promise<number> {
+  const { runDir, lane } = parseLaneCommandArgs(args);
+  const installedBundle = await verifyInstalledSkill();
+  const run = await openReportRun(runDir);
+  const contract = await resolveRunContractMetadata();
+  assertRunContract(run, installedBundle, contract);
+  const ticket = await startLaneInternal(run, lane);
+  process.stdout.write(JSON.stringify(ticket) + "\n");
   return 0;
 }
 
@@ -1121,25 +1230,23 @@ function validTerminalStatus(value: unknown): value is Exclude<ExternalSpanEvent
   return value === "completed" || value === "failed" || value === "fallback" || value === "queued" || value === "reused" || value === "skipped" || value === "unavailable" || value === "interrupted";
 }
 
-async function reportRunComposeMain(args: string[]): Promise<number> {
-  const options = parseRunComposeArgs(args);
-  const installedBundle = await verifyInstalledSkill();
-  const run = await openReportRun(options.runDir);
-  assertRunBundleVersion(run, installedBundle.bundleVersion);
-  if (options.locale !== run.manifest.scope.locale) throw new Error("Report Run locale does not match the compose request.");
+async function composeAndRenderRun(
+  run: ReportRun,
+  options: {
+    locale: ReportLocale;
+    htmlPath: string | null;
+    jsonOnly?: boolean;
+    fontPath?: string | null;
+    fontFamily?: string | null;
+  },
+): Promise<{
+  output: string;
+  composition: ReturnType<typeof reportComposition>;
+  reportJson: ReportJson;
+}> {
   const audit = await readCanonicalAudit(run);
   const runFingerprint = run.manifest.auditFingerprint;
   if (!runFingerprint) throw new Error("Report Run Audit fingerprint is unavailable.");
-  const composeStdin = await readStdin();
-  if (composeStdin.trim()) throw new Error("REPORT_COMPOSE_STDIN_FORBIDDEN: normal report-run compose reads only registered Run lane artifacts.");
-  const eligibleLanes = Object.keys(run.manifest.laneStatus).filter((lane) => run.manifest.eligibleStages.includes(lane));
-  const runningLanes = eligibleLanes.filter((lane) => {
-    const current = run.manifest.laneStatus[lane as ReportLane];
-    return current.status === "running";
-  });
-  if (runningLanes.length > 0) {
-    throw new Error(`REPORT_COMPOSE_LANES_INCOMPLETE: eligible AI lanes still running: ${runningLanes.join(", ")}`);
-  }
   await setReportRunStatus(run, "composing");
   let synthesisCandidate: ReportSynthesis | null = null;
   let analyses: KeySessionAnalysis[] = [];
@@ -1151,94 +1258,44 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
   let skillInsightsValid = false;
   let skillInsightsRejectionReasons: string[] = [];
   try {
-      const currentContract = await withRunSpan(run, { phase: "prompt-read", operation: "verify-report-contract", source: "filesystem" }, async () => {
-        const metadata = await resolveRunContractMetadata();
-        if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis || !metadata.promptHashes.skillInsights || !metadata.runtimeHash) throw new Error("Authoritative Report Prompts or runtime contract is unavailable.");
-        if (!metadata.bundleVersion || metadata.bundleVersion.bundleVersion !== run.manifest.bundleVersion) throw new Error("Report Run bundle version changed during execution. Run npm run install-local.");
-        return metadata;
-      });
-      const currentPromptHashes = {
-        reportSynthesis: currentContract.promptHashes.reportSynthesis!,
-        keySessionAnalysis: currentContract.promptHashes.keySessionAnalysis!,
-        skillInsights: currentContract.promptHashes.skillInsights!,
-      };
-      const currentRuntimeHash = currentContract.runtimeHash!;
+    const currentContract = await withRunSpan(run, { phase: "prompt-read", operation: "verify-report-contract", source: "filesystem" }, async () => {
+      const metadata = await resolveRunContractMetadata();
+      if (!metadata.promptHashes.reportSynthesis || !metadata.promptHashes.keySessionAnalysis || !metadata.promptHashes.skillInsights || !metadata.runtimeHash) throw new Error("Authoritative Report Prompts or runtime contract is unavailable.");
+      if (!metadata.bundleVersion || metadata.bundleVersion.bundleVersion !== run.manifest.bundleVersion) throw new Error("Report Run bundle version changed during execution. Run npm run install-local.");
+      return metadata;
+    });
+    const currentPromptHashes = {
+      reportSynthesis: currentContract.promptHashes.reportSynthesis!,
+      keySessionAnalysis: currentContract.promptHashes.keySessionAnalysis!,
+      skillInsights: currentContract.promptHashes.skillInsights!,
+    };
+    const currentRuntimeHash = currentContract.runtimeHash!;
     if (run.manifest.artifacts.evidence) {
       const value = await readRunArtifact(run.runDir, "evidence");
       if (!isRecord(value) || value.version !== 1 || value.runId !== run.manifest.runId || value.auditFingerprint !== run.manifest.auditFingerprint || JSON.stringify(value.scope) !== JSON.stringify(run.manifest.scope) || !Array.isArray(value.packets)) throw new Error("Report Run Evidence artifact is stale or malformed.");
       packets = value.packets as ContentEvidencePacket[];
     }
     await withRunSpan(run, { phase: "validation", operation: "validate-ai-output", source: "runner" }, async () => {
-      const input = await readStdin();
-      let normalizedInput = input;
-      if (!input.trim()) {
-        let acceptedSynthesis: unknown = null;
-        let acceptedAnalyses: unknown[] = [];
-        let acceptedSkills: unknown = null;
-        try { acceptedSynthesis = (await readRunLaneArtifact(run.runDir, "report-synthesis", "accepted") as Record<string, unknown>).value ?? null; } catch { acceptedSynthesis = null; }
-        try {
-          const value = (await readRunLaneArtifact(run.runDir, "key-session-analysis", "accepted") as Record<string, unknown>).value;
-          acceptedAnalyses = Array.isArray(value) ? value : [];
-        } catch { acceptedAnalyses = []; }
-        try {
-          const acceptedArtifact = await readRunLaneArtifact(run.runDir, "skill-insights", "accepted") as Record<string, unknown>;
-          acceptedSkills = typeof acceptedArtifact.snapshotId === "string" && Array.isArray(acceptedArtifact.value)
-            ? { snapshotId: acceptedArtifact.snapshotId, insights: acceptedArtifact.value }
-            : null;
-        } catch { acceptedSkills = null; }
-        normalizedInput = JSON.stringify({
-          runId: run.manifest.runId,
-          auditFingerprint: run.manifest.auditFingerprint,
-          promptHashes: currentPromptHashes,
-          runtimeHash: currentRuntimeHash,
-          reportSynthesis: acceptedSynthesis,
-          keySessionAnalyses: acceptedAnalyses,
-          skillInsights: acceptedSkills,
-        });
-      }
-      const parsed: unknown = JSON.parse(normalizedInput);
-      if (!isRecord(parsed)) throw new Error("report-run compose requires a JSON object.");
-      if (parsed.runId !== run.manifest.runId || parsed.auditFingerprint !== run.manifest.auditFingerprint) throw new Error("AI output runId or Audit fingerprint does not match the Report Run.");
-      if ("audit" in parsed) throw new Error("AI output must not carry a second AuditResult; use the canonical Report Run artifact.");
-      if (!isRecord(parsed.promptHashes) || parsed.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || parsed.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || parsed.promptHashes.skillInsights !== currentContract.promptHashes.skillInsights || parsed.runtimeHash !== currentContract.runtimeHash) throw new Error("AI output Prompt or runtime contract does not match the current Report Run.");
-      if (run.manifest.promptHashes.reportSynthesis !== currentContract.promptHashes.reportSynthesis || run.manifest.promptHashes.keySessionAnalysis !== currentContract.promptHashes.keySessionAnalysis || run.manifest.promptHashes.skillInsights !== currentContract.promptHashes.skillInsights || run.manifest.runtimeHash !== currentContract.runtimeHash) throw new Error("Report Prompt or runtime contract changed during execution; the Run cannot continue. Run npm run install-local.");
-      if (parsed.reportSynthesis === undefined) {
-        const fileCandidate = path.join(run.runDir, "report-synthesis.json");
-        try {
-          synthesisCandidate = JSON.parse(await fs.readFile(fileCandidate, "utf8")) as ReportSynthesis;
-        } catch {
-          synthesisCandidate = null;
-        }
-      } else {
-        synthesisCandidate = parsed.reportSynthesis === null ? null : parsed.reportSynthesis as ReportSynthesis;
-      }
-      if (parsed.keySessionAnalyses === undefined) {
-        const fileCandidate = path.join(run.runDir, "key-session-analyses.json");
-        try {
-          const loaded = JSON.parse(await fs.readFile(fileCandidate, "utf8"));
-          analyses = (Array.isArray(loaded) ? loaded : []).slice(0, 3) as KeySessionAnalysis[];
-        } catch {
-          analyses = [];
-        }
-      } else {
-        const suppliedAnalyses = Array.isArray(parsed.keySessionAnalyses) ? parsed.keySessionAnalyses : [];
-        analyses = suppliedAnalyses.slice(0, 3) as KeySessionAnalysis[];
-      }
-      if (analyses.length > 3) await appendRunWarnings(run, ["More than three Key Session Analyses were supplied; only the Token-ranked Top 3 are eligible."]);
+      let acceptedSynthesis: unknown = null;
+      let acceptedAnalyses: unknown[] = [];
+      let acceptedSkills: unknown = null;
+      try { acceptedSynthesis = (await readRunLaneArtifact(run.runDir, "report-synthesis", "accepted") as Record<string, unknown>).value ?? null; } catch { acceptedSynthesis = null; }
+      try {
+        const value = (await readRunLaneArtifact(run.runDir, "key-session-analysis", "accepted") as Record<string, unknown>).value;
+        acceptedAnalyses = Array.isArray(value) ? value : [];
+      } catch { acceptedAnalyses = []; }
+      try {
+        const acceptedArtifact = await readRunLaneArtifact(run.runDir, "skill-insights", "accepted") as Record<string, unknown>;
+        acceptedSkills = typeof acceptedArtifact.snapshotId === "string" && Array.isArray(acceptedArtifact.value)
+          ? { snapshotId: acceptedArtifact.snapshotId, insights: acceptedArtifact.value }
+          : null;
+      } catch { acceptedSkills = null; }
+
+      synthesisCandidate = acceptedSynthesis === null ? null : acceptedSynthesis as ReportSynthesis;
+      analyses = acceptedAnalyses.slice(0, 3) as KeySessionAnalysis[];
       if (analyses.length > 0 && packets === undefined) throw new Error("Key Session Analysis requires the run-scoped Evidence artifact.");
 
-      let rawSkillInsights: unknown = undefined;
-      if (parsed.skillInsights === undefined) {
-        const fileCandidate = path.join(run.runDir, "skill-insights.json");
-        try {
-          rawSkillInsights = JSON.parse(await fs.readFile(fileCandidate, "utf8"));
-        } catch {
-          rawSkillInsights = null;
-        }
-      } else {
-        rawSkillInsights = parsed.skillInsights;
-      }
-
+      const rawSkillInsights = acceptedSkills;
       if (rawSkillInsights !== undefined && rawSkillInsights !== null) {
         skillInsightsStatus = "fallback";
       }
@@ -1256,7 +1313,7 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
                 skillInsightsStatus = "completed";
               }
               if (validation.errors.length > 0) {
-                  await appendRunWarnings(run, [`Skill Insights validation: ${validation.errors.join("; ")}`]);
+                await appendRunWarnings(run, [`Skill Insights validation: ${validation.errors.join("; ")}`]);
               }
             } else if (snapshot.selectedSkills.some((skill) => skill.contentState === "available" && Boolean(skill.skillMdContent))) {
               skillInsightsRejectionReasons = ["usage_content_relation_unclear"];
@@ -1269,7 +1326,7 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
 
       const synthesisValidation = validateReportSynthesis(audit, synthesisCandidate);
       validatedSynthesis = synthesisValidation.valid ? synthesisValidation.synthesis : null;
-       if (!synthesisValidation.valid) await appendRunWarnings(run, ["Report Synthesis was unavailable or failed validation; deterministic fallback is used."]);
+      if (!synthesisValidation.valid) await appendRunWarnings(run, ["Report Synthesis was unavailable or failed validation; deterministic fallback is used."]);
       const keyValidation = analyses.map((candidate) => {
         if (!isRecord(candidate)) return { valid: false, errors: ["Candidate analysis is not an object."] };
         try {
@@ -1365,34 +1422,57 @@ async function reportRunComposeMain(args: string[]): Promise<number> {
     };
     await writeRunArtifact(run, "reportJson", reportJson);
     if (options.jsonOnly) {
-      outputRunSummary(run, {
-        reportStatus: composition.reportSynthesis ? "ai-enhanced" : "fallback",
-        fallback: composition.reportSynthesis === null,
-        reportJsonPath: path.join(run.runDir, "report.json"),
-        next: ["render report.json"],
-      });
-      return 0;
+      return { output: path.join(run.runDir, "report.json"), composition, reportJson };
     }
     const htmlPath = options.htmlPath;
     if (!htmlPath) throw new Error("report-run compose requires --html when JSON-only output is not selected.");
-    const fontConfig = reportFontConfig(options.fontPath, options.fontFamily);
+    const fontConfig = reportFontConfig(options.fontPath ?? null, options.fontFamily ?? null);
     const rendered = await withRunSpan(run, { phase: "render", operation: "render-html", source: "runner" }, async () => renderHtml(audit, options.locale, renderComposition, firstUserMessages, fontConfig));
     const subsetted = await withRunSpan(run, { phase: "font-subset", operation: "subset-report-fonts", source: "runner" }, async () => subsetReportFonts(rendered));
     const output = await withRunSpan(run, { phase: "html-write", operation: "write-final-html", source: "filesystem" }, async () => {
       await writeRunTextArtifact(run, "html", subsetted);
       return writeAtomicLocal(htmlPath, subsetted);
     });
-    outputRunSummary(run, {
-      reportStatus: composition.reportSynthesis ? "ai-enhanced" : "fallback",
-      fallback: composition.reportSynthesis === null,
-      htmlPath: output,
-      next: ["record codex-open", "finalize"],
-    });
-    return 0;
+    return { output, composition, reportJson };
   } catch (error) {
     await setReportRunStatus(run, "failed").catch(() => undefined);
     throw error;
   }
+}
+
+async function reportRunComposeMain(args: string[]): Promise<number> {
+  const options = parseRunComposeArgs(args);
+  const installedBundle = await verifyInstalledSkill();
+  const run = await openReportRun(options.runDir);
+  assertRunBundleVersion(run, installedBundle.bundleVersion);
+  if (options.locale !== run.manifest.scope.locale) throw new Error("Report Run locale does not match the compose request.");
+  const composeStdin = await readStdin();
+  if (composeStdin.trim()) throw new Error("REPORT_COMPOSE_STDIN_FORBIDDEN: normal report-run compose reads only registered Run lane artifacts.");
+  const eligibleLanes = Object.keys(run.manifest.laneStatus).filter((lane) => run.manifest.eligibleStages.includes(lane));
+  const runningLanes = eligibleLanes.filter((lane) => {
+    const current = run.manifest.laneStatus[lane as ReportLane];
+    return current.status === "running";
+  });
+  if (runningLanes.length > 0) {
+    throw new Error(`REPORT_COMPOSE_LANES_INCOMPLETE: eligible AI lanes still running: ${runningLanes.join(", ")}`);
+  }
+  const result = await composeAndRenderRun(run, options);
+  if (options.jsonOnly) {
+    outputRunSummary(run, {
+      reportStatus: result.composition.reportSynthesis ? "ai-enhanced" : "fallback",
+      fallback: result.composition.reportSynthesis === null,
+      reportJsonPath: path.join(run.runDir, "report.json"),
+      next: ["render report.json"],
+    });
+    return 0;
+  }
+  outputRunSummary(run, {
+    reportStatus: result.composition.reportSynthesis ? "ai-enhanced" : "fallback",
+    fallback: result.composition.reportSynthesis === null,
+    htmlPath: result.output,
+    next: ["record codex-open", "finalize"],
+  });
+  return 0;
 }
 
 async function reportRunEventMain(args: string[]): Promise<number> {
@@ -1471,8 +1551,137 @@ async function reportRunCleanupMain(args: string[]): Promise<number> {
   return 0;
 }
 
+async function reportRunRunAllStartMain(args: string[]): Promise<number> {
+  const { runDir, rest } = extractRunDirectory(args);
+  const installedBundle = await verifyInstalledSkill();
+  const resolvedRunDir = runDir ? assertLocalSensitiveRunDirectory(runDir) : null;
+  let manifestExists = false;
+  if (resolvedRunDir) {
+    try {
+      await fs.stat(path.join(resolvedRunDir, "manifest.json"));
+      manifestExists = true;
+    } catch {
+      manifestExists = false;
+    }
+  }
+
+  let run: ReportRun;
+  if (manifestExists) {
+    run = await openReportRun(resolvedRunDir!);
+    assertRunBundleVersion(run, installedBundle.bundleVersion);
+    const contract = await resolveRunContractMetadata();
+    assertRunContract(run, installedBundle, contract);
+  } else {
+    run = await prepareReportRunInternal(rest, runDir, installedBundle);
+    await autoEvidenceRunInternal(run);
+  }
+
+  const snapshot = run.manifest.artifacts.skillSnapshot
+    ? await readRunArtifact(run.runDir, "skillSnapshot") as SkillSnapshotArtifact
+    : null;
+  const snapshotId = snapshot?.snapshotId;
+
+  const tickets: Record<ReportLane, LaneTicket> = {} as Record<ReportLane, LaneTicket>;
+  for (const lane of REPORT_LANES) {
+    if (run.manifest.laneStatus[lane].attempts === 0) {
+      tickets[lane] = await startLaneInternal(run, lane);
+    } else {
+      tickets[lane] = buildLaneTicket(run, lane, lane === "skill-insights" ? snapshotId : undefined);
+    }
+  }
+
+  if (run.manifest.status === "prepared" || run.manifest.status === "evidence-ready") {
+    await setReportRunStatus(run, "awaiting-ai");
+  }
+
+  process.stdout.write(JSON.stringify({
+    status: "lanes-ready",
+    runId: run.manifest.runId,
+    runDir: run.runDir,
+    auditFingerprint: run.manifest.auditFingerprint,
+    bundleVersion: run.manifest.bundleVersion,
+    locale: run.manifest.scope.locale,
+    tickets,
+  }) + "\n");
+  return 0;
+}
+
+async function reportRunRunAllFinishMain(args: string[]): Promise<number> {
+  const { runDir, rest } = extractRunDirectory(args);
+  if (!runDir) throw new Error(`report-run run-all finish requires --run-dir <directory>.\n${usage()}`);
+  let htmlPath: string | null = null;
+  let locale: ReportLocale | null = null;
+  let fontPath: string | null = null;
+  let fontFamily: string | null = null;
+  for (let index = 0; index < rest.length; index += 1) {
+    const flag = rest[index];
+    if (flag === "--html") {
+      htmlPath = requireValue(rest, index, flag);
+      index += 1;
+    } else if (flag === "--locale" || flag === "--lang") {
+      locale = normalizeLocale(requireValue(rest, index, flag));
+      index += 1;
+    } else if (flag === "--font") {
+      fontPath = requireValue(rest, index, flag);
+      index += 1;
+    } else if (flag === "--font-family") {
+      fontFamily = requireValue(rest, index, flag);
+      index += 1;
+    } else {
+      throw new Error(`Unknown report-run run-all finish argument: ${flag}.\n${usage()}`);
+    }
+  }
+  const installedBundle = await verifyInstalledSkill();
+  const run = await openReportRun(requireRunDirectory(runDir));
+  assertRunBundleVersion(run, installedBundle.bundleVersion);
+  const contract = await resolveRunContractMetadata();
+  assertRunContract(run, installedBundle, contract);
+
+  const eligibleLanes = Object.keys(run.manifest.laneStatus) as ReportLane[];
+  const pendingLanes = eligibleLanes.filter((lane) => !isLaneTerminal(run.manifest.laneStatus[lane]));
+
+  if (pendingLanes.length > 0) {
+    process.stdout.write(JSON.stringify({
+      status: "lanes-not-ready",
+      ready: false,
+      runId: run.manifest.runId,
+      runDir: run.runDir,
+      pendingLanes,
+      laneStatus: run.manifest.laneStatus,
+    }) + "\n");
+    return 0;
+  }
+
+  const effectiveHtmlPath = htmlPath ?? path.join(run.runDir, "report.html");
+  const effectiveLocale = locale ?? run.manifest.scope.locale;
+  const result = await composeAndRenderRun(run, {
+    locale: effectiveLocale,
+    htmlPath: effectiveHtmlPath,
+    fontPath,
+    fontFamily,
+  });
+
+  process.stdout.write(JSON.stringify({
+    status: "awaiting-ui-dispatch",
+    runId: run.manifest.runId,
+    runDir: run.runDir,
+    htmlPath: result.output,
+    reportStatus: result.composition.reportSynthesis ? "ai-enhanced" : "fallback",
+    fallback: result.composition.reportSynthesis === null,
+  }) + "\n");
+  return 0;
+}
+
+async function reportRunRunAllMain(args: string[]): Promise<number> {
+  const command = args[0];
+  if (command === "start") return reportRunRunAllStartMain(args.slice(1));
+  if (command === "finish") return reportRunRunAllFinishMain(args.slice(1));
+  throw new Error(`Use report-run run-all start or finish.\n${usage()}`);
+}
+
 async function reportRunMain(args: string[]): Promise<number> {
   const command = args[0];
+  if (command === "run-all") return reportRunRunAllMain(args.slice(1));
   if (command === "prepare") return reportRunPrepareMain(args.slice(1));
   if (command === "evidence") return reportRunEvidenceMain(args.slice(1));
   if (command === "ai-start") return reportRunAiStartMain(args.slice(1));
@@ -1483,7 +1692,7 @@ async function reportRunMain(args: string[]): Promise<number> {
   if (command === "status") return reportRunStatusMain(args.slice(1));
   if (command === "finalize") return reportRunFinalizeMain(args.slice(1));
   if (command === "cleanup") return reportRunCleanupMain(args.slice(1));
-  throw new Error(`Use report-run prepare, evidence, compose, event, status, finalize, or cleanup.\n${usage()}`);
+  throw new Error(`Use report-run run-all, prepare, evidence, ai-start, ai-accept, ai-fallback, compose, event, status, finalize, or cleanup.\n${usage()}`);
 }
 
 async function composeReportMain(args: string[]): Promise<number> {

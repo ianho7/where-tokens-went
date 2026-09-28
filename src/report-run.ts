@@ -31,6 +31,17 @@ export type TimingStatus =
 export type TimingSource = "runner" | "skill" | "host-agent" | "network" | "filesystem" | "ui";
 
 export type ReportLane = "report-synthesis" | "key-session-analysis" | "skill-insights";
+export const REPORT_LANES: readonly ReportLane[] = [
+  "report-synthesis",
+  "key-session-analysis",
+  "skill-insights",
+] as const;
+
+export function isLaneTerminal(lane: RunLaneStatus): boolean {
+  if (lane.status === "accepted" || lane.status === "unavailable") return true;
+  if (lane.status === "fallback" && lane.attempts >= 2) return true;
+  return false;
+}
 
 export interface RunLaneStatus {
   status: "pending" | "running" | "accepted" | "fallback" | "failed" | "unavailable";
@@ -652,7 +663,7 @@ export async function finalizeReportRun(run: ReportRun, status: ReportRunStatus)
     const eligibleLanes = Object.keys(manifest.laneStatus).filter((lane) => manifest.eligibleStages.includes(lane));
     const lanesTerminal = eligibleLanes.every((lane) => {
       const current = manifest.laneStatus[lane as ReportLane];
-      return current.status === "accepted" || current.status === "fallback" || current.status === "unavailable";
+      return isLaneTerminal(current);
     });
     let htmlIntegrity = false;
     const html = manifest.artifacts.html;
@@ -879,13 +890,15 @@ export async function writeRunLaneArtifact(
   return mutateRun(run, async (manifest) => {
     const key = laneArtifactKey(lane, file);
     const previous = manifest.laneArtifacts[key];
-    if (previous && (previous.bytes !== ref.bytes || previous.sha256 !== ref.sha256)) throw lockError("RUN_ARTIFACT_IMMUTABLE", `Lane artifact ${key} is already registered with different content.`);
-    if (!previous) {
+    if (kind !== "fallback" && previous && (previous.bytes !== ref.bytes || previous.sha256 !== ref.sha256)) {
+      throw lockError("RUN_ARTIFACT_IMMUTABLE", `Lane artifact ${key} is already registered with different content.`);
+    }
+    if (!previous || kind === "fallback") {
       await mkdir(path.dirname(filePath), { recursive: true });
       await writeAtomic(filePath, contents);
     }
-    manifest.laneArtifacts[key] = previous ?? ref;
-    return previous ?? ref;
+    manifest.laneArtifacts[key] = ref;
+    return ref;
   });
 }
 
@@ -929,7 +942,9 @@ export async function startReportLane(run: ReportRun, lane: ReportLane, inputArt
   await mutateRun(run, (manifest) => {
     const current = manifest.laneStatus[lane];
     if (current.status === "running") throw lockError("RUN_LANE_ALREADY_RUNNING", `Lane ${lane} already has a running attempt.`);
-    if (current.status === "accepted" || current.status === "fallback" || current.status === "unavailable") throw lockError("RUN_LANE_TERMINAL", `Lane ${lane} already has terminal status ${current.status}.`);
+    if (current.status === "accepted" || current.status === "unavailable") throw lockError("RUN_LANE_TERMINAL", `Lane ${lane} already has terminal status ${current.status}.`);
+    if (current.status === "fallback" && current.attempts >= 2) throw lockError("RUN_LANE_TERMINAL", `Lane ${lane} already has terminal status ${current.status}.`);
+    if (current.attempts >= 2) throw lockError("RUN_LANE_MAX_ATTEMPTS_EXCEEDED", `Lane ${lane} has reached the maximum of 2 attempts.`);
     attempt = current.attempts + 1;
     manifest.laneStatus[lane] = { ...current, status: "running", attempts: attempt, inputArtifact, reasonCode: null, spanStartedAt: startedAt };
     manifest.eligibleStages = [...new Set([...manifest.eligibleStages, lane])];

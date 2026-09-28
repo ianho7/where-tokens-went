@@ -33,7 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ALLOWED_GENERATION_FAILURE_REASONS = exports.DEFAULT_RUN_STAGES = void 0;
+exports.ALLOWED_GENERATION_FAILURE_REASONS = exports.DEFAULT_RUN_STAGES = exports.REPORT_LANES = void 0;
+exports.isLaneTerminal = isLaneTerminal;
 exports.assertLocalSensitiveRunDirectory = assertLocalSensitiveRunDirectory;
 exports.createReportRun = createReportRun;
 exports.openReportRun = openReportRun;
@@ -74,6 +75,18 @@ const node_crypto_1 = require("node:crypto");
 const node_perf_hooks_1 = require("node:perf_hooks");
 const bundle_version_1 = require("./bundle-version");
 const codex_provenance_1 = require("./codex-provenance");
+exports.REPORT_LANES = [
+    "report-synthesis",
+    "key-session-analysis",
+    "skill-insights",
+];
+function isLaneTerminal(lane) {
+    if (lane.status === "accepted" || lane.status === "unavailable")
+        return true;
+    if (lane.status === "fallback" && lane.attempts >= 2)
+        return true;
+    return false;
+}
 function isWithin(root, target) {
     const relative = path.relative(path.resolve(root), path.resolve(target));
     return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
@@ -513,7 +526,7 @@ async function finalizeReportRun(run, status) {
         const eligibleLanes = Object.keys(manifest.laneStatus).filter((lane) => manifest.eligibleStages.includes(lane));
         const lanesTerminal = eligibleLanes.every((lane) => {
             const current = manifest.laneStatus[lane];
-            return current.status === "accepted" || current.status === "fallback" || current.status === "unavailable";
+            return isLaneTerminal(current);
         });
         let htmlIntegrity = false;
         const html = manifest.artifacts.html;
@@ -706,14 +719,15 @@ async function writeRunLaneArtifact(run, lane, kind, value, attempt) {
     return mutateRun(run, async (manifest) => {
         const key = laneArtifactKey(lane, file);
         const previous = manifest.laneArtifacts[key];
-        if (previous && (previous.bytes !== ref.bytes || previous.sha256 !== ref.sha256))
+        if (kind !== "fallback" && previous && (previous.bytes !== ref.bytes || previous.sha256 !== ref.sha256)) {
             throw lockError("RUN_ARTIFACT_IMMUTABLE", `Lane artifact ${key} is already registered with different content.`);
-        if (!previous) {
+        }
+        if (!previous || kind === "fallback") {
             await (0, promises_1.mkdir)(path.dirname(filePath), { recursive: true });
             await writeAtomic(filePath, contents);
         }
-        manifest.laneArtifacts[key] = previous ?? ref;
-        return previous ?? ref;
+        manifest.laneArtifacts[key] = ref;
+        return ref;
     });
 }
 async function writeRunLaneRawArtifact(run, lane, rawText, attempt) {
@@ -753,8 +767,12 @@ async function startReportLane(run, lane, inputArtifact) {
         const current = manifest.laneStatus[lane];
         if (current.status === "running")
             throw lockError("RUN_LANE_ALREADY_RUNNING", `Lane ${lane} already has a running attempt.`);
-        if (current.status === "accepted" || current.status === "fallback" || current.status === "unavailable")
+        if (current.status === "accepted" || current.status === "unavailable")
             throw lockError("RUN_LANE_TERMINAL", `Lane ${lane} already has terminal status ${current.status}.`);
+        if (current.status === "fallback" && current.attempts >= 2)
+            throw lockError("RUN_LANE_TERMINAL", `Lane ${lane} already has terminal status ${current.status}.`);
+        if (current.attempts >= 2)
+            throw lockError("RUN_LANE_MAX_ATTEMPTS_EXCEEDED", `Lane ${lane} has reached the maximum of 2 attempts.`);
         attempt = current.attempts + 1;
         manifest.laneStatus[lane] = { ...current, status: "running", attempts: attempt, inputArtifact, reasonCode: null, spanStartedAt: startedAt };
         manifest.eligibleStages = [...new Set([...manifest.eligibleStages, lane])];

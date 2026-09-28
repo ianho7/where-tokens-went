@@ -42,6 +42,30 @@ _Avoid_: CLI invocation, shell command
 The deterministic `where-tokens-went inspect` command used by the Skill to calculate authoritative facts and by developers for direct debugging. It does not call a model, and its direct HTML output is not the normal Skill report.
 _Avoid_: Skill Invocation, AI report generator
 
+**Report Orchestrator**:
+The code-owned Report Run coordinator that freezes inputs, advances the lifecycle, issues Lane tickets, waits for terminal Lane states, applies bounded retry and fallback rules, and composes the final report. It remains the workflow authority when the Harness supplies a native capability unavailable to local code.
+_Avoid_: Host Agent workflow, shell wrapper, generic workflow engine
+
+**Host Capability Bridge**:
+The narrow role of the invoking Harness when a Report Orchestrator needs a Harness-native capability unavailable to local code, currently native Subagent dispatch and opening the final report inside the Host UI. It executes Orchestrator requests but does not choose the Report Run sequence, retry policy, or completion state.
+_Avoid_: Main Agent, Report Orchestrator, model Provider
+
+**Lane Worker**:
+An isolated native Subagent execution that reads one immutable Lane ticket, the matching authoritative Prompt, and that Lane's projected input. It returns only the structured Lane result or an explicit failure and cannot widen Audit Scope or control delivery.
+_Avoid_: generic Subagent Session, workflow coordinator
+
+**Lane Input Projection**:
+A deterministic, bounded, Lane-specific view of the canonical Audit, Content Evidence, or Skill Snapshot. It reduces repeated context transport but never replaces the canonical artifacts as the authority used for validation and composition.
+_Avoid_: summarized Audit, new source of truth
+
+**Lane Outer Span**:
+The observed wall-clock interval from a Lane Worker dispatch boundary to its terminal result boundary. It can show scheduling overlap, but it is not model generation time unless the Harness exposes a smaller authoritative model-call boundary.
+_Avoid_: AI duration, model latency
+
+**Uninstrumented Wall-clock Gap**:
+Elapsed time between recorded Report Run boundaries for which the trace has no authoritative causal attribution. It may identify an orchestration opportunity, but it must not be labeled Agent thinking, model inference, or idle time without supporting Evidence.
+_Avoid_: Agent idle time, orchestration overhead when causality is unknown
+
 **Harness**:
 The agent runtime that owns sessions, tools, persistence, and execution behavior. Claude Code and Codex are the currently supported Harnesses in this project.
 _Avoid_: Model, Provider

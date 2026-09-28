@@ -10,7 +10,7 @@ The product is a usage explanation, not an Audit-pipeline presentation. Within t
 
 ## Product shape
 
-The user-facing product is the Harness-native `$where-tokens-went` Skill invocation, backed by a local deterministic tool. It is not the bare shell command. Each Skill is distributed with the runtime and two authoritative Prompts it invokes, so copying or installing one Skill directory is sufficient. In one atomic workflow, the TypeScript CLI first returns the structured sanitized Audit without opening a preliminary report; the current Host Agent reads the fixed bundled synthesis Prompt, generates and validates one Audit Overview plus report-level Findings, progressively reads scoped content for up to three highest-usage Sessions, reads the fixed bundled Key Session Analysis Prompt, produces and validates structured Session-specific analysis, and only then writes and opens the final standalone HTML.
+The user-facing product is the Harness-native `$where-tokens-went` Skill invocation, backed by a local deterministic tool. It is not the bare shell command. Each Skill is distributed with the runtime and its authoritative Prompts, so copying or installing one Skill directory is sufficient. In one atomic workflow, the code-owned Report Orchestrator freezes the Audit Scope, prepares the canonical sanitized Audit and bounded Evidence, issues immutable tickets for report synthesis, Key Session Analysis, and Skill Insights, and waits for their terminal states. The Host Capability Bridge dispatches native Lane Workers concurrently when the Harness supports it and falls back to the same workers sequentially when it does not. The Orchestrator validates each result, retries only the affected Lane once, applies explicit fallback when needed, writes the final standalone HTML, and leaves only the Host-native open action to the Harness.
 
 Internal deterministic invocation behind the Skill (not the user-facing product command):
 
@@ -107,7 +107,11 @@ Skill Insights follows a separate finite output contract inside the report: at m
 
 ## Acceptance criteria
 
-- the deterministic report-generation pipeline for a standard 7-day scope (up to 1,000 files, ~300,000 records) completes within **2.0 seconds** wall time (excluding Host Agent LLM inference);
+- deterministic, remote-pricing, font, Host-bridge, Lane Outer Span, and total delivery timing are reported separately; unavailable model-generation timing remains unavailable, and no fixed model-duration threshold is an acceptance gate;
+- the Report Orchestrator issues every eligible Lane ticket before waiting for a result, and a concurrent Codex run records overlapping Lane Outer Spans for at least two Lane Workers;
+- when native Subagent concurrency is unavailable, the same tickets, projections, validators, retry limit, and fallback behavior complete through an explicit sequential fallback mode;
+- canonical Audit and Evidence acquisition occur once per Run; an accepted Lane and its immutable inputs are not regenerated because another Lane failed;
+- a same-Scope reference Run records baseline and candidate total wall time, controllable phase time, Lane Input Projection sizes, and limitations. Performance improvement is claimed only when the observed candidate Run is materially faster; model response variance is reported rather than converted into a hard failure threshold;
 - deterministic analysis over ~30,000 tool calls and ~10,000 model calls completes in **< 100 ms** through linear hash-map indexing without (N \times M)$ nested iteration;
 - content evidence reading for the top three Token-ranked sessions directly reads targeted session files and completes in **< 100 ms** without re-traversing the filesystem;
 - static font assets are read and Base64-encoded only once per process, ensuring subsequent HTML renders complete in **< 100 ms**;
