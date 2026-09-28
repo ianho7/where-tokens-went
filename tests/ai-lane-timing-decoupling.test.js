@@ -79,7 +79,7 @@ async function setupTestFixture() {
     { timestamp, type: 'session_meta', payload: { id: 'session-int-1', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0', model_provider: 'openai' } },
     { timestamp, type: 'turn_context', payload: { turn_id: 'turn-int-1', cwd: project, model: 'gpt-5', model_provider: 'openai' } },
     { timestamp, type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-int-1' } },
-    { timestamp, type: 'event_msg', payload: { type: 'turn_aborted', turn_id: 'turn-int-1' } },
+    { timestamp, type: 'event_msg', payload: { type: 'turn_aborted' } },
   ].map((record) => JSON.stringify(record)).join('\n') + '\n', 'utf8');
 
   // Non-failing rollout (completed without errors) in Codex persistence

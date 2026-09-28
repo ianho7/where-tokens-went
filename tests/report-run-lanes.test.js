@@ -49,6 +49,7 @@ test('lane-only start/accept and artifact-only compose retain accepted content w
       { timestamp, type: 'response_item', payload: { type: 'message', role: 'user', turn_id: 'lane-turn', content: 'Recognizable fixture prompt for the final report route.' } },
       { timestamp, type: 'turn_context', payload: { turn_id: 'fail-turn', cwd: project } },
       { timestamp, type: 'event_msg', payload: { type: 'stream_error', turn_id: 'fail-turn', error: 'simulated model stream failure' } },
+      { timestamp, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'fail-turn', status: 'error', error: 'simulated model stream failure' } },
     ].map((record) => JSON.stringify(record)).join('\n') + '\n');
     const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
     const prepared = await runCli(['report-run', 'prepare', '--harness', 'codex', '--cwd', project, '--since', '10000d', '--locale', 'en-US', '--run-dir', runDir], env);

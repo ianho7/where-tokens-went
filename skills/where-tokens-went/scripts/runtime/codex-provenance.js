@@ -273,16 +273,36 @@ async function verifyCodexFailureProvenance(request) {
     const sessionIdentities = sessionPayload ? [sessionPayload.session_id, sessionPayload.id].filter((value) => typeof value === "string" && value.length > 0) : [];
     if (!sessionIdentities.includes(request.sessionId))
         fail("CODEX_PROVENANCE_SESSION_MISMATCH");
-    const turnRecords = records.filter((record) => {
-        const payload = isRecord(record.payload) ? record.payload : null;
-        if (record.type === "turn_context" || record.type === "event_msg") {
-            return payload?.turn_id === request.turnId;
+    let currentTurnId = null;
+    const turnRecords = [];
+    for (const record of records) {
+        const payload = eventPayload(record);
+        if (record.type === "turn_context") {
+            const contextTurnId = typeof payload.turn_id === "string" && payload.turn_id.length > 0
+                ? payload.turn_id
+                : typeof payload.turnId === "string" && payload.turnId.length > 0
+                    ? payload.turnId
+                    : null;
+            if (contextTurnId) {
+                currentTurnId = contextTurnId;
+            }
         }
-        if (record.type === "response_item") {
-            return turnIdFromResponse(payload ?? {}) === request.turnId;
+        const payloadTurnId = typeof payload.turn_id === "string" && payload.turn_id.length > 0
+            ? payload.turn_id
+            : typeof payload.turnId === "string" && payload.turnId.length > 0
+                ? payload.turnId
+                : typeof payload.task_id === "string" && payload.task_id.length > 0
+                    ? payload.task_id
+                    : typeof payload.taskId === "string" && payload.taskId.length > 0
+                        ? payload.taskId
+                        : record.type === "response_item"
+                            ? turnIdFromResponse(payload)
+                            : null;
+        const effectiveTurnId = payloadTurnId ?? currentTurnId;
+        if (effectiveTurnId === request.turnId) {
+            turnRecords.push(record);
         }
-        return false;
-    });
+    }
     if (turnRecords.length === 0)
         fail("CODEX_PROVENANCE_TURN_MISSING");
     const terminalEvent = resolveTurnTerminalEvent(turnRecords);
