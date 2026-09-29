@@ -37,6 +37,14 @@ The formal external project name and current CLI/Skill/plugin namespace is `wher
 - A hash proves captured-artifact integrity, not that model execution, independent grading, timing, Token use, held-out evaluation, or review occurred. Promotion-critical evidence must bind to resolvable execution records; preserve unobservable values as `unavailable`.
 - Before this work, read [docs/AI_PIPELINE_EVAL_SPEC.md](docs/AI_PIPELINE_EVAL_SPEC.md), the executable protocol above, and the affected Ticket. This boundary does not add independent-review overhead to a genuinely local Fast Path change that does not alter a shared contract.
 
+### Ticket acceptance freeze
+
+- Freeze a Ticket's acceptance criteria when the user approves it. Reviewers judge those criteria as pass or fail; they do not add release gates during implementation or review.
+- Record a newly discovered issue outside the approved criteria as a non-blocking follow-up. It blocks the current Ticket only after the user explicitly approves the scope change.
+- Classify a finding as blocking P0/P1 only when it maps to an approved criterion, is reproducible on the current normal path, and directly breaks the stated user outcome. Theoretical risks, extreme edge cases, diagnostic metadata, and general hardening do not block completion.
+- Before proposing a new gate, state which approved criterion it enforces, how the current code reproduces the failure, and the concrete user harm if it remains. If any answer is missing, keep it outside current acceptance.
+- Stop when the frozen criteria have sufficient evidence and no in-scope blocker remains. Further rigor, cleanup, refactoring, extra tests, or defensive handling requires a separate user-approved Ticket.
+
 ## Simple Task Fast Path
 
 Use this path by default for small, local, low-risk changes, especially UI, copy, formatting, symbol, single-file, and localized logic changes:
