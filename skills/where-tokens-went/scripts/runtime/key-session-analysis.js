@@ -35,22 +35,41 @@ function nonEmpty(value) {
 function strings(value) {
     return Array.isArray(value) && value.every(nonEmpty);
 }
+function normalizeEvidenceId(id) {
+    return id.trim().toLowerCase().replace(/[-_]/g, "");
+}
 function sameSessionEvidence(audit, sessionId, evidenceIds) {
     if (!Array.isArray(evidenceIds))
         return [];
-    const turnEvidence = new Map((audit.turns ?? []).map((turn) => [turn.evidenceId, turn]));
+    const turnEvidence = new Map();
+    const normalizedTurnEvidence = new Map();
+    for (const turn of audit.turns ?? []) {
+        turnEvidence.set(turn.evidenceId, turn);
+        normalizedTurnEvidence.set(normalizeEvidenceId(turn.evidenceId), turn);
+    }
     return evidenceIds.filter((evidenceId) => {
-        const turn = turnEvidence.get(evidenceId);
+        if (typeof evidenceId !== "string")
+            return true;
+        const turn = turnEvidence.get(evidenceId.trim()) ?? normalizedTurnEvidence.get(normalizeEvidenceId(evidenceId));
         return !turn || turn.sessionId !== sessionId;
     });
 }
 function evidenceNotRead(audit, sessionId, turnIds, evidenceIds) {
     if (!Array.isArray(evidenceIds) || !Array.isArray(turnIds))
         return [];
-    const readEvidence = new Set((audit.turns ?? [])
-        .filter((turn) => turn.sessionId === sessionId && turnIds.includes(turn.turnId))
-        .map((turn) => turn.evidenceId));
-    return evidenceIds.filter((evidenceId) => !readEvidence.has(evidenceId));
+    const readEvidence = new Set();
+    const normalizedReadEvidence = new Set();
+    for (const turn of audit.turns ?? []) {
+        if (turn.sessionId === sessionId && turnIds.includes(turn.turnId)) {
+            readEvidence.add(turn.evidenceId);
+            normalizedReadEvidence.add(normalizeEvidenceId(turn.evidenceId));
+        }
+    }
+    return evidenceIds.filter((evidenceId) => {
+        if (typeof evidenceId !== "string")
+            return true;
+        return !readEvidence.has(evidenceId.trim()) && !normalizedReadEvidence.has(normalizeEvidenceId(evidenceId));
+    });
 }
 function normalizedFinding(audit, analysis) {
     if (analysis.primaryFinding === null)
@@ -61,14 +80,25 @@ function normalizedFinding(audit, analysis) {
 function resolveReportEvidence(audit, reference) {
     if (!nonEmpty(reference))
         return null;
-    if (reference.startsWith("summary:")) {
-        const key = reference.slice("summary:".length);
-        const value = audit.summary[key];
-        return key && hasOwn(audit.summary, key) && value ? { kind: "summary", key, evidence: [value] } : null;
+    const trimmed = reference.trim();
+    if (trimmed.toLowerCase().startsWith("summary:")) {
+        const rawKey = trimmed.slice("summary:".length).trim();
+        if (hasOwn(audit.summary, rawKey) && audit.summary[rawKey]) {
+            return { kind: "summary", key: rawKey, evidence: [audit.summary[rawKey]] };
+        }
+        const normKey = normalizeEvidenceId(rawKey);
+        for (const [k, v] of Object.entries(audit.summary)) {
+            if (normalizeEvidenceId(k) === normKey && v) {
+                return { kind: "summary", key: k, evidence: [v] };
+            }
+        }
+        return null;
     }
-    const checkMatch = /^check:([^:]+)(?::(\d+))?$/.exec(reference);
+    const checkMatch = /^check:([^:]+)(?::(\d+))?$/i.exec(trimmed);
     if (checkMatch) {
-        const check = audit.checks.find((candidate) => candidate.id === checkMatch[1]);
+        const rawId = checkMatch[1].trim();
+        const normId = normalizeEvidenceId(rawId);
+        const check = audit.checks.find((candidate) => candidate.id === rawId || normalizeEvidenceId(candidate.id) === normId);
         if (!check || check.evidence.length === 0)
             return null;
         if (checkMatch[2] === undefined)
@@ -78,14 +108,16 @@ function resolveReportEvidence(audit, reference) {
             ? { kind: "check", key: check.id + ":" + index, evidence: [check.evidence[index]] }
             : null;
     }
-    const rankingMatch = /^ranking:(sessions|projects|models|timeBuckets):(.+)$/.exec(reference);
+    const rankingMatch = /^ranking:(sessions|projects|models|timeBuckets):(.+)$/i.exec(trimmed);
     if (rankingMatch) {
-        const dimension = rankingMatch[1];
-        const key = rankingMatch[2];
-        const entry = audit.rankings[dimension].find((candidate) => candidate.key === key);
-        return entry ? { kind: "ranking", dimension, key, evidence: [entry.value, entry.sharePercent, entry.count] } : null;
+        const normDimension = rankingMatch[1].toLowerCase();
+        const dimensionKey = normDimension === "timebuckets" ? "timeBuckets" : normDimension;
+        const rawKey = rankingMatch[2].trim();
+        const normKey = normalizeEvidenceId(rawKey);
+        const entry = audit.rankings[dimensionKey]?.find((candidate) => candidate.key === rawKey || normalizeEvidenceId(candidate.key) === normKey);
+        return entry ? { kind: "ranking", dimension: dimensionKey, key: entry.key, evidence: [entry.value, entry.sharePercent, entry.count] } : null;
     }
-    const turn = audit.turns.find((candidate) => candidate.evidenceId === reference);
+    const turn = audit.turns.find((candidate) => candidate.evidenceId === trimmed || normalizeEvidenceId(candidate.evidenceId) === normalizeEvidenceId(trimmed));
     return turn
         ? { kind: "turn", key: turn.turnId, evidence: [turn.tokens.totalTokens, turn.sessionSharePercent, turn.modelCallCount] }
         : null;
@@ -164,70 +196,92 @@ function validateReportSynthesis(audit, synthesis) {
     }
     const candidate = synthesis;
     const expectedFingerprint = auditFingerprint(audit);
-    if (candidate.auditFingerprint !== expectedFingerprint)
-        errors.push("Audit fingerprint is stale or belongs to another Audit.");
+    if (candidate.auditFingerprint !== expectedFingerprint) {
+        return { valid: false, errors: ["Audit fingerprint is stale or belongs to another Audit."], synthesis: null };
+    }
+    let validOverview = null;
     if (!candidate.overview || typeof candidate.overview !== "object" || Array.isArray(candidate.overview)) {
         errors.push("overview must be an object.");
     }
     else {
         const overview = candidate.overview;
-        if (!nonEmpty(overview.summary))
+        if (!nonEmpty(overview.summary)) {
             errors.push("overview.summary must be a non-empty string.");
-        if (!Array.isArray(overview.evidenceRefs) || overview.evidenceRefs.length < 1 || overview.evidenceRefs.length > 3 || !overview.evidenceRefs.every(nonEmpty)) {
+        }
+        else if (!Array.isArray(overview.evidenceRefs) || overview.evidenceRefs.length < 1 || overview.evidenceRefs.length > 3 || !overview.evidenceRefs.every(nonEmpty)) {
             errors.push("overview.evidenceRefs must contain one to three non-empty Evidence references.");
         }
         else {
+            let overviewEvidenceValid = true;
             for (const reference of overview.evidenceRefs) {
-                if (!resolveReportEvidence(audit, reference))
+                if (!resolveReportEvidence(audit, reference)) {
                     errors.push("Overview cites unknown or cross-Audit Evidence: " + reference);
-            }
-        }
-    }
-    if (!Array.isArray(candidate.findings)) {
-        errors.push("findings must be a list.");
-    }
-    else {
-        if (candidate.findings.length > 5)
-            errors.push("Report synthesis cannot contain more than five Findings.");
-        for (const [index, finding] of candidate.findings.entries()) {
-            if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
-                errors.push("Finding " + index + " is malformed.");
-                continue;
-            }
-            const item = finding;
-            if (!nonEmpty(item.title))
-                errors.push("Finding " + index + " requires a title.");
-            if (!nonEmpty(item.analysis))
-                errors.push("Finding " + index + " requires analysis.");
-            if (!Array.isArray(item.evidenceRefs) || item.evidenceRefs.length === 0 || !item.evidenceRefs.every(nonEmpty)) {
-                errors.push("Finding " + index + " requires at least one Evidence reference.");
-            }
-            else {
-                for (const reference of item.evidenceRefs) {
-                    if (!resolveReportEvidence(audit, reference))
-                        errors.push("Finding " + index + " cites unknown or cross-Audit Evidence: " + reference);
+                    overviewEvidenceValid = false;
                 }
             }
-            if (!isSupport(item.support))
-                errors.push("Finding " + index + " has invalid support.");
-            if (!hasOwn(item, "uncertainty") || (item.uncertainty !== null && !nonEmpty(item.uncertainty)))
-                errors.push("Finding " + index + " uncertainty must be null or a non-empty string.");
+            if (overviewEvidenceValid) {
+                validOverview = {
+                    summary: overview.summary,
+                    evidenceRefs: [...overview.evidenceRefs],
+                };
+            }
         }
     }
-    if (!hasOwn(candidate, "noStrongFindingReason") || (candidate.noStrongFindingReason !== null && !nonEmpty(candidate.noStrongFindingReason))) {
-        errors.push("noStrongFindingReason must be null or a non-empty string.");
+    const validFindings = [];
+    if (!Array.isArray(candidate.findings)) {
+        return { valid: false, errors: ["findings must be a list."], synthesis: null };
     }
-    else if (Array.isArray(candidate.findings)) {
-        if (candidate.findings.length === 0 && candidate.noStrongFindingReason === null)
-            errors.push("noStrongFindingReason is required when there are no Findings.");
-        if (candidate.findings.length > 0 && candidate.noStrongFindingReason !== null)
-            errors.push("Findings and noStrongFindingReason cannot both be present.");
+    if (candidate.findings.length > 5) {
+        return { valid: false, errors: ["Report synthesis cannot contain more than five Findings."], synthesis: null };
     }
-    if (errors.length === 0 && candidate.overview && typeof candidate.overview === "object" && !Array.isArray(candidate.overview) && Array.isArray(candidate.findings)) {
-        const overview = candidate.overview;
-        const findings = candidate.findings;
+    for (const [index, finding] of candidate.findings.entries()) {
+        if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
+            errors.push("Finding " + index + " is malformed.");
+            continue;
+        }
+        const item = finding;
+        let findingValid = true;
+        if (!nonEmpty(item.title)) {
+            errors.push("Finding " + index + " requires a title.");
+            findingValid = false;
+        }
+        if (!nonEmpty(item.analysis)) {
+            errors.push("Finding " + index + " requires analysis.");
+            findingValid = false;
+        }
+        if (!Array.isArray(item.evidenceRefs) || item.evidenceRefs.length === 0 || !item.evidenceRefs.every(nonEmpty)) {
+            errors.push("Finding " + index + " requires at least one Evidence reference.");
+            findingValid = false;
+        }
+        else {
+            for (const reference of item.evidenceRefs) {
+                if (!resolveReportEvidence(audit, reference)) {
+                    errors.push("Finding " + index + " cites unknown or cross-Audit Evidence: " + reference);
+                    findingValid = false;
+                }
+            }
+        }
+        if (!isSupport(item.support)) {
+            errors.push("Finding " + index + " has invalid support.");
+            findingValid = false;
+        }
+        if (!hasOwn(item, "uncertainty") || (item.uncertainty !== null && !nonEmpty(item.uncertainty))) {
+            errors.push("Finding " + index + " uncertainty must be null or a non-empty string.");
+            findingValid = false;
+        }
+        if (findingValid) {
+            validFindings.push({
+                title: item.title,
+                analysis: item.analysis,
+                evidenceRefs: [...item.evidenceRefs],
+                support: item.support,
+                uncertainty: item.uncertainty ?? null,
+            });
+        }
+    }
+    if (validOverview && validFindings.length > 0) {
         const groups = new Map();
-        for (const [index, finding] of findings.entries()) {
+        for (const [index, finding] of validFindings.entries()) {
             const signature = canonicalizeNarrative(audit, finding.title, finding.analysis);
             groups.set(signature, [...(groups.get(signature) ?? []), index]);
         }
@@ -235,8 +289,8 @@ function validateReportSynthesis(audit, synthesis) {
             if (group.length > 1)
                 errors.push("Findings " + group.join(", ") + " form an interchangeable parameterized narrative group; regenerate distinct Findings.");
         }
-        const overviewSignature = canonicalizeNarrative(audit, overview.summary);
-        for (const [index, finding] of findings.entries()) {
+        const overviewSignature = canonicalizeNarrative(audit, validOverview.summary);
+        for (const [index, finding] of validFindings.entries()) {
             const findingNarratives = new Set([
                 canonicalizeNarrative(audit, finding.title),
                 canonicalizeNarrative(audit, finding.analysis),
@@ -246,10 +300,39 @@ function validateReportSynthesis(audit, synthesis) {
                 errors.push("Overview is an interchangeable restatement of Finding " + index + ".");
         }
     }
-    if (Array.isArray(candidate.findings) && candidate.findings.length === 1)
-        errors.push("Report synthesis requires at least two Findings when findings are present, or return zero findings with noStrongFindingReason.");
-    const uniqueErrors = [...new Set(errors)];
-    return { valid: uniqueErrors.length === 0, errors: uniqueErrors, synthesis: uniqueErrors.length === 0 ? candidate : null };
+    const noStrongReason = typeof candidate.noStrongFindingReason === "string" && candidate.noStrongFindingReason.trim()
+        ? candidate.noStrongFindingReason.trim()
+        : null;
+    if (validFindings.length > 0) {
+        return {
+            valid: true,
+            errors: [...new Set(errors)],
+            synthesis: {
+                auditFingerprint: expectedFingerprint,
+                overview: validOverview,
+                findings: validFindings,
+                noStrongFindingReason: null,
+            },
+        };
+    }
+    if (noStrongReason) {
+        return {
+            valid: true,
+            errors: [...new Set(errors)],
+            synthesis: {
+                auditFingerprint: expectedFingerprint,
+                overview: validOverview,
+                findings: [],
+                noStrongFindingReason: noStrongReason,
+            },
+        };
+    }
+    errors.push("Report synthesis has no valid findings and no valid noStrongFindingReason.");
+    return {
+        valid: false,
+        errors: [...new Set(errors)],
+        synthesis: null,
+    };
 }
 function containsRawEvidence(analysis, packets) {
     if (!packets)
@@ -281,8 +364,15 @@ function validateKeySessionAnalysis(audit, analysis, packets) {
     if (analysis.auditFingerprint !== expectedFingerprint)
         errors.push("Audit fingerprint is stale or belongs to another Audit.");
     const selectedSessionAccounting = audit.keySessionTokenAccounting?.find((entry) => entry.sessionId === analysis.sessionId)?.status;
-    if (audit.scope.harness === "codex" && analysis.primaryFinding !== null && (selectedSessionAccounting ?? audit.summary.keySessionTokenAccountingStatus?.value ?? audit.summary.tokenAccountingStatus?.value) !== "reconciled")
-        errors.push("Codex Token accounting is not reconciled for the selected Key Session; AI conclusions are blocked.");
+    const accountingStatus = selectedSessionAccounting ?? audit.summary.keySessionTokenAccountingStatus?.value ?? audit.summary.tokenAccountingStatus?.value;
+    if (audit.scope.harness === "codex" && analysis.primaryFinding !== null && accountingStatus !== "reconciled") {
+        if (analysis.primaryFinding.support === "strong") {
+            errors.push("Codex Token accounting is not reconciled for the selected Key Session; strong conclusions are blocked.");
+        }
+        if (!Array.isArray(analysis.limitations) || analysis.limitations.length === 0 || !analysis.limitations.every(nonEmpty)) {
+            errors.push("limitations must be a non-empty list of non-empty strings when Token accounting is not reconciled.");
+        }
+    }
     if (!nonEmpty(analysis.taskContext))
         errors.push("taskContext is required.");
     if (!Array.isArray(analysis.limitations) || !analysis.limitations.every(nonEmpty))

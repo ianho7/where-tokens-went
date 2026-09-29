@@ -101,7 +101,7 @@ started → prepared → ai-pending → composable → rendered → dispatched �
                                               ↘ failed
 ```
 
-`completed` means the final HTML artifact passed integrity checks and UI dispatch is `completed` or `queued`.
+`completed` means every eligible Lane is terminal, the final HTML artifact passed integrity checks, UI dispatch is `completed` or `queued`, and cleanup completed. Trace completeness is recorded separately and does not change a valid delivery into `incomplete`.
 
 ### Lane state
 
@@ -116,7 +116,7 @@ A lane fallback does not automatically make delivery fail. Delivery status, lane
 
 ### Trace state
 
-`complete | incomplete`, with a stable error code when incomplete.
+`complete | incomplete`, with a stable error code when incomplete. Trace is diagnostic evidence. Missing or incomplete performance spans produce a warning; they do not block delivery when Lane terminal state, HTML integrity, UI dispatch, finalize, and cleanup have succeeded.
 
 ## Run artifacts
 
@@ -347,10 +347,10 @@ Blocking failures:
 - Snapshot identity, input envelope, Evidence lookup, and deterministic scope violations are hard failures. Privacy remains enforced at the applicable Run/data boundary; the prose validator is not a privacy scanner. A card with an invalid metric, unsupported Token-scale claim, narrowly identifiable direct causal attribution, or unverifiable content excerpt is discarded and never reaches the report.
 - A card-level error is diagnostic for that card. If the envelope is valid and at least one card survives, the lane may accept the filtered cards while retaining the discarded-card errors. If none survives, the output is invalid. A valid surviving card proves contract validity only; it does not prove that the candidate meets the Skill Insights quality target.
 - Report Run and lane Eval must use the same `valid` and filtered `insights` result. Both accept only a valid, non-empty filtered result, persist card-level errors as diagnostics, and reject an invalid or empty result. Eval must not turn a discarded card into a whole-output failure when the same Run would retain other valid cards.
-- Deterministic checks own exact facts: Snapshot ID, known metric names and values, Evidence references, verbatim content excerpts of at most 200 characters, literal numeric prose, the distinction between `attributedTokens` and `associatedSessionTokens`, and the prohibition on aggregating overlapping Session Token totals across Skills.
+- Deterministic checks own exact facts: Snapshot ID, known metric names and values, Evidence references, verbatim content excerpts of at most 200 characters, explicit numbers bound to Token/percentage/cost units, the distinction between `attributedTokens` and `associatedSessionTokens`, and the prohibition on aggregating overlapping Session Token totals across Skills. They do not reject model names, tool names, versions, years, or qualitative wording merely because the prose contains a digit or words such as “most” and “higher”.
 - Keep the structured family Capability gate: a `capability` claim at `family` scope needs verified content Evidence from at least two members and must name platform/environment differences. Do not infer a shared capability from names or family call totals. General `shared`/`core` wording in open prose is not a whole-output regex veto; independent quality review compares the exact prose with member Evidence.
 - Keep the Trigger Trace requirement for `mechanism`. For ordinary prose, reject only a narrow, direct affirmative causal attribution that code can identify as a claim about measured usage/Token/cost. Do not reject isolated words such as `impact`, `explains`, `cause`, or `drives` in arbitrary fields, and do not maintain the rule through growing synonym or negation lists. Ambiguous causal wording is a quality-review question against the raw output and Snapshot Evidence.
-- Require non-empty, distinct `mentalModelShift` and `decisionDelta` fields as schema facts. Code cannot reliably decide whether a paraphrase produces a meaningful cognitive or decision change; genericity, attribution of a private belief, and actual usefulness belong in the independent quality review, except for an explicit direct user-belief assertion that can be identified exactly.
+- Require the typed fields that the Renderer actually reads, including non-empty `mentalModelShift`, `decisionDelta`, `reveal`, and `evidence`. Code does not decide whether two paraphrases produce a meaningful cognitive or decision change; genericity, attribution of a private belief, counterfactual usefulness, and actual insight quality belong in Prompt development and independent release review, except for an explicit direct user-belief assertion that can be identified exactly.
 - Privacy is enforced at the data boundary: raw outputs and bounded Evidence stay in the local sensitive Run/Eval workspace, are excluded from default projections and packaged Skills, and are cleaned up after delivery. Do not treat a text keyword scan as proof of privacy.
 
 Candidate quality is a separate decision from card validation. The reviewer must inspect the original raw text, filtered cards, discarded-card diagnostics, exact input Snapshot, and bound Evidence before deciding whether the target Ahas are useful and whether held-out quality regresses.
@@ -471,6 +471,8 @@ Performance acceptance uses a deterministic, reproducible fixture near the produ
 - For formal Eval promotion, a known-invalid accepted baseline is replaced only through independently reviewed baseline bootstrap for the unchanged authoritative Prompt.
 - The checked-in accepted baseline is produced from resolvable real model executions; repeated copies of one output do not count as multiple trials.
 - The installed Skill describes exactly one Evidence acquisition path and exactly one lane lifecycle; timing events cannot advance lane acceptance state.
+- The installed Skill exposes one code-owned advancement path: `run-all start`, Lane-local submission and repair, then two fixed `report-run advance` calls around the Host-native open action. The Host never chooses retry, fallback, compose, render, finalize, or cleanup from intermediate state.
+- Long-running compose, render, font, and HTML writes execute outside the Report Run file-lock critical section.
 - Every manifest, warning, artifact, status, trace, and finalize mutation is performed through the transactional Run Store, including compose-time warnings.
 - One current-Prompt full HTML acceptance is required to prove runtime delivery without a candidate release; a changed Prompt requires one additional full-report acceptance on its new bundle.
 - Runtime/Skill integration may be packaged before a Prompt change without packaging a candidate Prompt; final Prompt packaging occurs once after formal promotion or the bounded v2 review passes.

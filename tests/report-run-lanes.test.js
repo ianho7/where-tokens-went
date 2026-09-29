@@ -9,10 +9,9 @@ const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 
 test('installed Skill documents one Evidence acquisition path and no duplicate stdin pass', async () => {
   const skill = await readFile(path.resolve(__dirname, '..', 'skills', 'where-tokens-went', 'SKILL.md'), 'utf8');
-  assert.equal((skill.match(/report-run evidence --run-dir <run-directory> --auto/g) ?? []).length, 1);
+  assert.match(skill, /report-run run-all start/);
+  assert.match(skill, /report-run advance/);
   assert.doesNotMatch(skill, /dispatches `report-run evidence --run-dir <run-directory>` through stdin/);
-  assert.match(skill, /report-run compose --run-dir <run-directory> --locale <locale> --json/);
-  assert.match(skill, /render-report --json <run-directory>\/report\.json --html <final-report-path> --run-dir <run-directory>/);
 });
 
 function runCli(args, env, input = '') {

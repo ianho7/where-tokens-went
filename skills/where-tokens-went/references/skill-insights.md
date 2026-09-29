@@ -39,9 +39,8 @@ INSIGHT KINDS:
 
 CAPABILITY AHA CONTRACT:
 - When at least one selected `SKILL.md` is readable, always attempt at least one `capability` candidate. If none passes, return the best supported Usage insight(s) only and let the validator record a stable rejection reason; never create duplicate Usage filler.
-- A Capability Aha must include deterministic Usage evidence, Snapshot-verified content evidence, a `counterfactual` object, and a concrete Decision Delta.
-- A claim comparing project protocol with model-native procedure requires both sides: at least one unique-capability excerpt (`capability`, `localFact`, `hardConstraint`, `tool`, or `decisionRule`) and at least one `genericProcedure` excerpt.
-- Claim strength must match evidence sufficiency: `coexistence` needs one excerpt from each side; `scaffold-interpretation` needs multiple non-duplicate generic excerpts plus a Usage relation; `primary-delta` needs evidence across multiple unique and generic content entries. One generic sentence never represents the whole Skill.
+- A Capability Aha should include deterministic Usage evidence, Snapshot-verified content evidence, and a concrete Decision Delta. Providing deletion counterfactuals and both unique protocol and generic procedure excerpts are quality targets for high-value insights.
+- Claim strength reflects evidence depth: `coexistence` is supported with content evidence; deeper scaffold interpretations benefit from multiple content citations.
 - Treat `modelNativeScaffold` as two layers: `observed` states what the `SKILL.md` actually says; `interpretation` explains why a capable current coding agent may already know how to do it. `relativeTo` must be `capable-current-coding-agent`; this is not a timeless fact.
 - `withoutGenericScaffold` is an AI interpretation, not a deterministic measurement. State uncertainty in the prose when the evidence does not support a stronger claim.
 
@@ -90,8 +89,7 @@ Distinguish these evidence levels:
 NEVER make unconditional causal assertions ("Skill X caused N tokens", "wasted $N", "callsPerTask proves prompt was injected N times").
 
 NUMERIC INTEGRITY RULE:
-Do NOT write, copy, calculate, round, compare, or imply percentages, totals, ratios, multiples, averages, medians, or thresholds in any free prose field. This includes phrases such as "about ten times", "more than half", and "most".
-Reference deterministic metric keys only through evidence entries and `reveal.evidenceRefs`; the rendering engine resolves and displays the exact figures from the immutable snapshot.
+Do NOT write explicit numbers bound to metric units (percentages, token counts, costs, or multipliers) in free prose fields. Reference deterministic metric keys through evidence entries and `reveal.evidenceRefs`; the rendering engine resolves and displays the exact figures from the immutable snapshot. Model names (e.g. GPT-4o, Claude 3.5), tool names, versions (e.g. v2, Python 3), years, and qualitative wording (e.g. "higher", "frequent") are acceptable.
 
 For every content claim, provide a verbatim excerpt of 200 characters or less from the supplied SKILL.md. If a claim says hard constraints and generic procedures coexist, provide evidence for both semantic roles; one excerpt cannot support both sides. Do not claim family-level shared capability from names alone: two members need their own verified content evidence and platform/environment differences.
 All user-facing prose must be written in the language specified by reportLocale.

@@ -39,7 +39,7 @@ Long duration, high cached input, a large tool result, or a nearby compaction ev
 
 ### Codex accounting boundary
 
-For Codex, use the selected task's entry in `auditResult.keySessionTokenAccounting` when deciding whether a conclusion is admissible. A non-null `primaryFinding` and its `recommendation` require that selected task's status to be `reconciled`. A global `summary.tokenAccountingStatus` of `mismatch` does not block an independently reconciled selected task. For a selected task whose status is `mismatch` or `unavailable`, still return its grounded `taskContext` and exact `evidenceRead`, but set both `primaryFinding` and `recommendation` to `null` and state the concrete accounting limitation. Do not omit every task analysis because one task failed reconciliation, and do not infer a mechanism from the unverified task.
+For Codex, use the selected task's entry in `auditResult.keySessionTokenAccounting` when deciding whether a conclusion is admissible. A global `summary.tokenAccountingStatus` of `mismatch` does not block an independently reconciled selected task. For a selected task whose status is `mismatch` or `unavailable`, direct interaction, tool calls, and process behavior Evidence may still support an explanatory mechanism at no more than `moderate` support, with a concrete limitation explaining that Token accounting was not reconciled. Do not use unreconciled Token quantities, shares, or ranks to support that mechanism. When the Evidence is insufficient to support an interaction mechanism without reconciled numbers, return `primaryFinding: null` and `recommendation: null` with the concrete accounting limitation. Do not omit every task analysis because one task failed reconciliation.
 
 ## Analysis procedure
 
@@ -191,7 +191,7 @@ Before returning the array, verify:
 6. The portability test passes after removing ranks, identifiers, Turn labels, numbers, and locale-specific punctuation across all task, judgment, explanation, and action fields.
 7. Shared mechanisms are independently grounded rather than cosmetically paraphrased.
 8. Weak or empty Content Evidence produces the explicit null state, with a concrete missing-data explanation in limitations and no recommendation; long duration, high cached input, large tool results, and nearby compaction do not override that state.
-9. For Codex, every non-null conclusion belongs to a selected task with reconciled per-task Token accounting; a global mismatch does not suppress independently reconciled tasks, while a mismatched or unavailable task uses the explicit null state.
+9. For Codex, a selected task with unreconciled Token accounting (mismatch or unavailable) has support capped at moderate, carries a concrete limitation, and does not use unreconciled Token quantities, shares, or ranks to support its conclusions; a global mismatch does not suppress independently reconciled tasks.
 10. No value was recalculated and no unavailable value became zero.
 11. No user-facing prose mentions Host Agent, Content Evidence, Evidence selection, schema state, ranking procedure, or model-call counting.
 12. No raw historical content or secret appears in the output.

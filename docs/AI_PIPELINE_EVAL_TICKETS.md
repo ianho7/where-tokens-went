@@ -1,12 +1,17 @@
-# AI Pipeline and Eval Tickets (historical overview)
+# AI Pipeline and Eval Tickets (retired / historical overview)
 
-> Ticket 07 retired the formal Eval promotion path from active development. Fast Loop means one fixed fixture, one selected Prompt, one model call, a thin factual/Evidence check, and human JSON review. Release Loop means relevant deterministic tests and real regressions for product runtime changes, adding HTML or installed-Skill acceptance only when the changed boundary requires it. This document's prior Eval map is historical; no older issue status or workflow DAG state is changed here.
+> **Status: retired (2026-09-29)**
+>
+> **Archived / Retired Document**: Ticket 07 retired the formal Eval promotion path from active development. This document is a historical planning overview and ticket dependency map. It is preserved solely as a historical decision record. **Do not execute or resume any Goal, candidate promotion, grader, optimizer, baseline bootstrap, or multi-trial workflow described here.** Tickets 0018–0021 and the older Eval DAG are retired and not pending re-acceptance.
+>
+> **Active workflow entries:**
+> - Fast Loop and Release Loop: [`docs/AI_PIPELINE_EVAL_EXECUTION.md`](AI_PIPELINE_EVAL_EXECUTION.md)
+> - Daily Prompt iteration: repository `prompt-lab` Skill (`npm run prompt:lab`)
+> - Current runtime specifications and active tickets: [`docs/MVP.md`](MVP.md), [`docs/DESIGN.md`](DESIGN.md), [`docs/REPORT_RUN_ORCHESTRATION_SPEC.md`](REPORT_RUN_ORCHESTRATION_SPEC.md), and active tickets in `issues/`.
 
-**Status:** approved, then reopened by the 2026-09-20 evidence-integrity review. The issue files are authoritative for current status and acceptance.
+**Historical Status:** Formerly approved, then reopened by the 2026-09-20 evidence-integrity review, and subsequently retired on 2026-09-29 along with the formal Eval framework. This document is archived. Individual issue files under `issues/` reflect their own historical states.
 
-Previous checked boxes and Session completion claims are historical assertions, not acceptance evidence. Tickets 0015–0021 remain reopened until their current issue files are revalidated from tests, resolvable execution records, and final artifacts.
-
-The reopened scope also includes four bootstrap corrections: Harness-owned provenance adapters, three-state budget evidence, independently reviewed accepted-baseline bootstrap, and separate runtime-integration versus post-promotion packaging boundaries. The issue files contain the authoritative acceptance wording.
+Historical note: The previous requirement that Tickets 0015–0021 remain reopened until revalidated under formal promotion/eval gates has been retired. The dependency map, user stories, and ticket overviews below are retained as historical context.
 
 Delivery and improvement are separate tracks. Ticket 0016 accepts the current authoritative Prompt's installed report path without candidate promotion; Ticket 0021 accepts the promotion gate and, only when a candidate is eligible, the new bundle's post-promotion report regression. A rejected experiment is a valid Eval result, not a reason to hold current-Prompt delivery acceptance open.
 

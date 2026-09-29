@@ -183,7 +183,12 @@ test('run-all start and finish checkpoints orchestrate a complete Report Run wit
       '--span-id', start1Result.tickets['key-session-analysis'].spanId,
     ], env, JSON.stringify(invalidAnalysisAttempt1));
     assert.equal(acceptKeyInvalid1.code, 0, acceptKeyInvalid1.stderr);
-    assert.equal(JSON.parse(acceptKeyInvalid1.stdout).validationStatus, 'rejected');
+    const acceptKey1Result = JSON.parse(acceptKeyInvalid1.stdout);
+    assert.equal(acceptKey1Result.validationStatus, 'rejected');
+    assert.equal(acceptKey1Result.status, 'retrying');
+    const keyTicket2 = acceptKey1Result.retryTicket;
+    assert.ok(keyTicket2);
+    assert.equal(keyTicket2.attempt, 2);
 
     // Only key-session-analysis can be retried:
     // Retrying report-synthesis (accepted) must fail with RUN_LANE_TERMINAL
@@ -204,15 +209,14 @@ test('run-all start and finish checkpoints orchestrate a complete Report Run wit
     assert.equal(retryUnavailable.code, 2);
     assert.match(retryUnavailable.stderr, /already has terminal status unavailable/i);
 
-    // Start attempt 2 for key-session-analysis
-    const startKeyAttempt2 = await runCli([
+    // Starting key-session-analysis when attempt 2 is already issued must fail with RUN_LANE_ALREADY_RUNNING
+    const duplicateStart = await runCli([
       'report-run', 'ai-start',
       '--run-dir', runDir,
       '--lane', 'key-session-analysis',
     ], env);
-    assert.equal(startKeyAttempt2.code, 0, startKeyAttempt2.stderr);
-    const keyTicket2 = JSON.parse(startKeyAttempt2.stdout);
-    assert.equal(keyTicket2.attempt, 2);
+    assert.equal(duplicateStart.code, 2);
+    assert.match(duplicateStart.stderr, /already has a running attempt/i);
 
     // finish while attempt 2 is running still returns not-ready
     const finishUnready2 = await runCli([

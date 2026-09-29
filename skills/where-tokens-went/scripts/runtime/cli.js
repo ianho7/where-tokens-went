@@ -56,6 +56,7 @@ function usage() {
         "       where-tokens-went inspect --harness <codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
         "       where-tokens-went compose-report --locale zh-CN|en-US --font <font-file> [--font-family <name>] --html <final-path> < composition JSON envelope",
         "       where-tokens-went render-report --json <report.json> --html <final-path> [--run-dir <directory>]",
+        "       where-tokens-went report-run advance --run-dir <directory> [--html <final-path>] [--ui completed|queued|failed|unavailable]",
         "       where-tokens-went report-run run-all start --harness <codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
         "       where-tokens-went report-run run-all finish --run-dir <directory> [--html <final-path>]",
         "       where-tokens-went report-run prepare --harness <codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
@@ -1004,7 +1005,7 @@ async function reportRunAiAcceptMain(args) {
             }
             if (candidates.length === 0)
                 errors.push({ code: "KEY_SESSION_INVALID", fieldPath: null, message: "Expected a non-empty Key Session Analysis array." });
-            if (errors.length === 0) {
+            if (validated.length > 0) {
                 accepted = validated;
                 validationAccepted = true;
             }
@@ -1034,12 +1035,15 @@ async function reportRunAiAcceptMain(args) {
         ...(unsupportedClaimsDropped > 0 ? { unsupportedClaimsDropped } : {}),
         ...(hostTiming.status === "observed" ? { generation: hostTiming.metadata } : {}),
     }, attempt);
-    let acceptedRef = null;
+    const durationMs = hostTiming.status === "observed" ? hostTiming.durationMs : null;
+    const traceMetadata = hostTiming.status === "observed"
+        ? { ...hostTiming.metadata, generationTimingStatus: "observed" }
+        : { generationTimingStatus: "unavailable", generationTimingReasonCode: hostTiming.reasonCode };
     if (validationAccepted) {
         const snapshotId = options.lane === "skill-insights"
             ? (await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot")).snapshotId
             : undefined;
-        acceptedRef = await (0, report_run_1.writeRunLaneArtifact)(run, options.lane, "accepted", {
+        const acceptedRef = await (0, report_run_1.writeRunLaneArtifact)(run, options.lane, "accepted", {
             version: 1,
             runId: run.manifest.runId,
             lane: options.lane,
@@ -1048,28 +1052,86 @@ async function reportRunAiAcceptMain(args) {
             ...(snapshotId ? { snapshotId } : {}),
             value: accepted,
         });
-    }
-    else {
-        const reasonCode = errors[0]?.code ?? "AI_VALIDATION_FAILED";
-        await (0, report_run_1.writeRunLaneArtifact)(run, options.lane, "fallback", {
-            version: 1,
+        await (0, report_run_1.finishReportLane)(run, options.lane, attempt, spanId, currentLane.spanStartedAt ?? new Date().toISOString(), "accepted", durationMs, null, acceptedRef.file, hostTiming.status === "observed" ? "host-agent" : "runner", traceMetadata);
+        process.stdout.write(JSON.stringify({
             runId: run.manifest.runId,
             lane: options.lane,
             attempt,
-            status: "fallback",
-            reasonCode,
-            validationArtifact: `lanes/${options.lane}/attempt-${attempt}.validation.json`,
+            status: "accepted",
+            validationStatus: "accepted",
+            generationTiming: timing,
             outputHash,
-        }, attempt);
+            rawArtifact: rawRef.file,
+            validationArtifact: `lanes/${options.lane}/attempt-${attempt}.validation.json`,
+            acceptedArtifact: acceptedRef.file,
+            errors,
+        }) + "\n");
+        return 0;
     }
-    const laneStatus = validationAccepted ? "accepted" : "fallback";
-    const reasonCode = validationAccepted ? null : errors[0]?.code ?? "AI_VALIDATION_FAILED";
-    const durationMs = hostTiming.status === "observed" ? hostTiming.durationMs : null;
-    const traceMetadata = hostTiming.status === "observed"
-        ? { ...hostTiming.metadata, generationTimingStatus: "observed" }
-        : { generationTimingStatus: "unavailable", generationTimingReasonCode: hostTiming.reasonCode };
-    await (0, report_run_1.finishReportLane)(run, options.lane, attempt, spanId, currentLane.spanStartedAt ?? new Date().toISOString(), laneStatus, durationMs, reasonCode, acceptedRef?.file ?? null, hostTiming.status === "observed" ? "host-agent" : "runner", traceMetadata);
-    process.stdout.write(JSON.stringify({ runId: run.manifest.runId, lane: options.lane, attempt, status: laneStatus, validationStatus, ...(reasonCode ? { reasonCode } : {}), generationTiming: timing, outputHash, rawArtifact: rawRef.file, validationArtifact: `lanes/${options.lane}/attempt-${attempt}.validation.json`, acceptedArtifact: acceptedRef?.file ?? null, errors }) + "\n");
+    const reasonCode = errors[0]?.code ?? "AI_VALIDATION_FAILED";
+    await (0, report_run_1.writeRunLaneArtifact)(run, options.lane, "fallback", {
+        version: 1,
+        runId: run.manifest.runId,
+        lane: options.lane,
+        attempt,
+        status: "fallback",
+        reasonCode,
+        validationArtifact: `lanes/${options.lane}/attempt-${attempt}.validation.json`,
+        outputHash,
+    }, attempt);
+    await (0, report_run_1.finishReportLane)(run, options.lane, attempt, spanId, currentLane.spanStartedAt ?? new Date().toISOString(), "fallback", durationMs, reasonCode, null, hostTiming.status === "observed" ? "host-agent" : "runner", traceMetadata);
+    if (attempt === 1) {
+        const started2 = await (0, report_run_1.startReportLane)(run, options.lane, currentLane.inputArtifact ?? `lanes/${options.lane}/input.json`);
+        const snapshotId = options.lane === "skill-insights"
+            ? (await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot")).snapshotId
+            : undefined;
+        const retryTicket = {
+            runId: run.manifest.runId,
+            lane: options.lane,
+            attempt: started2.attempt,
+            spanId: started2.spanId,
+            locale: run.manifest.scope.locale,
+            auditFingerprint: run.manifest.auditFingerprint,
+            bundleVersion: run.manifest.bundleVersion,
+            promptHash: lanePromptHash(run.manifest, options.lane),
+            runtimeHash: run.manifest.runtimeHash,
+            inputArtifact: currentLane.inputArtifact ?? `lanes/${options.lane}/input.json`,
+            promptArtifact: `lanes/${options.lane}/prompt.json`,
+            validationArtifact: `lanes/${options.lane}/attempt-1.validation.json`,
+            errors,
+            ...(snapshotId ? { snapshotId } : {}),
+        };
+        process.stdout.write(JSON.stringify({
+            runId: run.manifest.runId,
+            lane: options.lane,
+            attempt: 1,
+            status: "retrying",
+            validationStatus: "rejected",
+            reasonCode,
+            generationTiming: timing,
+            outputHash,
+            rawArtifact: rawRef.file,
+            validationArtifact: `lanes/${options.lane}/attempt-1.validation.json`,
+            acceptedArtifact: null,
+            errors,
+            retryTicket,
+        }) + "\n");
+        return 0;
+    }
+    process.stdout.write(JSON.stringify({
+        runId: run.manifest.runId,
+        lane: options.lane,
+        attempt,
+        status: "fallback",
+        validationStatus: "rejected",
+        reasonCode,
+        generationTiming: timing,
+        outputHash,
+        rawArtifact: rawRef.file,
+        validationArtifact: `lanes/${options.lane}/attempt-${attempt}.validation.json`,
+        acceptedArtifact: null,
+        errors,
+    }) + "\n");
     return 0;
 }
 function parseAiFallbackArgs(args) {
@@ -1574,6 +1636,132 @@ async function reportRunRunAllStartMain(args) {
     }) + "\n");
     return 0;
 }
+async function reportRunAdvanceMain(args) {
+    const { runDir, rest } = extractRunDirectory(args);
+    if (!runDir)
+        throw new Error(`report-run advance requires --run-dir <directory>.\n${usage()}`);
+    let htmlPath = null;
+    let locale = null;
+    let fontPath = null;
+    let fontFamily = null;
+    let uiStatus = null;
+    let laneFallback = null;
+    for (let index = 0; index < rest.length; index += 1) {
+        const flag = rest[index];
+        if (flag === "--html") {
+            htmlPath = requireValue(rest, index, flag);
+            index += 1;
+        }
+        else if (flag === "--ui") {
+            const val = requireValue(rest, index, flag);
+            if (val !== "completed" && val !== "queued" && val !== "failed" && val !== "unavailable") {
+                throw new Error(`--ui must be completed, queued, failed, or unavailable.\n${usage()}`);
+            }
+            uiStatus = val;
+            index += 1;
+        }
+        else if (flag === "--locale" || flag === "--lang") {
+            locale = (0, report_1.normalizeLocale)(requireValue(rest, index, flag));
+            index += 1;
+        }
+        else if (flag === "--font") {
+            fontPath = requireValue(rest, index, flag);
+            index += 1;
+        }
+        else if (flag === "--font-family") {
+            fontFamily = requireValue(rest, index, flag);
+            index += 1;
+        }
+        else if (flag === "--lane-fallback") {
+            laneFallback = parseLane(requireValue(rest, index, flag));
+            index += 1;
+        }
+        else {
+            throw new Error(`Unknown report-run advance argument: ${flag}.\n${usage()}`);
+        }
+    }
+    const installedBundle = await (0, bundle_version_1.verifyInstalledSkill)();
+    const run = await (0, report_run_1.openReportRun)(requireRunDirectory(runDir));
+    (0, report_run_1.assertRunBundleVersion)(run, installedBundle.bundleVersion);
+    const contract = await (0, report_run_1.resolveRunContractMetadata)();
+    assertRunContract(run, installedBundle, contract);
+    if (uiStatus !== null) {
+        await (0, report_run_1.recordRunSpan)(run.runDir, {
+            event: "start",
+            spanId: `ui-dispatch:${run.manifest.runId}`,
+            phase: "ui-dispatch",
+            operation: "open-html",
+            source: "host-agent",
+            attempt: 1,
+            startedAt: new Date().toISOString(),
+            metadata: { status: uiStatus },
+        });
+        await (0, report_run_1.recordRunSpan)(run.runDir, {
+            event: "end",
+            spanId: `ui-dispatch:${run.manifest.runId}`,
+            phase: "ui-dispatch",
+            operation: "open-html",
+            source: "host-agent",
+            attempt: 1,
+            startedAt: new Date().toISOString(),
+            endedAt: new Date().toISOString(),
+            durationMs: 1,
+            status: uiStatus === "completed" || uiStatus === "queued" ? "completed" : "failed",
+            metadata: { status: uiStatus },
+        });
+        await (0, report_run_1.setRunUiDispatch)(run, uiStatus);
+        await (0, report_run_1.finalizeReportRun)(run, "completed");
+        await (0, report_run_1.cleanupSensitiveRunArtifacts)(run);
+        process.stdout.write(JSON.stringify({
+            status: run.manifest.status,
+            deliveryStatus: run.manifest.deliveryStatus,
+            runId: run.manifest.runId,
+            runDir: run.runDir,
+            uiDispatch: run.manifest.uiDispatch,
+            traceCompleteness: run.manifest.traceCompleteness,
+            warnings: run.manifest.warnings,
+            cleanedUp: true,
+        }) + "\n");
+        return 0;
+    }
+    if (laneFallback) {
+        const laneInfo = run.manifest.laneStatus[laneFallback];
+        if (laneInfo && laneInfo.status === "running") {
+            await (0, report_run_1.finishReportLane)(run, laneFallback, laneInfo.attempts, run.manifest.stageStatus[laneFallback]?.spanId ?? (0, node_crypto_1.randomUUID)(), laneInfo.spanStartedAt ?? new Date().toISOString(), "unavailable", null, "WORKER_CRASHED_OR_TIMEOUT", null, "host-agent");
+        }
+    }
+    const eligibleLanes = Object.keys(run.manifest.laneStatus);
+    const pendingLanes = eligibleLanes.filter((lane) => !(0, report_run_1.isLaneTerminal)(run.manifest.laneStatus[lane]));
+    if (pendingLanes.length > 0) {
+        process.stdout.write(JSON.stringify({
+            status: "lanes-not-ready",
+            ready: false,
+            runId: run.manifest.runId,
+            runDir: run.runDir,
+            pendingLanes,
+            laneStatus: run.manifest.laneStatus,
+        }) + "\n");
+        return 0;
+    }
+    const effectiveHtmlPath = htmlPath ?? path.join(run.runDir, "report.html");
+    const effectiveLocale = locale ?? run.manifest.scope.locale;
+    const result = await composeAndRenderRun(run, {
+        locale: effectiveLocale,
+        htmlPath: effectiveHtmlPath,
+        fontPath,
+        fontFamily,
+    });
+    process.stdout.write(JSON.stringify({
+        action: "open-html",
+        status: "awaiting-ui-dispatch",
+        runId: run.manifest.runId,
+        runDir: run.runDir,
+        htmlPath: result.output,
+        reportStatus: result.composition.reportSynthesis ? "ai-enhanced" : "fallback",
+        fallback: result.composition.reportSynthesis === null,
+    }) + "\n");
+    return 0;
+}
 async function reportRunRunAllFinishMain(args) {
     const { runDir, rest } = extractRunDirectory(args);
     if (!runDir)
@@ -1650,6 +1838,8 @@ async function reportRunRunAllMain(args) {
 }
 async function reportRunMain(args) {
     const command = args[0];
+    if (command === "advance")
+        return reportRunAdvanceMain(args.slice(1));
     if (command === "run-all")
         return reportRunRunAllMain(args.slice(1));
     if (command === "prepare")
@@ -1672,7 +1862,7 @@ async function reportRunMain(args) {
         return reportRunFinalizeMain(args.slice(1));
     if (command === "cleanup")
         return reportRunCleanupMain(args.slice(1));
-    throw new Error(`Use report-run run-all, prepare, evidence, ai-start, ai-accept, ai-fallback, compose, event, status, finalize, or cleanup.\n${usage()}`);
+    throw new Error(`Use report-run advance, run-all, prepare, evidence, ai-start, ai-accept, ai-fallback, compose, event, status, finalize, or cleanup.\n${usage()}`);
 }
 async function composeReportMain(args) {
     const options = parseComposeArgs(args);

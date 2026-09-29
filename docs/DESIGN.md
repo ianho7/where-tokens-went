@@ -42,9 +42,9 @@ Implement the local tool in TypeScript. Start with the Node.js standard library 
 
 Do not choose a bundler, single-binary packager, MCP transport, or plugin SDK until the CLI demonstrates the Aha moment on both Readers.
 
-## Internal CLI contract
+## Deterministic CLI contract
 
-MVP exposes one command:
+For deterministic and non-report views, the CLI boundary exposes one inspection command:
 
 ```text
 where-tokens-went inspect \
@@ -53,6 +53,8 @@ where-tokens-went inspect \
   [--since <duration>] \
   [--format text|json]
 ```
+
+The public product entry for full reports remains `$where-tokens-went` in Host Agent conversations; normal report delivery is code-orchestrated by Report Run (`report-run run-all start` and `report-run advance`), not a manual sequence of inspect or compose commands.
 
 Rules:
 
@@ -302,7 +304,7 @@ interface ReportComposition {
 
 The version-controlled `prompts/report-synthesis.md` is the sole authoritative Prompt for generating `ReportSynthesis`, including both the Audit Overview and Findings. `scripts/package-skills.js` copies it byte-for-byte to `skills/where-tokens-went/references/report-synthesis.md`; that packaged file is a generated artifact, not a manual source. The Skill must read its bundled `references/report-synthesis.md` in full before generation and must bind it only to the selected locale, current Audit fingerprint, and complete structured sanitized `AuditResult`.
 
-The version-controlled `prompts/key-session-analysis.md` is the sole authoritative Prompt for generating the Token-ranked `KeySessionAnalysis[]`. The same packaging step copies it byte-for-byte to the shared Skill as `references/key-session-analysis.md`. The Skill must read it in full after scoped Content Evidence acquisition and bind it only to the selected locale, current Audit fingerprint, complete structured sanitized `AuditResult`, and the selected in-memory packets. Its portability test rejects prose that becomes interchangeable after ranks, identifiers, Turn labels, and numeric values are removed. Insufficient or non-specific Evidence produces `primaryFinding: null` and `recommendation: null`; cosmetic wording differences are not accepted as Session specificity.
+The version-controlled `prompts/key-session-analysis.md` is the sole authoritative Prompt for generating the Token-ranked `KeySessionAnalysis[]`. The same packaging step copies it byte-for-byte to the shared Skill as `references/key-session-analysis.md`. The Skill must read it in full after scoped Content Evidence acquisition and bind it only to the selected locale, current Audit fingerprint, complete structured sanitized `AuditResult`, and the selected in-memory packets. Its portability test rejects prose that becomes interchangeable after ranks, identifiers, Turn labels, and numeric values are removed. Insufficient or non-specific Evidence produces `primaryFinding: null` and `recommendation: null`; cosmetic wording differences are not accepted as Session specificity. A selected Codex Session with mismatched or unavailable Token accounting may still produce a behavior- or tool-Evidence mechanism at no more than `moderate` support with a material limitation, but unreconciled Token quantities, shares, and ranks cannot support that mechanism.
 
 The version-controlled `prompts/skill-insights.md` remains the sole authoritative Prompt for Skill Insights. P0 now changes the runtime task to discover Usage × Content relationships rather than fill a quota of distribution summaries. A Capability Aha is attempted whenever readable selected `SKILL.md` content exists; failure of the dual-sided content gate is a valid recorded outcome, numeric wording remains renderer-owned, Snapshot binding remains exact, and the Capability schema is separate from the Usage schema rather than using a single score as a deletion counterfactual.
 

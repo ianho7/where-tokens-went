@@ -1,8 +1,13 @@
-# AI Pipeline and Eval-Driven Development Implementation Plan (archived)
+# AI Pipeline and Eval-Driven Development Implementation Plan (retired / archived)
 
-> Planning history. For current acceptance sequencing, use `docs/AI_PIPELINE_EVAL_SPEC.md`, `docs/AI_PIPELINE_EVAL_EXECUTION.md`, and the current 0016/0021 Tickets: current-Prompt report delivery is accepted independently of candidate promotion; post-promotion report regression applies only after a legal promotion.
-
-> Ticket 07 supersedes the formal candidate/baseline/grader/optimizer/provenance path described here. Active Fast Loop: one fixture, one Prompt, one model call, thin factual check, human JSON review. Active Release Loop: relevant deterministic tests and real regressions, with HTML or installed-Skill acceptance only when the changed product boundary requires it. The former plan below is historical reference, not a current gate.
+> **Status: retired (2026-09-29)**
+>
+> **Archived / Retired Document**: Ticket 07 supersedes the formal candidate/baseline/grader/optimizer/provenance path described here. This document is retained solely as planning history and historical reference. **Do not execute or resume any Goal, candidate promotion, grader, optimizer, baseline bootstrap, or multi-trial workflow described in this plan.**
+>
+> **Active workflow entries:**
+> - Fast Loop and Release Loop: [`docs/AI_PIPELINE_EVAL_EXECUTION.md`](AI_PIPELINE_EVAL_EXECUTION.md)
+> - Daily Prompt iteration: repository `prompt-lab` Skill (`npm run prompt:lab`)
+> - Current runtime specifications and active tickets: [`docs/MVP.md`](MVP.md), [`docs/DESIGN.md`](DESIGN.md), [`docs/REPORT_RUN_ORCHESTRATION_SPEC.md`](REPORT_RUN_ORCHESTRATION_SPEC.md), and active tickets in `issues/`.
 
 ## Objective
 

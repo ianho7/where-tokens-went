@@ -458,7 +458,7 @@ export interface ReportOverview {
 
 export interface ReportSynthesis {
   auditFingerprint: string;
-  overview: ReportOverview;
+  overview: ReportOverview | null;
   findings: ReportFinding[];
   noStrongFindingReason: string | null;
 }

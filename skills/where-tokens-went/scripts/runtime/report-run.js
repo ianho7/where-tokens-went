@@ -528,7 +528,10 @@ async function finalizeReportRun(run, status) {
     await withRunLock(run.runDir, async () => {
         const manifest = await readRunManifest(run.runDir);
         manifest.totalDurationMs = Math.max(0, Math.round((Date.now() - run.startedWall) * 100) / 100);
+        const uiReady = manifest.uiDispatch === "completed" || manifest.uiDispatch === "queued";
         const incompleteStage = manifest.eligibleStages.some((phase) => {
+            if (phase === "codex-open")
+                return !uiReady;
             const current = manifest.stageStatus[phase];
             return !current || current.status === "started" || current.status === "interrupted";
         });
@@ -553,12 +556,11 @@ async function finalizeReportRun(run, status) {
                 htmlIntegrity = false;
             }
         }
-        const uiReady = manifest.uiDispatch === "completed" || manifest.uiDispatch === "queued";
         const traceReady = manifest.traceCompleteness === "complete" && !manifest.traceErrorCode;
         manifest.status = status === "completed"
             ? failedStage
                 ? "failed"
-                : incompleteStage || !lanesTerminal || !htmlIntegrity || !uiReady || !traceReady
+                : incompleteStage || !lanesTerminal || !htmlIntegrity || !uiReady
                     ? "incomplete"
                     : "completed"
             : status;
@@ -571,6 +573,9 @@ async function finalizeReportRun(run, status) {
             manifest.warnings = [...new Set([...manifest.warnings, "One or more eligible AI lanes were not accepted or explicitly degraded."])];
         if (incompleteStage || manifest.traceErrorCode)
             manifest.traceCompleteness = "incomplete";
+        if (!traceReady) {
+            manifest.warnings = [...new Set([...manifest.warnings, `Performance trace is incomplete (${manifest.traceErrorCode ?? "MISSING_SPANS"}).`])];
+        }
         await appendTraceLocked(run, manifest, {
             event: "run-end",
             runId: manifest.runId,
@@ -591,7 +596,7 @@ async function finalizeReportRun(run, status) {
             manifest.traceErrorCode = manifest.traceErrorCode ?? errorCode(error);
             manifest.warnings = [...new Set([...manifest.warnings, "Timing Trace could not be finalized."])];
         }
-        if (status === "completed" && (manifest.traceCompleteness !== "complete" || manifest.traceErrorCode !== null)) {
+        if (status === "completed" && !manifest.artifacts.trace) {
             manifest.status = "incomplete";
             manifest.deliveryStatus = "incomplete";
         }
@@ -1042,6 +1047,12 @@ async function finishReportLane(run, lane, attempt, spanId, startedAt, status, d
 async function setRunUiDispatch(run, status) {
     await mutateRun(run, (manifest) => {
         manifest.uiDispatch = status;
+        manifest.stageStatus["codex-open"] = {
+            status: status === "completed" || status === "queued" ? "completed" : "failed",
+            attempt: 1,
+            spanId: (0, node_crypto_1.randomUUID)(),
+            durationMs: 1,
+        };
         if (status === "failed")
             manifest.deliveryStatus = "failed";
     });

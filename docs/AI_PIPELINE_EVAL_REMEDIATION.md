@@ -1,8 +1,15 @@
-# Goal-mode remediation prompt — round 3
+# Goal-mode remediation prompt — round 3 (retired / historical)
 
-> Historical round-3 execution prompt. Its requirement for a successful non-no-op promotion before accepting runtime delivery is superseded by `docs/AI_PIPELINE_EVAL_SPEC.md`, `docs/AI_PIPELINE_EVAL_EXECUTION.md`, and the current 0016/0021 Tickets. Do not replay this prompt as the next Goal; preserve its rejected experiment as evidence.
+> **Status: retired (2026-09-29)**
+>
+> **Archived / Retired Document**: This remediation prompt is historical and retired. **Do NOT execute, resume, or replay the embedded prompt below as an active Goal, session prompt, or task.** The formal candidate, promotion, grader, optimizer, and multi-trial remediation workflow has been superseded and is preserved solely as a historical decision record.
+>
+> **Active workflow entries:**
+> - Fast Loop and Release Loop: [`docs/AI_PIPELINE_EVAL_EXECUTION.md`](AI_PIPELINE_EVAL_EXECUTION.md)
+> - Daily Prompt iteration: repository `prompt-lab` Skill (`npm run prompt:lab`)
+> - Current runtime specifications and active tickets: [`docs/MVP.md`](MVP.md), [`docs/DESIGN.md`](DESIGN.md), [`docs/REPORT_RUN_ORCHESTRATION_SPEC.md`](REPORT_RUN_ORCHESTRATION_SPEC.md), and active tickets in `issues/`.
 
-Use the complete prompt below either to resume the existing remediation Session or to open a new Codex session at `D:\project\agent-audit`.
+*Historical reference only: The complete prompt below is preserved as an archival record of the historical round-3 remediation attempt. Do not execute it.*
 
 ---
 

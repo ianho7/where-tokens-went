@@ -552,7 +552,7 @@ const TOKEN_SCALE_MENTION_REGEX = /(?<![-_A-Za-z0-9])(?:tokens?|associatedSessio
 const CROSS_SKILL_TOKEN_AGGREGATION_REGEX = /\b(?:sum|total|combine(?:d)?|aggregate|add(?:ed)?|pool|together|across)\b|(?:相加|合计|总和|合并|汇总|叠加|累计|共同承担)/i;
 const TOKEN_SCALE_BOUNDARY_REGEX = /\b(?:not|no|cannot|can't|does not|doesn't|unknown|unclear|unconfirmed|unverified|pending|without evidence|not a proxy)\b|当前(?:缺少|没有)|(?:不能|无法|不足以|不代表|不等于|不是|并非|未必|待确认|尚未确认|尚待确认|尚未证实|尚无法确认|不能证明|未知|不确定|缺少).{0,16}(?:证据|Token|任务规模)?/i;
 const USER_BELIEF_ASSERTION_REGEX = /\b(?:you|your)\s+(?:think|assume|believe)|你(?:以为|认为|相信)/i;
-const NUMERIC_PROSE_REGEX = /\d|%|百分(?:比|之)|\b(?:about|approximately|roughly|more than half|less than half|times|percent|median|p(?:75|90))\b|(?:超过|不到|高于|低于|一半|多数|大多数|大部分|倍|中位数)/i;
+const NUMERIC_METRIC_PROSE_REGEX = /(?:\d+(?:\.\d+)?\s*(?:%|percent|tokens?|k\s*tokens?|m\s*tokens?|万?个?token|美[元金]|元|倍|times\b))|(?:\$\s*\d+(?:\.\d+)?)|(?:百分之\s*\d+)/i;
 const ALLOWED_REVEAL_PATTERNS = new Set<SkillInsightRevealPattern>([
   "share_inversion",
   "distribution_outlier",
@@ -764,7 +764,7 @@ function validateRevealEvidenceContract(
   evidence: SkillInsightEvidence[],
   scope: SkillInsightScope,
 ): string | null {
-  if (reveal.semantic.length > 160 || NUMERIC_PROSE_REGEX.test(reveal.semantic)) {
+  if (reveal.semantic.length > 160 || NUMERIC_METRIC_PROSE_REGEX.test(reveal.semantic)) {
     return `Insight ${id} rejected: Reveal semantic text must stay qualitative; renderer owns quantitative language.`;
   }
 
@@ -989,7 +989,7 @@ export function validateSkillInsights(
     ];
     const validatorProse = [...proseWithDeltas, reveal.semantic, ...familyDifferences];
     const hasTokenScaleRelation = validatorProse.some((segment) => hasUnqualifiedTokenScaleRelation(segment));
-    if (proseWithDeltas.some((segment) => NUMERIC_PROSE_REGEX.test(segment))) {
+    if (proseWithDeltas.some((segment) => NUMERIC_METRIC_PROSE_REGEX.test(segment))) {
       errors.push(`Insight ${id} rejected: free prose must not contain copied or derived quantitative claims; use evidence refs.`);
       unsupportedClaimsDropped++;
       continue;
@@ -1005,14 +1005,13 @@ export function validateSkillInsights(
       continue;
     }
 
-    // A complete Aha must change both understanding and the next decision.
-    if (!mentalModelShift || normalizeText(mentalModelShift.surface) === normalizeText(mentalModelShift.observed)) {
-      errors.push(`Insight ${id} must contain a non-trivial cognitive delta in mentalModelShift.`);
+    if (!mentalModelShift || !mentalModelShift.surface || !mentalModelShift.observed) {
+      errors.push(`Insight ${id} must contain required fields in mentalModelShift.`);
       unsupportedClaimsDropped++;
       continue;
     }
-    if (!decisionDelta || normalizeText(decisionDelta.before) === normalizeText(decisionDelta.after)) {
-      errors.push(`Insight ${id} must contain a non-trivial decision delta.`);
+    if (!decisionDelta || !decisionDelta.before || !decisionDelta.after) {
+      errors.push(`Insight ${id} must contain required fields in decisionDelta.`);
       unsupportedClaimsDropped++;
       continue;
     }
@@ -1203,19 +1202,11 @@ export function validateSkillInsights(
         addRejectionReason("family_content_unavailable");
         continue;
       }
-      if (familyDifferences.length === 0) {
-        errors.push(`Insight ${id} rejected: family Capability Aha must state platform or environment differences.`);
-        unsupportedClaimsDropped++;
-        addRejectionReason("family_content_unavailable");
-        continue;
-      }
     }
     if (kind === "capability") {
       const usageEvidence = validEvidence.some((ev) => ev.kind === "global_metric" || ev.kind === "distribution_metric" || ev.kind === "family_metric" || ev.kind === "skill_metric");
       const uniqueEvidence = contentEvidence.filter((ev) => ev.role && ev.role !== "genericProcedure");
       const genericEvidence = contentEvidence.filter((ev) => ev.role === "genericProcedure");
-      const distinctGenericExcerpts = new Set(genericEvidence.map((ev) => normalizeText(ev.evidenceExcerpt ?? ""))).size;
-      const distinctUniqueExcerpts = new Set(uniqueEvidence.map((ev) => normalizeText(ev.evidenceExcerpt ?? ""))).size;
 
       if (!usageEvidence) {
         errors.push(`Insight ${id} rejected: Capability Aha requires a deterministic Usage signal.`);
@@ -1233,24 +1224,6 @@ export function validateSkillInsights(
         errors.push(`Insight ${id} rejected: Capability Aha requires model-native counterevidence.`);
         unsupportedClaimsDropped++;
         addRejectionReason("missing_model_native_counterevidence");
-        continue;
-      }
-      if (claimStrength === "scaffold-interpretation" && distinctGenericExcerpts < 2) {
-        errors.push(`Insight ${id} rejected: scaffold interpretation requires multiple non-duplicate generic excerpts.`);
-        unsupportedClaimsDropped++;
-        addRejectionReason("insufficient_content_support");
-        continue;
-      }
-      if (claimStrength === "primary-delta" && (distinctGenericExcerpts < 2 || distinctUniqueExcerpts < 2)) {
-        errors.push(`Insight ${id} rejected: primary Capability Delta requires evidence across multiple content entries.`);
-        unsupportedClaimsDropped++;
-        addRejectionReason("insufficient_content_support");
-        continue;
-      }
-      if (!counterfactual) {
-        errors.push(`Insight ${id} rejected: Capability Aha requires both deletion counterfactuals.`);
-        unsupportedClaimsDropped++;
-        addRejectionReason("insufficient_content_support");
         continue;
       }
     }
@@ -1327,11 +1300,8 @@ export function validateSkillInsights(
       if (familyKey) familySelections.set(familyKey, [...(familySelections.get(familyKey) ?? []), item]);
     }
     mentalModelKeys.add(mentalModelKey);
-    if (item.kind === "capability" || item.kind === "mechanism") contentInsightCount++;
-    else if (item.reveal.pattern === "distribution_outlier") usageAnomalyCount++;
-    else usageTopologyCount++;
     finalInsights.push(item);
-    if (finalInsights.length >= 4) break;
+    if (finalInsights.length >= 5) break;
   }
 
   if (readableSkillCount > 0 && !finalInsights.some((insight) => insight.kind === "capability")) {

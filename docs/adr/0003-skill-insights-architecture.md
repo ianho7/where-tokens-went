@@ -135,4 +135,12 @@ interface SkillTriggerPattern {
 
 > 这条 Insight 是否揭示了一个仅靠 Skill 使用表，或只扫一眼 `SKILL.md`，都不容易同时发现的关系？
 
-当选中的 `SKILL.md` 可读时，最终输出必须尝试生成至少一条无法仅凭 Usage metrics 产生的 Capability Aha；若所有内容候选均未通过 Gate，允许只展示 Usage Aha，但必须在 trace/debug 数据中记录没有通过的具体原因。最小 rejection reason 集合为：`missing_unique_capability_evidence`、`missing_model_native_counterevidence`、`insufficient_content_support`、`usage_content_relation_unclear`、`family_content_unavailable`、`duplicate_mental_model_shift`。
+当选中的 `SKILL.md` 可读时，最终输出必须尝试生成至少一条无法仅凭 Usage metrics 产生的 Capability Aha；若所有内容候选均未通过 Gate，允许只展示 Usage Aha，但必须在 trace/debug数据中记录没有通过的具体原因。最小 rejection reason 集合为：`missing_unique_capability_evidence`、`missing_model_native_counterevidence`、`insufficient_content_support`、`usage_content_relation_unclear`、`family_content_unavailable`、`duplicate_mental_model_shift`。
+
+## 2026-09-29 追决策：运行时硬门禁收敛与局部接受
+
+历史决策中关于 Capability Aha 的产品职责和双边证据体系保持有效。本次修订根据真实报告运行结果明确分工：
+- 运行时 Validator 只守事实真实性、数据安全和可渲染结构（Snapshot ID 匹配、原文摘录确定性包含、引用指标合法、Renderer 必需字段非空、禁止带单位的显式度量造假及因果断言）；
+- 认知差、决策差、反事实深度及文案洞察力由 Prompt 目标和开发期人工质量评审负责，不在运行时使用正则判定文案质量；
+- 允许包含模型名（GPT-4o、Claude 3.5）、版本（v2、Python 3）和年份等无度量数字；
+- 运行时支持卡片级局部接受与诊断记录，只要至少一张合法卡片通过即接受 Lane，避免单张卡片局部问题清空整个结果。

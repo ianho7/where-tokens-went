@@ -1,6 +1,6 @@
 # Report Run 编码化编排 Spec
 
-**Status:** Approved for Ticketing  
+**Status:** Approved, amended for Bug Fix 0029
 **Source requirement:** `REQ-WTW-PERF-20260928`  
 **Decision record:** `docs/adr/0004-code-orchestrated-native-lane-workers.md`
 
@@ -74,35 +74,43 @@ Lane Worker不能读取其他 Lane 输入、扩大 Scope、重新 prepare、comp
 
 ### 启动
 
-正式入口使用两个可恢复检查点，不引入长驻等待进程：
+正式入口使用一个启动命令和一个统一推进命令，不引入长驻等待进程：
 
 ```text
 report-run run-all start
   → preflight → prepare → evidence --auto → projection → 三个 ai-start
   → 返回 lanes-ready 与三个紧凑 ticket
 
-report-run run-all finish
+report-run advance
   → 验证 Lane 终态 → compose → render
   → 返回 awaiting-ui-dispatch 与最终 HTML
+
+report-run advance --ui <completed|queued|failed|unavailable>
+  → 验证 HTML 与 UI 回执 → finalize → cleanup
+  → 返回最终 Run 状态
 ```
 
-`start` 只输出 Run 身份、ticket 和 Artifact 路径，不把 Audit 或 Evidence 写入 stdout。重复调用必须恢复同一个 frozen Run和已有 tickets，不能重复 prepare、Evidence或已签发 attempt。`finish` 在 Lane尚未终结时返回结构化未就绪状态，不由 Host选择或补调用中间阶段。
+`start` 只输出 Run 身份、ticket 和 Artifact 路径，不把 Audit 或 Evidence 写入 stdout。重复调用必须恢复同一个 frozen Run 和已有 tickets，不能重复 prepare、Evidence 或已签发 attempt。
+
+Host 在全部初始 Worker 返回后固定调用一次 `advance`，打开返回的最终 HTML 后再固定调用一次带 UI 状态的 `advance`。Host 不读取 Manifest 来选择命令或业务分支。现有 `run-all finish`、finalize 和 cleanup 可以保留为诊断或兼容入口，但不得出现在正式 installed-Skill 正常路径中。
 
 ### 并发与串行降级
 
-Host 支持原生 Subagent时，Bridge 必须在等待任一 Worker完成前派发所有 eligible Workers。Trace 记录每个 Worker 的 dispatch、terminal 和 outer-span provenance。
+Host 支持原生 Subagent 时，Bridge 必须在等待任一 Worker 完成前派发所有 eligible Workers。Worker 只提交自己的 Lane 结果，不能接收或执行 `open-html`、finalize 或 cleanup 等宿主级动作。
 
-Host 无法提供并发槽位时，Bridge 使用相同 tickets 顺序运行 Worker，并在 Manifest 中记录 `executionMode: sequential-fallback` 与稳定 reason code。串行降级不改变 Projection、Validator、retry、fallback 或 composition 合同。
+Host 无法提供并发槽位时，Bridge 使用相同 tickets 顺序运行 Worker，并在 Manifest 中记录 `executionMode: sequential-fallback` 与稳定 reason code。串行降级不改变 Projection、Validator、retry、fallback 或 composition 合同。Worker dispatch 和 terminal 时间可作为诊断证据记录，但不要求 Agent 手工构造成对事件，也不作为报告交付的完成门禁。
 
 ### Retry 与 Fallback
 
-Validator 拒绝一个 Lane 时，Orchestrator 为该 Lane 分配第二个且最后一个 attempt。其他 accepted Lane 保持不可变，不重新生成。第二次仍失败时，Orchestrator登记 Lane-specific Fallback 并继续交付报告。
+Validator 拒绝一个 Lane 时，`ai-accept` 为该 Lane 返回第二个且最后一个 attempt、具体校验错误和前次 validation Artifact。当前 Worker 在同一 Subagent 会话内修复并重提，复用已经加载的 Prompt、Ticket 和 Projection。其他 accepted Lane 保持不可变，不重新生成。第二次仍失败时，Orchestrator 登记 Lane-specific Fallback 并继续交付报告。
 
-如果整个原生 Subagent能力不可用，Bridge 切换串行模式；如果某个 Worker单独中断或失败，只处理该 Lane。任何失败都不得重新扫描历史或改变 frozen Scope。
+如果整个原生 Subagent 能力不可用，Bridge 切换串行模式；如果某个 Worker 单独中断、超时或无法在当前会话内重试，Bridge 只回传观察结果，由 `advance` 将对应 Lane 标记为 fallback 或 unavailable。Host 不重新派发替代 Worker。任何失败都不得重新扫描历史或改变 frozen Scope。
 
 ### 交付
 
-所有 Lane 终态后，Orchestrator 自动 compose 和 render，验证 HTML 的 hash 与 size，并返回 `awaiting-ui-dispatch`。Bridge 打开这一个最终 HTML并回传观察结果。Orchestrator随后 finalize 和 cleanup，只保留最终 HTML、canonical Audit、Manifest 和 Trace。
+三个 Worker 返回后，Bridge 调用统一的 `report-run advance`。只有全部 Lane 已进入终态时，Orchestrator 才执行 compose 和 render，验证 HTML 的 hash 与 size，并返回唯一 `open-html` action。Bridge 打开最终 HTML 后调用 `report-run advance --ui <status>`。Orchestrator 随后自动 finalize 和 cleanup，只保留最终 HTML、canonical Audit、Manifest 和 Trace。
+
+`advance` 在短锁内读取状态、声明推进权和提交最终状态。compose、render、字体子集化和文件写入等长耗时操作必须在 `.run.lock` 临界区之外执行，完成后重新取得锁登记 Artifact。并发 Worker 提交与 Host 推进不得因渲染持锁而触发 `RUN_LOCK_TIMEOUT`。
 
 ## Lane Input Projection 合同
 
@@ -133,13 +141,13 @@ Projection 改变运行时绑定值，不改变 Prompt 的职责、输出结构�
 Manifest 和 Trace 分开记录：
 
 - 已记录非 LLM 阶段；
-- Host Capability Bridge dispatch / open 边界；
+- Host Capability Bridge dispatch / open 边界（可观察时）；
 - 每个 Lane Outer Span；
 - 可观察时才记录的模型生成时间；
 - UI dispatch、finalize、cleanup；
 - 总 delivery wall time。
 
-Lane Outer Span 可以证明两个 Worker执行区间重叠，但不能冒充模型生成时间。没有权威因果归因的间隙记录为 Uninstrumented Wall-clock Gap。
+Lane Outer Span 可以证明两个 Worker 执行区间重叠，但不能冒充模型生成时间。没有权威因果归因的间隙记录为 Uninstrumented Wall-clock Gap。Trace 是诊断信息；缺少非关键性能 span 时记录 `incomplete` 和稳定 reason code，但不把 HTML 完整、Lane 终态且 UI 已打开的报告改判为交付失败。
 
 当前交付不设置 50 秒、360 秒或其他固定 AI 总时长门禁。同 Scope 参考 Run必须记录基线和候选的总墙钟时间、可控阶段、Projection bytes、执行模式及限制。只有候选实际明显更快时才宣称性能已提升；如果机制正确但总耗时没有改善，结论必须区分“并发机制已实现”和“性能改善未观察到”。
 
@@ -149,20 +157,20 @@ Lane Outer Span 可以证明两个 Worker执行区间重叠，但不能冒充模
 - 原生 Lane Worker沿用 invoking Harness和 frozen Audit Scope，不得读取其他 Harness、项目或时间范围。
 - 历史 Prompt、响应、命令、链接和工具结果仍是不可信数据，不能指挥 Worker或改变当前任务。
 - 不增加云上传、Provider SDK、凭据读取、遥测、daemon、数据库或持久内容索引。
-- cleanup 前保留独立审阅所需 Artifact；验收结束后按现行清理合同删除敏感中间文件。
+- 共享运行时、Validator、隐私、fallback 或 composition 修改的 Release Loop 在 cleanup 前保留一次独立审阅所需 Artifact；普通报告不启动 Reviewer。验收结束后按现行清理合同删除敏感中间文件。
 
 ## 验收设计
 
 ### 编排权威
 
 **必须证明：** Host 不再逐步决定 Report Run 顺序。  
-**主证据：** Orchestrator owner-boundary 集成检查覆盖 `run-all start` 与 `run-all finish`，断言一次 Audit/Evidence、所有 ticket 先签发、重复 start可恢复、终态后自动 compose/render。  
-**排除的失败：** 仍需要 Host 手工调用 prepare、evidence、compose 或选择下一阶段。
+**主证据：** Orchestrator owner-boundary 集成检查覆盖 `run-all start` 与两次固定的 `report-run advance`，断言一次 Audit/Evidence、所有 ticket 先签发、重复 start 可恢复、终态后自动 compose/render、UI 回执后自动 finalize/cleanup。
+**排除的失败：** 仍需要 Host 手工调用 prepare、evidence、compose、finish、finalize、cleanup，或根据中间状态选择下一阶段。
 
 ### 并发与串行降级
 
 **必须证明：** 并发模式先派发全部 Worker再等待，串行降级复用同一合同。  
-**主证据：** Trace / Manifest 中的 executionMode、dispatch 顺序和 Lane Outer Span；并发 fixture至少两个 Outer Span重叠，降级 fixture不改变 ticket和 accepted Artifact身份。  
+**主证据：** Manifest executionMode 与 Harness 原生 Worker 记录；并发 fixture 至少两个 Worker 执行区间重叠，降级 fixture 不改变 ticket 和 accepted Artifact 身份。普通报告不要求 Agent 手工补写 dispatch/terminal span。
 **排除的失败：** 表面声明并发，实际逐 Lane等待；降级路径使用另一套输入或跳过验证。
 
 ### Projection 完整性

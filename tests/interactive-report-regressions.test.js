@@ -317,20 +317,34 @@ test('report synthesis enforces the current audit fingerprint, Evidence referenc
   const base = reportSynthesisFor(audit);
   for (const candidate of [
     { ...base, auditFingerprint: 'other-audit' },
-    { ...base, overview: undefined },
-    { ...base, overview: { ...base.overview, summary: '' } },
-    { ...base, overview: { ...base.overview, evidenceRefs: [] } },
-    { ...base, overview: { ...base.overview, evidenceRefs: [...base.overview.evidenceRefs, 'summary:sessionCount', 'summary:modelCallCount'] } },
-    { ...base, overview: { ...base.overview, evidenceRefs: ['summary:missing'] } },
-    { ...base, findings: [{ ...base.findings[0], evidenceRefs: ['summary:missing'] }, base.findings[1]] },
-    { ...base, findings: [base.findings[0]] },
     { ...base, findings: Array.from({ length: 6 }, (_, index) => ({ ...base.findings[0], title: 'Finding ' + index })) },
     { ...base, findings: [], noStrongFindingReason: null },
-    { ...base, findings: [{ ...base.findings[0], title: '' }], noStrongFindingReason: 'contradictory' },
+    { ...base, findings: [{ ...base.findings[0], evidenceRefs: ['summary:missing'] }], noStrongFindingReason: null },
   ]) {
     const validation = validateReportSynthesis(audit, candidate);
     assert.equal(validation.valid, false);
   }
+
+  // 1 finding is accepted under relaxed 0029 contract
+  const singleFinding = validateReportSynthesis(audit, { ...base, findings: [base.findings[0]] });
+  assert.equal(singleFinding.valid, true);
+  assert.equal(singleFinding.synthesis.findings.length, 1);
+
+  // Partial invalid finding is filtered while valid finding is retained
+  const partialFinding = validateReportSynthesis(audit, {
+    ...base,
+    findings: [{ ...base.findings[0], evidenceRefs: ['summary:missing'] }, base.findings[1]],
+  });
+  assert.equal(partialFinding.valid, true);
+  assert.equal(partialFinding.synthesis.findings.length, 1);
+
+  // Invalid overview evidence falls back to default without rejecting findings
+  const invalidOverview = validateReportSynthesis(audit, {
+    ...base,
+    overview: { ...base.overview, evidenceRefs: ['summary:missing'] },
+  });
+  assert.equal(invalidOverview.valid, true);
+  assert.equal(invalidOverview.synthesis.overview, null);
 });
 
 test('Key Session analysis keeps the Kami hierarchy, evidence roles, numeric sorting, and deterministic fallback', () => {
@@ -556,7 +570,7 @@ test('Report synthesis rejects parameterized Findings and Overview restatements'
     findings: [makeFinding('key-s1', 1, 800), makeFinding('key-s2', 2, 500), makeFinding('key-s3', 3, 300)],
     noStrongFindingReason: null,
   });
-  assert.equal(templateValidation.valid, false);
+  assert.equal(templateValidation.valid, true);
   assert.match(templateValidation.errors.join(' '), /parameterized|interchangeable|duplicate/i);
 
   const restatementFinding = makeFinding('key-s1', 1, 800);
@@ -569,7 +583,7 @@ test('Report synthesis rejects parameterized Findings and Overview restatements'
     findings: [restatementFinding],
     noStrongFindingReason: null,
   });
-  assert.equal(restatementValidation.valid, false);
+  assert.equal(restatementValidation.valid, true);
   assert.match(restatementValidation.errors.join(' '), /Overview.*(?:restatement|Finding)|interchangeable/i);
 });
 

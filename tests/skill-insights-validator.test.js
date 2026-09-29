@@ -373,7 +373,7 @@ test('does not treat high-impact as an unconditional causal assertion', () => {
 
 test('rejects literal numeric prose in family differences', () => {
   const raw = makeFamilyInsight('The named family is an observed usage topology.');
-  raw.insights[0].familyDifferences = ['Member 2 has a different platform environment.'];
+  raw.insights[0].familyDifferences = ['Member has 50% more calls in a different platform environment.'];
   const result = validateSkillInsights(raw, snapshot);
   assert.equal(result.insights.length, 0);
   assert.match(result.errors.join('\n'), /free prose must not contain copied or derived quantitative claims/);

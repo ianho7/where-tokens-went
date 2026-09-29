@@ -19,3 +19,9 @@ where-tokens-went 将保留可复算的确定性数据层，同时由 Host Agent
 Issue 0007 的 Prompt-only dogfood 提升了任务特异性、优先级理由、验证护栏和无强 Evidence 的可靠性，但没有让用户更快看见这些判断。保留“核心判断 + 轮次轨迹”的主体与默认折叠规则，在 Session 摘要中增加一个决策信号：可识别的任务、一句可复述的关键发现或具体未知，以及由现有 `primaryFinding`、`recommendation` 和 fallback 状态派生的“可试 / 暂不建议 / 不可用”。这仍是紧凑页头，不是新的分析区块或 Schema。
 
 展开后继续提供完整机制、替代解释、适用条件、代价、验证和确定性轨迹；Token 排名、Evidence、隐私和降级边界不变。该修订只验证三条现有 dogfood 任务的十秒理解，不引入匿名 A/B、跨 Session 因果排序、结果追踪或正式评估平台。
+
+## 2026-09-29 refinement: accounting limits numbers, not observed behavior
+
+Codex Session 的 Token accounting 为 `mismatch` 或 `unavailable` 时，不再强制把整个 `primaryFinding` 和 `recommendation` 设为 `null`。该状态只阻止使用未核对的 Token 数量、占比或排名支持结论。相同 Session 内已经验证的交互、工具调用和内容 Evidence 仍可支持最高为 `moderate` 的机制分析，并必须附带非空 limitation。
+
+Prompt 负责要求模型按该边界输出。Validator 只检查 support 上限、limitation 存在性和同 Session Evidence，不匹配固定措辞，也不在接收阶段修改模型结果。Evidence 本身不足时仍使用显式无强 Evidence 状态。

@@ -1,6 +1,13 @@
-# `where-tokens-went` 的 Agent / Skill Eval 开发研究笔记（历史）
+# `where-tokens-went` 的 Agent / Skill Eval 开发研究笔记（已退役 / Retired）
 
-> Ticket 07 已退役正式 Eval 晋升门槛。当前 Fast Loop：一个固定 fixture、一个选定 Prompt、一次模型调用、薄事实/Evidence 检查、人工查看 JSON。Release Loop：运行受影响的确定性规则与真实回归；只有改动触及 HTML 或安装交付边界时才验 HTML 或安装 Skill。下方研究结论仅供历史参考，不是当前流程。
+> **Status: retired (2026-09-29)**
+>
+> **已退役归档文档**：Ticket 07 已退役正式 Eval 晋升门槛。本文档已退役并归档，仅保留作为历史研究与决策背景参考。**不得按下文启动任何 Goal、candidate promotion、grader、optimizer 或多 trial 流程。**
+>
+> **当前唯一开发入口**：
+> - 现行 Fast Loop 与 Release Loop 规范：[`docs/AI_PIPELINE_EVAL_EXECUTION.md`](AI_PIPELINE_EVAL_EXECUTION.md)
+> - 日常 Prompt 迭代：使用仓库 `prompt-lab` Skill（`npm run prompt:lab`）
+> - 现行运行时与报告规范：[`docs/MVP.md`](MVP.md)、[`docs/DESIGN.md`](DESIGN.md)、[`docs/REPORT_RUN_ORCHESTRATION_SPEC.md`](REPORT_RUN_ORCHESTRATION_SPEC.md)
 
 ## 结论
 
