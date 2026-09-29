@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { mkdtemp, mkdir, readFile, rm, writeFile } = require('node:fs/promises');
+const { mkdtemp, mkdir, readFile, readdir, rm, writeFile, stat } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
@@ -168,6 +168,163 @@ test('lane-only start/accept and artifact-only compose retain accepted content w
     assert.equal(skillEnd.operation, 'ai-fallback');
     assert.equal(skillEnd.errorCode, 'HOST_GENERATION_FAILED');
     assert.equal(skillEnd.durationMs, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('report-run ai-accept --help returns zero status, complete usage, and does not touch Report Run', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-ai-accept-help-'));
+  const nonexistentDir = path.join(root, 'nonexistent-run-dir');
+  try {
+    // 1. Without --run-dir
+    const res1 = await runCli(['report-run', 'ai-accept', '--help'], {});
+    assert.equal(res1.code, 0, res1.stderr);
+    assert.match(res1.stdout, /--run-dir/);
+    assert.match(res1.stdout, /--lane/);
+    assert.match(res1.stdout, /--attempt/);
+    assert.match(res1.stdout, /--span-id/);
+    assert.match(res1.stdout, /stdin/i);
+
+    // 2. With nonexistent --run-dir
+    const res2 = await runCli(['report-run', 'ai-accept', '--run-dir', nonexistentDir, '--help'], {});
+    assert.equal(res2.code, 0, res2.stderr);
+    assert.match(res2.stdout, /--run-dir/);
+    assert.match(res2.stdout, /--lane/);
+    // Prove it did not create, open, or modify the directory
+    await assert.rejects(stat(nonexistentDir), { code: 'ENOENT' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('ai-accept rejects empty/whitespace stdin without consuming attempt; valid submission accepted as current attempt; invalid JSON retries', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-ai-accept-empty-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '20');
+  const runDir = path.join(root, 'run');
+  try {
+    await mkdir(project, { recursive: true });
+    await mkdir(sessions, { recursive: true });
+    const timestamp = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    await writeFile(path.join(sessions, 'rollout-lane.jsonl'), [
+      { timestamp, type: 'session_meta', payload: { id: 'lane-session', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0', model_provider: 'openai' } },
+      { timestamp, type: 'turn_context', payload: { turn_id: 'lane-turn', cwd: project } },
+      { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'lane-response', turn_id: 'lane-turn', usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 }, turn_token_usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 } } },
+      { timestamp, type: 'response_item', payload: { type: 'message', role: 'user', turn_id: 'lane-turn', content: 'Fixture prompt for empty accept regression test.' } },
+      { timestamp, type: 'turn_context', payload: { turn_id: 'done-turn', cwd: project } },
+      { timestamp, type: 'event_msg', payload: { type: 'task_complete', turn_id: 'done-turn', status: 'completed' } },
+    ].map((record) => JSON.stringify(record)).join('\n') + '\n');
+    const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
+    const prepared = await runCli(['report-run', 'prepare', '--harness', 'codex', '--cwd', project, '--since', '10000d', '--locale', 'en-US', '--run-dir', runDir], env);
+    assert.equal(prepared.code, 0, prepared.stderr);
+    const summary = JSON.parse(prepared.stdout);
+    const evidence = await runCli(['report-run', 'evidence', '--run-dir', runDir, '--auto'], env);
+    assert.equal(evidence.code, 0, evidence.stderr);
+
+    // Start report-synthesis lane
+    const start = await runCli(['report-run', 'ai-start', '--run-dir', runDir, '--lane', 'report-synthesis'], env);
+    assert.equal(start.code, 0, start.stderr);
+    const ticket = JSON.parse(start.stdout);
+    assert.equal(ticket.attempt, 1);
+
+    const laneDir = path.join(runDir, 'lanes', 'report-synthesis');
+    const initialFiles = (await readdir(laneDir)).sort();
+    const manifestInitial = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestInitial.laneStatus['report-synthesis'].status, 'running');
+    assert.equal(manifestInitial.laneStatus['report-synthesis'].attempts, 1);
+
+    // 1. Call ai-accept with empty stdin ("")
+    const emptyAccept = await runCli([
+      'report-run', 'ai-accept', '--run-dir', runDir, '--lane', 'report-synthesis',
+      '--attempt', String(ticket.attempt), '--span-id', ticket.spanId,
+    ], env, '');
+    assert.notEqual(emptyAccept.code, 0, 'empty stdin must return non-zero exit code');
+    assert.match(emptyAccept.stderr, /ai-accept requires non-empty model output on stdin/);
+    assert.doesNotMatch(emptyAccept.stdout, /retryTicket/, 'empty stdin must not issue a retry ticket');
+
+    // Verify manifest and artifacts untouched
+    const manifestAfterEmpty = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestAfterEmpty.laneStatus['report-synthesis'].status, 'running');
+    assert.equal(manifestAfterEmpty.laneStatus['report-synthesis'].attempts, 1);
+    assert.equal(manifestAfterEmpty.stageStatus['report-synthesis'].spanId, ticket.spanId);
+    assert.deepEqual(manifestAfterEmpty.laneArtifacts, manifestInitial.laneArtifacts);
+    const filesAfterEmpty = (await readdir(laneDir)).sort();
+    assert.deepEqual(filesAfterEmpty, initialFiles, 'Lane directory must not have new raw, validation, or accepted artifacts');
+
+    // 2. Call ai-accept with whitespace stdin ("   \n\t  \r\n ")
+    const whitespaceAccept = await runCli([
+      'report-run', 'ai-accept', '--run-dir', runDir, '--lane', 'report-synthesis',
+      '--attempt', String(ticket.attempt), '--span-id', ticket.spanId,
+    ], env, '   \n\t  \r\n ');
+    assert.notEqual(whitespaceAccept.code, 0, 'whitespace stdin must return non-zero exit code');
+    assert.match(whitespaceAccept.stderr, /ai-accept requires non-empty model output on stdin/);
+    assert.doesNotMatch(whitespaceAccept.stdout, /retryTicket/, 'whitespace stdin must not issue a retry ticket');
+
+    // Verify manifest and artifacts still untouched
+    const manifestAfterWs = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestAfterWs.laneStatus['report-synthesis'].status, 'running');
+    assert.equal(manifestAfterWs.laneStatus['report-synthesis'].attempts, 1);
+    assert.equal(manifestAfterWs.stageStatus['report-synthesis'].spanId, ticket.spanId);
+    const filesAfterWs = (await readdir(laneDir)).sort();
+    assert.deepEqual(filesAfterWs, initialFiles, 'Lane directory must remain untouched after whitespace stdin');
+
+    // 3. First formal submission: submit valid JSON, proved to be accepted as attempt 1
+    const audit = JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8'));
+    const evidenceRef = `summary:${Object.keys(audit.summary)[0]}`;
+    const validSynthesis = {
+      auditFingerprint: summary.auditFingerprint,
+      overview: { summary: 'The fixture records a bounded activity period.', evidenceRefs: [evidenceRef] },
+      findings: [],
+      noStrongFindingReason: 'The fixture does not contain enough evidence for a distinct report-level finding.',
+    };
+    const validAccept = await runCli([
+      'report-run', 'ai-accept', '--run-dir', runDir, '--lane', 'report-synthesis',
+      '--attempt', String(ticket.attempt), '--span-id', ticket.spanId,
+    ], env, JSON.stringify(validSynthesis));
+    assert.equal(validAccept.code, 0, validAccept.stderr);
+    const validAcceptResult = JSON.parse(validAccept.stdout);
+    assert.equal(validAcceptResult.status, 'accepted');
+    assert.equal(validAcceptResult.attempt, 1, 'Valid submission must be accepted as attempt 1, unconsumed by prior empty probing');
+
+    // Verify manifest directly: status accepted, attempts 1
+    const manifestAccepted = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestAccepted.laneStatus['report-synthesis'].status, 'accepted');
+    assert.equal(manifestAccepted.laneStatus['report-synthesis'].attempts, 1);
+    assert.ok(manifestAccepted.laneArtifacts['report-synthesis/accepted.json']);
+
+    // Verify Lane directory artifacts
+    const filesAccepted = await readdir(laneDir);
+    assert.ok(filesAccepted.includes('attempt-1.raw.json'), 'attempt-1.raw.json must be created');
+    assert.ok(filesAccepted.includes('attempt-1.validation.json'), 'attempt-1.validation.json must be created');
+    assert.ok(filesAccepted.includes('accepted.json'), 'accepted.json must be created');
+    assert.ok(!filesAccepted.some((f) => f.includes('attempt-2')), 'No attempt-2 artifacts should exist');
+
+    // 4. Compatibility check: non-empty invalid JSON still triggers MODEL_OUTPUT_INVALID_JSON and retry
+    const startKey = await runCli(['report-run', 'ai-start', '--run-dir', runDir, '--lane', 'key-session-analysis'], env);
+    assert.equal(startKey.code, 0, startKey.stderr);
+    const keyTicket = JSON.parse(startKey.stdout);
+    assert.equal(keyTicket.attempt, 1);
+
+    const invalidJsonAccept = await runCli([
+      'report-run', 'ai-accept', '--run-dir', runDir, '--lane', 'key-session-analysis',
+      '--attempt', String(keyTicket.attempt), '--span-id', keyTicket.spanId,
+    ], env, '{"unclosed json:');
+    assert.equal(invalidJsonAccept.code, 0, invalidJsonAccept.stderr);
+    const invalidResult = JSON.parse(invalidJsonAccept.stdout);
+    assert.equal(invalidResult.status, 'retrying');
+    assert.equal(invalidResult.validationStatus, 'rejected');
+    assert.equal(invalidResult.reasonCode, 'MODEL_OUTPUT_INVALID_JSON');
+    assert.ok(invalidResult.retryTicket, 'must issue retryTicket on first failure of non-empty invalid JSON');
+    assert.equal(invalidResult.retryTicket.attempt, 2);
+
+    const manifestKeyRetrying = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestKeyRetrying.laneStatus['key-session-analysis'].attempts, 2);
+    const keyLaneDir = path.join(runDir, 'lanes', 'key-session-analysis');
+    const keyFiles = await readdir(keyLaneDir);
+    assert.ok(keyFiles.includes('attempt-1.raw.json'));
+    assert.ok(keyFiles.includes('attempt-1.validation.json'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

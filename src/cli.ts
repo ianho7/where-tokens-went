@@ -938,6 +938,24 @@ async function reportRunAiStartMain(args: string[]): Promise<number> {
   return 0;
 }
 
+function aiAcceptUsage(): string {
+  return [
+    "Usage: where-tokens-went report-run ai-accept --run-dir <directory> --lane <report-synthesis|key-session-analysis|skill-insights> [--attempt <number>] [--span-id <span-id>] < lane output JSON on stdin",
+    "",
+    "Accept model-generated JSON output for an active Report Run lane from stdin.",
+    "",
+    "Arguments:",
+    "  --run-dir <directory>  Report Run workspace directory (required)",
+    "  --lane <lane>          Report lane: report-synthesis, key-session-analysis, or skill-insights (required)",
+    "  --attempt <number>     Attempt number (optional; defaults to the lane's current attempt)",
+    "  --span-id <span-id>    Active span identifier (optional; defaults to the lane's current span)",
+    "  --help, -h             Show this help message",
+    "",
+    "Input:",
+    "  Requires non-empty model-generated JSON on stdin matching the lane output contract.",
+  ].join("\n");
+}
+
 function parseAiAcceptArgs(args: string[]): { runDir: string; lane: ReportLane; attempt: number | null; spanId: string | null } {
   const extracted = extractRunDirectory(args);
   let lane: ReportLane | null = null;
@@ -951,11 +969,12 @@ function parseAiAcceptArgs(args: string[]): { runDir: string; lane: ReportLane; 
       if (!Number.isInteger(value) || value < 1) throw new Error("--attempt must be a positive integer.");
       attempt = value;
     } else if (flag === "--span-id") spanId = requireValue(extracted.rest, index, flag);
-    else throw new Error(`Unknown ai-accept argument: ${flag}.`);
+    else throw new Error(`Unknown ai-accept argument: ${flag}.\n${aiAcceptUsage()}`);
     index += 1;
   }
-  if (!lane) throw new Error("--lane is required.");
-  return { runDir: requireRunDirectory(extracted.runDir), lane, attempt, spanId };
+  if (!extracted.runDir) throw new Error(`--run-dir is required.\n${aiAcceptUsage()}`);
+  if (!lane) throw new Error(`--lane is required.\n${aiAcceptUsage()}`);
+  return { runDir: assertLocalSensitiveRunDirectory(extracted.runDir), lane, attempt, spanId };
 }
 
 async function readHostResponseTiming(
@@ -1011,6 +1030,10 @@ async function readHostResponseTiming(
 }
 
 async function reportRunAiAcceptMain(args: string[]): Promise<number> {
+  if (args.includes("--help") || args.includes("-h")) {
+    process.stdout.write(aiAcceptUsage() + "\n");
+    return 0;
+  }
   const options = parseAiAcceptArgs(args);
   const installedBundle = await verifyInstalledSkill();
   const run = await openReportRun(options.runDir);
@@ -1027,6 +1050,9 @@ async function reportRunAiAcceptMain(args: string[]): Promise<number> {
   const input = await readRunLaneArtifact(run.runDir, options.lane, "input") as Record<string, unknown>;
   validateLaneProjection(run, options.lane, input, lanePromptHash(run.manifest, options.lane));
   const rawText = await readStdin();
+  if (!rawText.trim()) {
+    throw new Error(`ai-accept requires non-empty model output on stdin.\n${aiAcceptUsage()}`);
+  }
   const outputHash = sha256Text(rawText);
   let raw: unknown;
   let parseError: string | null = null;
