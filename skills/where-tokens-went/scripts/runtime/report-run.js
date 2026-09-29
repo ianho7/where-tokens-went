@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ALLOWED_GENERATION_FAILURE_REASONS = exports.DEFAULT_RUN_STAGES = exports.REPORT_LANES = void 0;
+exports.ALLOWED_GENERATION_FAILURE_REASONS = exports.DEFAULT_RUN_STAGES = exports.SEQUENTIAL_FALLBACK_REASON_CODES = exports.REPORT_LANES = void 0;
 exports.isLaneTerminal = isLaneTerminal;
 exports.assertLocalSensitiveRunDirectory = assertLocalSensitiveRunDirectory;
 exports.createReportRun = createReportRun;
@@ -86,6 +86,10 @@ exports.REPORT_LANES = [
     "report-synthesis",
     "key-session-analysis",
     "skill-insights",
+];
+exports.SEQUENTIAL_FALLBACK_REASON_CODES = [
+    "NATIVE_CONCURRENCY_UNAVAILABLE",
+    "INSUFFICIENT_CONCURRENCY_SLOTS",
 ];
 function isLaneTerminal(lane) {
     if (lane.status === "accepted" || lane.status === "unavailable")
@@ -297,6 +301,8 @@ function initialManifest(scope, runId) {
         totalDurationMs: null,
         promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null },
         runtimeHash: null,
+        executionMode: null,
+        executionModeReasonCode: null,
         warnings: [],
         laneStatus: {
             "report-synthesis": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null },
@@ -1121,6 +1127,8 @@ async function readRunManifest(runDir) {
         manifest.laneStatus[lane].spanStartedAt ??= null;
     manifest.deliveryStatus ??= manifest.status;
     manifest.degraded ??= false;
+    manifest.executionMode ??= null;
+    manifest.executionModeReasonCode ??= null;
     manifest.uiDispatch ??= "unavailable";
     manifest.laneArtifacts ??= {};
     manifest.retention ??= { workspace: "local-sensitive", policy: "explicit-cleanup", cleanedAt: null };
@@ -1145,6 +1153,24 @@ async function recordRunSpan(runDir, event) {
     const parentSpanId = event.parentSpanId ? safeSpanLabel(event.parentSpanId, "unknown-parent") : null;
     return withRunLock(resolved, async () => {
         const manifest = await readRunManifest(resolved);
+        if (phase === "lane-workers" && event.event === "start") {
+            const executionMode = event.metadata?.executionMode;
+            const reasonCode = event.metadata?.reasonCode;
+            if (executionMode !== "concurrent" && executionMode !== "sequential-fallback") {
+                throw new Error("REPORT_EXECUTION_MODE_REQUIRED: lane-workers start must declare concurrent or sequential-fallback.");
+            }
+            if (executionMode === "sequential-fallback" && (typeof reasonCode !== "string" || !exports.SEQUENTIAL_FALLBACK_REASON_CODES.includes(reasonCode))) {
+                throw new Error(`REPORT_EXECUTION_MODE_REASON_REQUIRED: sequential-fallback reasonCode must be one of ${exports.SEQUENTIAL_FALLBACK_REASON_CODES.join(", ")}.`);
+            }
+            if (executionMode === "concurrent" && reasonCode !== null && reasonCode !== undefined) {
+                throw new Error("REPORT_EXECUTION_MODE_REASON_INVALID: concurrent execution cannot carry a fallback reasonCode.");
+            }
+            if (manifest.executionMode !== null && manifest.executionMode !== executionMode) {
+                throw lockError("RUN_EXECUTION_MODE_IMMUTABLE", "Report Run execution mode cannot change after worker dispatch begins.");
+            }
+            manifest.executionMode = executionMode;
+            manifest.executionModeReasonCode = executionMode === "sequential-fallback" ? reasonCode : null;
+        }
         const current = manifest.stageStatus[phase];
         manifest.eligibleStages = [...new Set([...manifest.eligibleStages, phase])];
         const attempt = event.attempt ?? (event.event === "end" && current?.spanId === spanId ? current.attempt : (current?.attempt ?? 0) + 1);

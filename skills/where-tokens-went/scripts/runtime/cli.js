@@ -399,6 +399,8 @@ function runSummary(run) {
         totalDurationMs: run.manifest.totalDurationMs,
         promptHashes: run.manifest.promptHashes,
         runtimeHash: run.manifest.runtimeHash,
+        executionMode: run.manifest.executionMode,
+        executionModeReasonCode: run.manifest.executionModeReasonCode,
         warnings: run.manifest.warnings,
         laneStatus: run.manifest.laneStatus,
         deliveryStatus: run.manifest.deliveryStatus,

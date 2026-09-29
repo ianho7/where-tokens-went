@@ -51,6 +51,12 @@ export const REPORT_LANES: readonly ReportLane[] = [
   "skill-insights",
 ] as const;
 
+export type ReportRunExecutionMode = "concurrent" | "sequential-fallback";
+export const SEQUENTIAL_FALLBACK_REASON_CODES = [
+  "NATIVE_CONCURRENCY_UNAVAILABLE",
+  "INSUFFICIENT_CONCURRENCY_SLOTS",
+] as const;
+
 export function isLaneTerminal(lane: RunLaneStatus): boolean {
   if (lane.status === "accepted" || lane.status === "unavailable") return true;
   if (lane.status === "fallback" && lane.attempts >= 2) return true;
@@ -145,6 +151,8 @@ export interface ReportRunManifest {
     skillInsights?: string | null;
   };
   runtimeHash: string | null;
+  executionMode: ReportRunExecutionMode | null;
+  executionModeReasonCode: string | null;
   warnings: string[];
   laneStatus: Record<ReportLane, RunLaneStatus>;
   deliveryStatus: ReportRunStatus;
@@ -405,6 +413,8 @@ function initialManifest(scope: ReportRunScope, runId: string): ReportRunManifes
     totalDurationMs: null,
     promptHashes: { reportSynthesis: null, keySessionAnalysis: null, skillInsights: null },
     runtimeHash: null,
+    executionMode: null,
+    executionModeReasonCode: null,
     warnings: [],
     laneStatus: {
       "report-synthesis": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null },
@@ -1427,6 +1437,8 @@ export async function readRunManifest(runDir: string): Promise<ReportRunManifest
   for (const lane of ["report-synthesis", "key-session-analysis", "skill-insights"] as const) manifest.laneStatus[lane].spanStartedAt ??= null;
   manifest.deliveryStatus ??= manifest.status;
   manifest.degraded ??= false;
+  manifest.executionMode ??= null;
+  manifest.executionModeReasonCode ??= null;
   manifest.uiDispatch ??= "unavailable";
   manifest.laneArtifacts ??= {};
   manifest.retention ??= { workspace: "local-sensitive", policy: "explicit-cleanup", cleanedAt: null };
@@ -1451,6 +1463,24 @@ export async function recordRunSpan(runDir: string, event: ExternalSpanEvent): P
   const parentSpanId = event.parentSpanId ? safeSpanLabel(event.parentSpanId, "unknown-parent") : null;
   return withRunLock(resolved, async () => {
     const manifest = await readRunManifest(resolved);
+    if (phase === "lane-workers" && event.event === "start") {
+      const executionMode = event.metadata?.executionMode;
+      const reasonCode = event.metadata?.reasonCode;
+      if (executionMode !== "concurrent" && executionMode !== "sequential-fallback") {
+        throw new Error("REPORT_EXECUTION_MODE_REQUIRED: lane-workers start must declare concurrent or sequential-fallback.");
+      }
+      if (executionMode === "sequential-fallback" && (typeof reasonCode !== "string" || !(SEQUENTIAL_FALLBACK_REASON_CODES as readonly string[]).includes(reasonCode))) {
+        throw new Error(`REPORT_EXECUTION_MODE_REASON_REQUIRED: sequential-fallback reasonCode must be one of ${SEQUENTIAL_FALLBACK_REASON_CODES.join(", ")}.`);
+      }
+      if (executionMode === "concurrent" && reasonCode !== null && reasonCode !== undefined) {
+        throw new Error("REPORT_EXECUTION_MODE_REASON_INVALID: concurrent execution cannot carry a fallback reasonCode.");
+      }
+      if (manifest.executionMode !== null && manifest.executionMode !== executionMode) {
+        throw lockError("RUN_EXECUTION_MODE_IMMUTABLE", "Report Run execution mode cannot change after worker dispatch begins.");
+      }
+      manifest.executionMode = executionMode;
+      manifest.executionModeReasonCode = executionMode === "sequential-fallback" ? reasonCode as string : null;
+    }
     const current = manifest.stageStatus[phase];
     manifest.eligibleStages = [...new Set([...manifest.eligibleStages, phase])];
     const attempt = event.attempt ?? (event.event === "end" && current?.spanId === spanId ? current.attempt : (current?.attempt ?? 0) + 1);

@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-const { createReportRun, readRunManifest, writeRunArtifact, appendRunWarnings, recordRunSpan } = require('../dist/src/report-run.js');
+const { createReportRun, readRunManifest, writeRunArtifact, appendRunWarnings, recordRunSpan, startReportLane, finishReportLane } = require('../dist/src/report-run.js');
 
 function runEvent(runDir, phase, spanId, status = 'completed') {
   const code = [
@@ -93,6 +93,98 @@ test('overlapping spans in one phase do not make the trace incomplete', async ()
     const manifest = await readRunManifest(run.runDir);
     assert.equal(manifest.traceCompleteness, 'complete');
     assert.deepEqual(manifest.warnings, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('native worker dispatch records execution mode and terminal boundaries without changing lane state', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-worker-dispatch-test-'));
+  try {
+    const run = await createReportRun({
+      harness: 'codex', cwd: null, allProjects: true,
+      since: new Date('2026-09-19T00:00:00.000Z'), until: new Date('2026-09-20T00:00:00.000Z'), locale: 'en-US',
+    }, root);
+    const tickets = {};
+    for (const lane of ['report-synthesis', 'key-session-analysis', 'skill-insights']) {
+      tickets[lane] = await startReportLane(run, lane, `lanes/${lane}/input.json`);
+    }
+
+    await recordRunSpan(run.runDir, {
+      event: 'start',
+      spanId: 'lane-workers-batch',
+      phase: 'lane-workers',
+      operation: 'dispatch-workers',
+      source: 'host-agent',
+      attempt: 1,
+      startedAt: '2026-09-20T00:00:00.000Z',
+      metadata: { executionMode: 'concurrent', reasonCode: null, eligibleWorkerCount: 3 },
+    });
+
+    for (const lane of ['report-synthesis', 'key-session-analysis', 'skill-insights']) {
+      const ticket = tickets[lane];
+      const workerSpanId = `worker:${lane}:1`;
+      await recordRunSpan(run.runDir, {
+        event: 'start',
+        spanId: workerSpanId,
+        phase: `lane-worker:${lane}`,
+        operation: 'worker-dispatch',
+        source: 'host-agent',
+        attempt: ticket.attempt,
+        startedAt: '2026-09-20T00:00:00.100Z',
+        metadata: { workerId: workerSpanId, lane, executionMode: 'concurrent', laneSpanId: ticket.spanId },
+      });
+    }
+
+    const beforeTerminal = await readRunManifest(run.runDir);
+    assert.equal(beforeTerminal.executionMode, 'concurrent');
+    assert.equal(beforeTerminal.executionModeReasonCode, null);
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(beforeTerminal.laneStatus).map(([lane, status]) => [lane, [status.status, status.attempts]])),
+      Object.fromEntries(['report-synthesis', 'key-session-analysis', 'skill-insights'].map((lane) => [lane, ['running', 1]])),
+    );
+
+    for (const lane of ['report-synthesis', 'key-session-analysis', 'skill-insights']) {
+      const ticket = tickets[lane];
+      const workerSpanId = `worker:${lane}:1`;
+      await recordRunSpan(run.runDir, {
+        event: 'end',
+        spanId: workerSpanId,
+        phase: `lane-worker:${lane}`,
+        operation: 'worker-terminal',
+        source: 'host-agent',
+        attempt: ticket.attempt,
+        startedAt: '2026-09-20T00:00:00.100Z',
+        endedAt: '2026-09-20T00:00:00.200Z',
+        durationMs: 100,
+        status: 'completed',
+        metadata: { workerId: workerSpanId, lane, laneTerminalStatus: 'accepted' },
+      });
+      await finishReportLane(run, lane, ticket.attempt, ticket.spanId, ticket.startedAt, 'accepted', null, null, `lanes/${lane}/accepted.json`);
+    }
+
+    await recordRunSpan(run.runDir, {
+      event: 'end',
+      spanId: 'lane-workers-batch',
+      phase: 'lane-workers',
+      operation: 'workers-terminal',
+      source: 'host-agent',
+      attempt: 1,
+      startedAt: '2026-09-20T00:00:00.000Z',
+      endedAt: '2026-09-20T00:00:00.300Z',
+      durationMs: 300,
+      status: 'completed',
+      metadata: { executionMode: 'concurrent', reasonCode: null, terminalWorkerCount: 3 },
+    });
+
+    const manifest = await readRunManifest(run.runDir);
+    assert.equal(manifest.executionMode, 'concurrent');
+    assert.equal(manifest.executionModeReasonCode, null);
+    assert.ok(Object.values(manifest.laneStatus).every((lane) => lane.status === 'accepted'));
+    const trace = (await readFile(path.join(run.runDir, 'trace.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(trace.filter((event) => event.phase?.startsWith('lane-worker:') && event.operation === 'worker-dispatch').length, 3);
+    assert.equal(trace.filter((event) => event.phase?.startsWith('lane-worker:') && event.operation === 'worker-terminal').length, 3);
+    assert.ok(trace.some((event) => event.phase === 'lane-workers' && event.metadata?.executionMode === 'concurrent'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
