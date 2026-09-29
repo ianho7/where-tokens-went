@@ -551,7 +551,7 @@ test('Key Session composition keeps independently grounded mechanisms', () => {
   assert.equal(composition.unavailable.length, 0);
 });
 
-test('Report synthesis rejects parameterized Findings and Overview restatements', () => {
+test('Report synthesis flags parameterized Findings and Overview restatements with diagnostic errors while remaining valid', () => {
   const audit = keySessionResult();
   const fingerprint = auditFingerprint(audit);
   const makeFinding = (sessionId, rank, tokens) => {

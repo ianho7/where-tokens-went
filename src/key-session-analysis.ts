@@ -66,38 +66,39 @@ function strings(value: unknown): value is string[] {
 }
 
 function normalizeEvidenceId(id: string): string {
-  return id.trim().toLowerCase().replace(/[-_]/g, "");
+  return id.trim().toLowerCase().replace(/[\s\-_]/g, "");
 }
 
 function sameSessionEvidence(audit: AuditResult, sessionId: string, evidenceIds: string[]): string[] {
   if (!Array.isArray(evidenceIds)) return [];
   type TurnItem = NonNullable<AuditResult["turns"]>[number];
-  const turnEvidence = new Map<string, TurnItem>();
-  const normalizedTurnEvidence = new Map<string, TurnItem>();
-  for (const turn of audit.turns ?? []) {
-    turnEvidence.set(turn.evidenceId, turn);
-    normalizedTurnEvidence.set(normalizeEvidenceId(turn.evidenceId), turn);
-  }
+  const turns = audit.turns ?? [];
   return evidenceIds.filter((evidenceId) => {
     if (typeof evidenceId !== "string") return true;
-    const turn = turnEvidence.get(evidenceId.trim()) ?? normalizedTurnEvidence.get(normalizeEvidenceId(evidenceId));
-    return !turn || turn.sessionId !== sessionId;
+    const trimmed = evidenceId.trim();
+    const exactMatches = turns.filter((turn) => turn.evidenceId === trimmed);
+    if (exactMatches.length === 1) return exactMatches[0].sessionId !== sessionId;
+    if (exactMatches.length > 1) return true; // ambiguous
+    const norm = normalizeEvidenceId(trimmed);
+    const normalizedMatches = turns.filter((turn) => normalizeEvidenceId(turn.evidenceId) === norm);
+    if (normalizedMatches.length === 1) return normalizedMatches[0].sessionId !== sessionId;
+    return true; // ambiguous or unknown
   });
 }
 
 function evidenceNotRead(audit: AuditResult, sessionId: string, turnIds: string[], evidenceIds: string[]): string[] {
   if (!Array.isArray(evidenceIds) || !Array.isArray(turnIds)) return [];
-  const readEvidence = new Set<string>();
-  const normalizedReadEvidence = new Set<string>();
-  for (const turn of audit.turns ?? []) {
-    if (turn.sessionId === sessionId && turnIds.includes(turn.turnId)) {
-      readEvidence.add(turn.evidenceId);
-      normalizedReadEvidence.add(normalizeEvidenceId(turn.evidenceId));
-    }
-  }
+  const readTurns = (audit.turns ?? []).filter((turn) => turn.sessionId === sessionId && turnIds.includes(turn.turnId));
   return evidenceIds.filter((evidenceId) => {
     if (typeof evidenceId !== "string") return true;
-    return !readEvidence.has(evidenceId.trim()) && !normalizedReadEvidence.has(normalizeEvidenceId(evidenceId));
+    const trimmed = evidenceId.trim();
+    const exactMatches = readTurns.filter((turn) => turn.evidenceId === trimmed);
+    if (exactMatches.length === 1) return false;
+    if (exactMatches.length > 1) return true; // ambiguous
+    const norm = normalizeEvidenceId(trimmed);
+    const normalizedMatches = readTurns.filter((turn) => normalizeEvidenceId(turn.evidenceId) === norm);
+    if (normalizedMatches.length === 1) return false;
+    return true; // not read or ambiguous
   });
 }
 
@@ -127,10 +128,14 @@ export function resolveReportEvidence(audit: AuditResult, reference: string): Re
       return { kind: "summary", key: rawKey, evidence: [audit.summary[rawKey]] };
     }
     const normKey = normalizeEvidenceId(rawKey);
+    const matches: Array<[string, EvidenceValue]> = [];
     for (const [k, v] of Object.entries(audit.summary)) {
       if (normalizeEvidenceId(k) === normKey && v) {
-        return { kind: "summary", key: k, evidence: [v] };
+        matches.push([k, v]);
       }
+    }
+    if (matches.length === 1) {
+      return { kind: "summary", key: matches[0][0], evidence: [matches[0][1]] };
     }
     return null;
   }
@@ -138,8 +143,21 @@ export function resolveReportEvidence(audit: AuditResult, reference: string): Re
   const checkMatch = /^check:([^:]+)(?::(\d+))?$/i.exec(trimmed);
   if (checkMatch) {
     const rawId = checkMatch[1].trim();
-    const normId = normalizeEvidenceId(rawId);
-    const check = audit.checks.find((candidate) => candidate.id === rawId || normalizeEvidenceId(candidate.id) === normId);
+    let check: NonNullable<AuditResult["checks"]>[number] | undefined;
+    const exact = audit.checks.filter((candidate) => candidate.id === rawId);
+    if (exact.length === 1) {
+      check = exact[0];
+    } else if (exact.length > 1) {
+      return null;
+    } else {
+      const normId = normalizeEvidenceId(rawId);
+      const normalizedMatches = audit.checks.filter((candidate) => normalizeEvidenceId(candidate.id) === normId);
+      if (normalizedMatches.length === 1) {
+        check = normalizedMatches[0];
+      } else {
+        return null;
+      }
+    }
     if (!check || check.evidence.length === 0) return null;
     if (checkMatch[2] === undefined) return { kind: "check", key: check.id, evidence: check.evidence };
     const index = Number(checkMatch[2]);
@@ -153,12 +171,41 @@ export function resolveReportEvidence(audit: AuditResult, reference: string): Re
     const normDimension = rankingMatch[1].toLowerCase() as "sessions" | "projects" | "models" | "timebuckets";
     const dimensionKey = normDimension === "timebuckets" ? "timeBuckets" : normDimension as "sessions" | "projects" | "models";
     const rawKey = rankingMatch[2].trim();
-    const normKey = normalizeEvidenceId(rawKey);
-    const entry = audit.rankings[dimensionKey]?.find((candidate) => candidate.key === rawKey || normalizeEvidenceId(candidate.key) === normKey);
+    const entries = audit.rankings[dimensionKey] ?? [];
+    let entry: typeof entries[number] | undefined;
+    const exact = entries.filter((candidate) => candidate.key === rawKey);
+    if (exact.length === 1) {
+      entry = exact[0];
+    } else if (exact.length > 1) {
+      return null;
+    } else {
+      const normKey = normalizeEvidenceId(rawKey);
+      const normalizedMatches = entries.filter((candidate) => normalizeEvidenceId(candidate.key) === normKey);
+      if (normalizedMatches.length === 1) {
+        entry = normalizedMatches[0];
+      } else {
+        return null;
+      }
+    }
     return entry ? { kind: "ranking", dimension: dimensionKey, key: entry.key, evidence: [entry.value, entry.sharePercent, entry.count] } : null;
   }
 
-  const turn = audit.turns.find((candidate) => candidate.evidenceId === trimmed || normalizeEvidenceId(candidate.evidenceId) === normalizeEvidenceId(trimmed));
+  const turns = audit.turns ?? [];
+  let turn: typeof turns[number] | undefined;
+  const exact = turns.filter((candidate) => candidate.evidenceId === trimmed);
+  if (exact.length === 1) {
+    turn = exact[0];
+  } else if (exact.length > 1) {
+    return null;
+  } else {
+    const normTrimmed = normalizeEvidenceId(trimmed);
+    const normalizedMatches = turns.filter((candidate) => normalizeEvidenceId(candidate.evidenceId) === normTrimmed);
+    if (normalizedMatches.length === 1) {
+      turn = normalizedMatches[0];
+    } else {
+      return null;
+    }
+  }
   return turn
     ? { kind: "turn", key: turn.turnId, evidence: [turn.tokens.totalTokens, turn.sessionSharePercent, turn.modelCallCount] }
     : null;
@@ -372,9 +419,114 @@ export function validateReportSynthesis(audit: AuditResult, synthesis: unknown):
   };
 }
 
+export interface RedactionDiagnostic {
+  code: "RAW_EVIDENCE_REDACTED";
+  fieldPath: string;
+  count: number;
+}
+
+export function sanitizeKeySessionAnalysis(
+  analysis: KeySessionAnalysis,
+  packets: ContentEvidencePacket[] | undefined,
+): {
+  sanitized: KeySessionAnalysis;
+  redactions: RedactionDiagnostic[];
+} {
+  if (!packets || packets.length === 0) {
+    return { sanitized: analysis, redactions: [] };
+  }
+  const rawNeedles = new Set<string>();
+  for (const packet of packets) {
+    for (const item of packet.items ?? []) {
+      if (typeof item.content === "string") {
+        const cleaned = item.content.replace(/…$/, "");
+        if (cleaned.length >= 40) {
+          rawNeedles.add(cleaned);
+        }
+      }
+    }
+  }
+  if (rawNeedles.size === 0) {
+    return { sanitized: analysis, redactions: [] };
+  }
+  const needles = [...rawNeedles].sort((a, b) => b.length - a.length);
+  const redactions: RedactionDiagnostic[] = [];
+
+  function redactField(text: string, path: string): string {
+    let current = text;
+    for (const needle of needles) {
+      if (current.includes(needle)) {
+        const count = current.split(needle).length - 1;
+        current = current.replaceAll(needle, "[已移除直接引用的历史内容]");
+        redactions.push({ code: "RAW_EVIDENCE_REDACTED", fieldPath: path, count });
+      }
+    }
+    return current;
+  }
+
+  const sanitized: KeySessionAnalysis = {
+    ...analysis,
+    taskContext: typeof analysis.taskContext === "string" ? redactField(analysis.taskContext, "taskContext") : analysis.taskContext,
+    primaryFinding: analysis.primaryFinding
+      ? {
+          ...analysis.primaryFinding,
+          observation: typeof analysis.primaryFinding.observation === "string"
+            ? redactField(analysis.primaryFinding.observation, "primaryFinding.observation")
+            : analysis.primaryFinding.observation,
+          interpretation: typeof analysis.primaryFinding.interpretation === "string"
+            ? redactField(analysis.primaryFinding.interpretation, "primaryFinding.interpretation")
+            : analysis.primaryFinding.interpretation,
+          alternativeExplanations: Array.isArray(analysis.primaryFinding.alternativeExplanations)
+            ? analysis.primaryFinding.alternativeExplanations.map((alt, i) =>
+                typeof alt === "string" ? redactField(alt, `primaryFinding.alternativeExplanations[${i}]`) : alt,
+              )
+            : analysis.primaryFinding.alternativeExplanations,
+        }
+      : null,
+    recommendation: analysis.recommendation
+      ? {
+          ...analysis.recommendation,
+          action: typeof analysis.recommendation.action === "string"
+            ? redactField(analysis.recommendation.action, "recommendation.action")
+            : analysis.recommendation.action,
+          rationale: typeof analysis.recommendation.rationale === "string"
+            ? redactField(analysis.recommendation.rationale, "recommendation.rationale")
+            : analysis.recommendation.rationale,
+          applicability: typeof analysis.recommendation.applicability === "string"
+            ? redactField(analysis.recommendation.applicability, "recommendation.applicability")
+            : analysis.recommendation.applicability,
+          tradeoff: typeof analysis.recommendation.tradeoff === "string"
+            ? redactField(analysis.recommendation.tradeoff, "recommendation.tradeoff")
+            : analysis.recommendation.tradeoff,
+          verification: typeof analysis.recommendation.verification === "string"
+            ? redactField(analysis.recommendation.verification, "recommendation.verification")
+            : analysis.recommendation.verification,
+        }
+      : null,
+    limitations: Array.isArray(analysis.limitations)
+      ? analysis.limitations.map((lim, i) =>
+          typeof lim === "string" ? redactField(lim, `limitations[${i}]`) : lim,
+        )
+      : analysis.limitations,
+  };
+
+  return { sanitized, redactions };
+}
+
 function containsRawEvidence(analysis: KeySessionAnalysis, packets: ContentEvidencePacket[] | undefined): boolean {
   if (!packets) return false;
-  const text = [analysis.taskContext, analysis.primaryFinding?.observation, analysis.primaryFinding?.interpretation, analysis.recommendation?.action, analysis.recommendation?.rationale].filter(nonEmpty).join("\n");
+  const text = [
+    analysis.taskContext,
+    analysis.primaryFinding?.observation,
+    analysis.primaryFinding?.interpretation,
+    ...(analysis.primaryFinding?.alternativeExplanations ?? []),
+    analysis.recommendation?.action,
+    analysis.recommendation?.rationale,
+    analysis.recommendation?.applicability,
+    analysis.recommendation?.tradeoff,
+    analysis.recommendation?.verification,
+    ...(analysis.limitations ?? []),
+  ].filter(nonEmpty).join("\n");
   return packets.some((packet) => packet.items.some((item) => item.content.length >= 40 && text.includes(item.content.replace(/…$/, ""))));
 }
 

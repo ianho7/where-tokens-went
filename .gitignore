@@ -26,7 +26,9 @@ dist/
 # Private development context (local-only, never committed)
 /docs/handoff/
 /docs/plans/
-/docs/specs/
+/docs/specs/*
+!/docs/specs/skill-insights.md
+!/docs/specs/key-session-analysis.md
 /docs/prototypes/
 /docs/research/
 /docs/*_RESEARCH.md

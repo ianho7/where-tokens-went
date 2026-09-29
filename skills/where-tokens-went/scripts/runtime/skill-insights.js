@@ -504,7 +504,16 @@ const TOKEN_SCALE_MENTION_REGEX = /(?<![-_A-Za-z0-9])(?:tokens?|associatedSessio
 const CROSS_SKILL_TOKEN_AGGREGATION_REGEX = /\b(?:sum|total|combine(?:d)?|aggregate|add(?:ed)?|pool|together|across)\b|(?:相加|合计|总和|合并|汇总|叠加|累计|共同承担)/i;
 const TOKEN_SCALE_BOUNDARY_REGEX = /\b(?:not|no|cannot|can't|does not|doesn't|unknown|unclear|unconfirmed|unverified|pending|without evidence|not a proxy)\b|当前(?:缺少|没有)|(?:不能|无法|不足以|不代表|不等于|不是|并非|未必|待确认|尚未确认|尚待确认|尚未证实|尚无法确认|不能证明|未知|不确定|缺少).{0,16}(?:证据|Token|任务规模)?/i;
 const USER_BELIEF_ASSERTION_REGEX = /\b(?:you|your)\s+(?:think|assume|believe)|你(?:以为|认为|相信)/i;
-const NUMERIC_METRIC_PROSE_REGEX = /(?:\d+(?:\.\d+)?\s*(?:%|percent|tokens?|k\s*tokens?|m\s*tokens?|万?个?token|美[元金]|元|倍|times\b))|(?:\$\s*\d+(?:\.\d+)?)|(?:百分之\s*\d+)/i;
+const NUMERIC_METRIC_PROSE_REGEX = new RegExp([
+    // 1. Isolated percentages (e.g. 50%, 12.5%, 50 percent, 百分之50)
+    /(?:\d+(?:\.\d+)?\s*(?:%|percent\b))|(?:百分之\s*\d+(?:\.\d+)?)/.source,
+    // 2. Tokens, currency, multipliers (e.g. 100 tokens, $50, 50 美元, 50 元, 3 倍, 2.5 times)
+    /(?:\$\s*\d+(?:\.\d+)?)|(?:\d+(?:\.\d+)?\s*(?:tokens?|k\s*tokens?|m\s*tokens?|万?个?token|美[元金]|元|倍|times\b))/.source,
+    // 3. Quantified explicit counts (e.g. 10 次, 3 轮, 20 个, 5 条, 50 行)
+    /(?:\d+(?:\.\d+)?\s*(?:次|轮|个|条|行))/.source,
+    // 4. Isolated large numbers (e.g. 1000, 5000, 10,000, 50000; continuing to allow years like 1999, 2024, 2026)
+    /(?<![0-9])(?:(?:\d{1,3}(?:,\d{3})+)|(?:[1-9]\d{4,})|(?:(?!19\d{2}(?![0-9])|20\d{2}(?![0-9]))[1-9]\d{3}))(?![0-9])/.source,
+].join("|"), "i");
 const ALLOWED_REVEAL_PATTERNS = new Set([
     "share_inversion",
     "distribution_outlier",
@@ -1218,6 +1227,15 @@ function validateSkillInsights(raw, snapshot, globalUsage) {
         }
         mentalModelKeys.add(mentalModelKey);
         finalInsights.push(item);
+        if (item.kind === "capability" || item.kind === "mechanism") {
+            contentInsightCount += 1;
+        }
+        else if (item.reveal.pattern === "distribution_outlier") {
+            usageAnomalyCount += 1;
+        }
+        else {
+            usageTopologyCount += 1;
+        }
         if (finalInsights.length >= 5)
             break;
     }

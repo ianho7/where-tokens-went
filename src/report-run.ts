@@ -27,6 +27,7 @@ export type ReportRunStatus =
   | "evidence-ready"
   | "awaiting-ai"
   | "composing"
+  | "awaiting-ui-dispatch"
   | "completed"
   | "failed"
   | "incomplete";
@@ -51,7 +52,7 @@ export const REPORT_LANES: readonly ReportLane[] = [
   "skill-insights",
 ] as const;
 
-export type ReportRunExecutionMode = "concurrent" | "sequential-fallback";
+export type ReportRunExecutionMode = "concurrent" | "sequential-fallback" | "unknown";
 export const SEQUENTIAL_FALLBACK_REASON_CODES = [
   "NATIVE_CONCURRENCY_UNAVAILABLE",
   "INSUFFICIENT_CONCURRENCY_SLOTS",
@@ -61,6 +62,37 @@ export function isLaneTerminal(lane: RunLaneStatus): boolean {
   if (lane.status === "accepted" || lane.status === "unavailable") return true;
   if (lane.status === "fallback" && lane.attempts >= 2) return true;
   return false;
+}
+
+export type AdvanceClaimResult =
+  | { claimed: true }
+  | { claimed: false; status: "lanes-not-ready"; pendingLanes: ReportLane[] }
+  | { claimed: false; status: ReportRunStatus; ready: false };
+
+export async function claimReportRunAdvance(run: ReportRun): Promise<AdvanceClaimResult> {
+  return withRunLock(run.runDir, async () => {
+    const manifest = await readRunManifest(run.runDir);
+    run.manifest = manifest;
+    const eligibleLanes = Object.keys(manifest.laneStatus) as ReportLane[];
+    const pendingLanes = eligibleLanes.filter((lane) => !isLaneTerminal(manifest.laneStatus[lane]));
+    if (pendingLanes.length > 0) {
+      return { claimed: false, status: "lanes-not-ready", pendingLanes };
+    }
+    if (
+      manifest.status === "composing" ||
+      manifest.status === "awaiting-ui-dispatch" ||
+      manifest.status === "completed" ||
+      manifest.status === "failed"
+    ) {
+      return { claimed: false, status: manifest.status, ready: false };
+    }
+    manifest.status = "composing";
+    manifest.deliveryStatus = "composing";
+    manifest.updatedAt = nowIso();
+    await writeAtomic(run.manifestFile, JSON.stringify(manifest, null, 2) + "\n");
+    run.manifest = manifest;
+    return { claimed: true };
+  });
 }
 
 export interface RunLaneStatus {
@@ -211,7 +243,7 @@ export interface ExternalSpanEvent {
   parentSpanId?: string | null;
   startedAt: string;
   endedAt?: string;
-  durationMs?: number;
+  durationMs?: number | null;
   status?: Exclude<TimingStatus, "started">;
   errorCode?: string;
   metadata?: Record<string, string | number | boolean | null>;
@@ -704,6 +736,7 @@ export async function finalizeReportRun(run: ReportRun, status: ReportRunStatus)
       }
     }
     const traceReady = manifest.traceCompleteness === "complete" && !manifest.traceErrorCode;
+    manifest.executionMode ??= "unknown";
     manifest.status = status === "completed"
       ? failedStage
         ? "failed"
@@ -1360,9 +1393,20 @@ export async function setRunUiDispatch(run: ReportRun, status: ReportRunManifest
       status: status === "completed" || status === "queued" ? "completed" : "failed",
       attempt: 1,
       spanId: randomUUID(),
-      durationMs: 1,
+      durationMs: null,
     };
     if (status === "failed") manifest.deliveryStatus = "failed";
+  });
+}
+
+export async function recordIncompleteUiDispatch(
+  run: ReportRun,
+  uiStatus: "failed" | "unavailable",
+): Promise<void> {
+  await mutateRun(run, (manifest) => {
+    manifest.status = "incomplete";
+    manifest.deliveryStatus = "incomplete";
+    manifest.warnings = [...new Set([...manifest.warnings, `Final HTML UI dispatch outcome was ${uiStatus}.`])];
   });
 }
 
@@ -1476,16 +1520,16 @@ export async function recordRunSpan(runDir: string, event: ExternalSpanEvent): P
     if (phase === "lane-workers" && event.event === "start") {
       const executionMode = event.metadata?.executionMode;
       const reasonCode = event.metadata?.reasonCode;
-      if (executionMode !== "concurrent" && executionMode !== "sequential-fallback") {
-        throw new Error("REPORT_EXECUTION_MODE_REQUIRED: lane-workers start must declare concurrent or sequential-fallback.");
+      if (executionMode !== "concurrent" && executionMode !== "sequential-fallback" && executionMode !== "unknown") {
+        throw new Error("REPORT_EXECUTION_MODE_REQUIRED: lane-workers start must declare concurrent, sequential-fallback, or unknown.");
       }
       if (executionMode === "sequential-fallback" && (typeof reasonCode !== "string" || !(SEQUENTIAL_FALLBACK_REASON_CODES as readonly string[]).includes(reasonCode))) {
         throw new Error(`REPORT_EXECUTION_MODE_REASON_REQUIRED: sequential-fallback reasonCode must be one of ${SEQUENTIAL_FALLBACK_REASON_CODES.join(", ")}.`);
       }
-      if (executionMode === "concurrent" && reasonCode !== null && reasonCode !== undefined) {
-        throw new Error("REPORT_EXECUTION_MODE_REASON_INVALID: concurrent execution cannot carry a fallback reasonCode.");
+      if ((executionMode === "concurrent" || executionMode === "unknown") && reasonCode !== null && reasonCode !== undefined) {
+        throw new Error("REPORT_EXECUTION_MODE_REASON_INVALID: concurrent or unknown execution cannot carry a fallback reasonCode.");
       }
-      if (manifest.executionMode !== null && manifest.executionMode !== executionMode) {
+      if (manifest.executionMode !== null && manifest.executionMode !== "unknown" && manifest.executionMode !== executionMode) {
         throw lockError("RUN_EXECUTION_MODE_IMMUTABLE", "Report Run execution mode cannot change after worker dispatch begins.");
       }
       manifest.executionMode = executionMode;
@@ -1521,9 +1565,11 @@ export async function recordRunSpan(runDir: string, event: ExternalSpanEvent): P
     } else {
       const durationMs = typeof event.durationMs === "number"
         ? Math.max(0, event.durationMs)
-        : event.endedAt
-          ? Math.max(0, Date.parse(event.endedAt) - Date.parse(event.startedAt))
-          : null;
+        : event.durationMs === null
+          ? null
+          : event.endedAt
+            ? Math.max(0, Date.parse(event.endedAt) - Date.parse(event.startedAt))
+            : null;
       manifest.stageStatus[phase] = {
         status: event.status ?? "unavailable",
         attempt,

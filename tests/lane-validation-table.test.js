@@ -7,6 +7,7 @@ const {
   validateReportSynthesis,
   validateKeySessionAnalysis,
   auditFingerprint,
+  resolveReportEvidence,
 } = require('../dist/src/key-session-analysis.js');
 const { validateSkillInsights } = require('../dist/src/skill-insights.js');
 const { renderHtml } = require('../dist/src/report.js');
@@ -266,4 +267,291 @@ test('table-driven validation: 3 lanes partial acceptance, relaxation, and hard 
   );
   assert.ok(htmlResult.includes('skill-insights'), 'Filtered skill insights must render in HTML');
   assert.ok(htmlResult.includes('GPT-4o'), 'Rendered HTML must include the preserved tech names');
+});
+
+test('AC 3: data contract owner proof: table-driven evidence resolution, metric detection, and skill insight category limits', () => {
+  const audit = makeFixtureAudit();
+
+  // 1. Table-driven Evidence ID resolution
+  // Add a synthetic check with ambiguous normalized id to audit for the test
+  audit.checks.push(
+    { id: 'check-foo-bar', category: 'cost', title: 'Check 1', description: 'desc', severity: 'info', status: 'pass', evidence: [{ label: 'e1', value: 1, provenance: 'reported' }] },
+    { id: 'check_foo_bar', category: 'cost', title: 'Check 2', description: 'desc', severity: 'info', status: 'pass', evidence: [{ label: 'e2', value: 2, provenance: 'reported' }] },
+  );
+
+  const evidenceCases = [
+    ['exact summary ID', 'summary:totalTokens', 'summary', true],
+    ['unique normalized summary ID (lowercase)', 'summary:totaltokens', 'summary', true],
+    ['unique normalized summary ID (hyphens/spaces)', 'summary:total_tokens', 'summary', true],
+    ['unknown summary ID', 'summary:unknownMetric', null, false],
+
+    ['exact check ID', 'check:check-foo-bar', 'check', true],
+    ['exact check ID with index', 'check:check-foo-bar:0', 'check', true],
+    ['ambiguous normalized check ID', 'check:checkfoobar', null, false],
+    ['unknown check ID', 'check:non-existent-check', null, false],
+
+    ['exact ranking ID', 'ranking:sessions:session-1', 'ranking', true],
+    ['unique normalized ranking ID', 'ranking:sessions:session_1', 'ranking', true],
+    ['unknown ranking dimension', 'ranking:invalidDimension:key', null, false],
+    ['unknown ranking key', 'ranking:sessions:unknown-session', null, false],
+
+    ['exact turn evidence ID', audit.turns[0].evidenceId, 'turn', true],
+    ['unique normalized turn evidence ID', audit.turns[0].evidenceId.toUpperCase().replace('-', '_'), 'turn', true],
+    ['unknown turn evidence ID', 'turn:non-existent:0', null, false],
+  ];
+
+  for (const [desc, query, expectedKind, shouldMatch] of evidenceCases) {
+    const match = resolveReportEvidence(audit, query);
+    if (shouldMatch) {
+      assert.ok(match !== null, `${desc} (${query}) must match`);
+      assert.equal(match.kind, expectedKind, `${desc} must return kind ${expectedKind}`);
+    } else {
+      assert.equal(match, null, `${desc} (${query}) must return null`);
+    }
+  }
+
+  // 2. Table-driven Metric Detection in Skill Insights
+  const baseCard = {
+    id: 'metric-check-card',
+    kind: 'usage',
+    candidateType: 'high_usage_strong_delta',
+    scope: 'skill',
+    subject: { skillId: 'where-tokens-went' },
+    title: 'Metric check',
+    reveal: {
+      semantic: 'Structural surprise without numeric wording',
+      pattern: 'content_contrast',
+      evidenceRefs: ['content:where-tokens-went:hardConstraint'],
+    },
+    mentalModelShift: { surface: 'Surface impression', observed: 'Observed structure' },
+    decisionDelta: { before: 'Default investigation', after: 'Concrete choice' },
+    observation: 'Observed baseline context.',
+    contrast: 'Compared to baseline.',
+    interpretation: 'Architectural interpretation.',
+    confidence: 'high',
+    evidence: [
+      {
+        kind: 'skill_content',
+        skillId: 'where-tokens-went',
+        role: 'hardConstraint',
+        evidenceExcerpt: 'The invoking Harness is the current Host: use `codex` when running inside Codex and `claude` when running inside Claude Code.',
+      },
+    ],
+  };
+
+  const metricProseCases = [
+    // Disallowed metrics
+    ['isolated percentage 50%', '50%', false],
+    ['isolated percentage 12.5%', '12.5%', false],
+    ['isolated percentage 50 percent', '50 percent', false],
+    ['isolated percentage 百分之25', '百分之25', false],
+    ['token count 100 tokens', '100 tokens', false],
+    ['token count 50k tokens', '50k tokens', false],
+    ['currency $50', '$50', false],
+    ['currency 50 美元', '50 美元', false],
+    ['currency 50 元', '50 元', false],
+    ['multiplier 3 倍', '3 倍', false],
+    ['multiplier 2.5 times', '2.5 times', false],
+    ['quantified 10 次', '10 次', false],
+    ['quantified 3 轮', '3 轮', false],
+    ['quantified 20 个', '20 个', false],
+    ['quantified 5 条', '5 条', false],
+    ['quantified 50 行', '50 行', false],
+    ['isolated large number 50000', '50000', false],
+    ['isolated large number 10,000', '10,000', false],
+    ['isolated large number 5000', '5000', false],
+    ['isolated large number 1000', '1000', false],
+
+    // Allowed technical names, versions, and years
+    ['model name GPT-4o', 'GPT-4o', true],
+    ['model name Claude 3.5', 'Claude 3.5', true],
+    ['language version Python 3', 'Python 3', true],
+    ['release version v2', 'v2', true],
+    ['year 2024', '2024', true],
+    ['year 2026', '2026', true],
+    ['year 1999', '1999', true],
+  ];
+
+  for (const [desc, proseFragment, shouldAccept] of metricProseCases) {
+    const testPayload = {
+      snapshotId: skillSnapshot.snapshotId,
+      insights: [
+        {
+          ...baseCard,
+          id: `metric-test-${desc.replace(/[^a-z0-9]/gi, '-')}`,
+          observation: `Analysis mentions ${proseFragment} in context.`,
+        },
+      ],
+    };
+    const result = validateSkillInsights(testPayload, skillSnapshot);
+    if (shouldAccept) {
+      assert.equal(result.valid, true, `Allowed fragment '${proseFragment}' in '${desc}' must be accepted, but errors: ${result.errors.join('; ')}`);
+      assert.equal(result.insights.length, 1);
+    } else {
+      assert.equal(result.valid, false, `Disallowed metric '${proseFragment}' in '${desc}' must be rejected`);
+    }
+  }
+
+  // 3. Skill Insight Category Limits in effect
+  // Contract: at most 2 content insights (capability/mechanism), at most 1 behavior anomaly, at most 1 usage topology
+  const capabilityExcerpts = [
+    [
+      'The invoking Harness is the current Host: use `codex` when running inside Codex and `claude` when running inside Claude Code.',
+      'Structure the response as Finding, Evidence, mechanism, action when justified, and material uncertainty without fixed wording.',
+    ],
+    [
+      'Do not inspect the other Harness in response to a request.',
+      'For a full or report request, start one Report Run before any expensive work.',
+    ],
+    [
+      'The local tool is authoritative. Do not recalculate totals, infer missing values as zero, or expose raw history content.',
+      'Structure the response as Finding, Evidence, mechanism, action when justified, and material uncertainty without fixed wording.',
+    ],
+  ];
+
+  const makeCapabilityCard = (num) => ({
+    ...baseCard,
+    id: `capability-card-${num}`,
+    kind: 'capability',
+    scope: num === 2 ? 'cross_skill' : 'skill',
+    subject: num === 2 ? { skillId: 'where-tokens-went-alt' } : { skillId: 'where-tokens-went' },
+    title: `Capability insight ${num}`,
+    reveal: {
+      semantic: `Distinct structural capability surprise ${num}`,
+      pattern: 'content_contrast',
+      evidenceRefs: ['content:where-tokens-went:hardConstraint'],
+    },
+    mentalModelShift: {
+      surface: `Surface impression capability ${num}`,
+      observed: `Observed structure capability ${num}`,
+    },
+    decisionDelta: {
+      before: `Before choice capability ${num}`,
+      after: `After choice capability ${num}`,
+    },
+    claimStrength: 'coexistence',
+    observation: `Observation capability ${num}.`,
+    contrast: `Contrast capability ${num}.`,
+    interpretation: `Interpretation capability ${num}.`,
+    evidence: [
+      {
+        kind: 'skill_metric',
+        metric: num === 1 ? 'callsPerTask' : num === 2 ? 'callShare' : 'tasks',
+        skillId: 'where-tokens-went',
+      },
+      {
+        kind: 'skill_content',
+        skillId: 'where-tokens-went',
+        role: 'hardConstraint',
+        evidenceExcerpt: capabilityExcerpts[num - 1][0],
+      },
+      {
+        kind: 'skill_content',
+        skillId: 'where-tokens-went',
+        role: 'genericProcedure',
+        evidenceExcerpt: capabilityExcerpts[num - 1][1],
+      },
+    ],
+  });
+
+  const makeAnomalyCard = (num) => ({
+    ...baseCard,
+    id: `anomaly-card-${num}`,
+    kind: 'usage',
+    scope: 'skill',
+    subject: { skillId: num === 1 ? 'where-tokens-went' : 'kami' },
+    title: `Anomaly insight ${num}`,
+    reveal: {
+      semantic: `Distribution outlier surprise ${num}`,
+      pattern: 'distribution_outlier',
+      evidenceRefs: num === 1
+        ? ['distribution:p90', 'skill:where-tokens-went:callsPerTask']
+        : ['distribution:median', 'skill:kami:callsPerTask'],
+    },
+    mentalModelShift: {
+      surface: `Surface impression anomaly ${num}`,
+      observed: `Observed structure anomaly ${num}`,
+    },
+    decisionDelta: {
+      before: `Before choice anomaly ${num}`,
+      after: `After choice anomaly ${num}`,
+    },
+    observation: `Observation anomaly ${num}.`,
+    contrast: `Contrast anomaly ${num}.`,
+    interpretation: `Interpretation anomaly ${num}.`,
+    evidence: num === 1
+      ? [
+          { kind: 'distribution_metric', metric: 'p90' },
+          { kind: 'skill_metric', metric: 'callsPerTask', skillId: 'where-tokens-went' },
+        ]
+      : [
+          { kind: 'distribution_metric', metric: 'median' },
+          { kind: 'skill_metric', metric: 'callsPerTask', skillId: 'kami' },
+        ],
+  });
+
+  const makeTopologyCard = (num) => ({
+    ...baseCard,
+    id: `topology-card-${num}`,
+    kind: 'usage',
+    scope: 'global',
+    title: `Topology insight ${num}`,
+    reveal: num === 1
+      ? {
+          semantic: 'Share inversion topology surprise 1',
+          pattern: 'share_inversion',
+          evidenceRefs: ['global:lowFrequencySkillShare', 'global:lowFrequencyCallShare'],
+        }
+      : {
+          semantic: 'Family concentration topology surprise 2',
+          pattern: 'family_concentration',
+          evidenceRefs: ['family:where-tokens-went-family:callShare', 'family:where-tokens-went-family:totalCalls', 'global:totalSkillCalls'],
+        },
+    mentalModelShift: {
+      surface: `Surface impression topology ${num}`,
+      observed: `Observed structure topology ${num}`,
+    },
+    decisionDelta: {
+      before: `Before choice topology ${num}`,
+      after: `After choice topology ${num}`,
+    },
+    observation: `Observation topology ${num}.`,
+    contrast: `Contrast topology ${num}.`,
+    interpretation: `Interpretation topology ${num}.`,
+    evidence: num === 1
+      ? [
+          { kind: 'global_metric', metric: 'lowFrequencySkillShare' },
+          { kind: 'global_metric', metric: 'lowFrequencyCallShare' },
+        ]
+      : [
+          { kind: 'family_metric', metric: 'callShare', familyId: 'where-tokens-went-family' },
+          { kind: 'family_metric', metric: 'totalCalls', familyId: 'where-tokens-went-family' },
+          { kind: 'global_metric', metric: 'totalSkillCalls' },
+        ],
+  });
+
+  const categoryLimitsPayload = {
+    snapshotId: skillSnapshot.snapshotId,
+    insights: [
+      makeCapabilityCard(1),
+      makeCapabilityCard(2),
+      makeCapabilityCard(3),
+      makeAnomalyCard(1),
+      makeAnomalyCard(2),
+      makeTopologyCard(1),
+      makeTopologyCard(2),
+    ],
+  };
+
+  const limitResult = validateSkillInsights(categoryLimitsPayload, skillSnapshot);
+  assert.equal(limitResult.valid, true, `Must be valid; errors: ${limitResult.errors.join('; ')}`);
+
+  const acceptedCapability = limitResult.insights.filter((i) => i.kind === 'capability');
+  const acceptedAnomaly = limitResult.insights.filter((i) => i.reveal.pattern === 'distribution_outlier');
+  const acceptedTopology = limitResult.insights.filter((i) => i.kind === 'usage' && i.reveal.pattern !== 'distribution_outlier');
+
+  assert.equal(acceptedCapability.length, 2, 'Content insights must be capped at exactly 2');
+  assert.equal(acceptedAnomaly.length, 1, 'Behavior anomalies must be capped at exactly 1');
+  assert.equal(acceptedTopology.length, 1, 'Usage topologies must be capped at exactly 1');
+  assert.equal(limitResult.insights.length, 4, 'Total accepted cards must be exactly 2+1+1=4');
 });

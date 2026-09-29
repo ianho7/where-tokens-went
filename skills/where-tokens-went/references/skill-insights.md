@@ -91,7 +91,7 @@ NEVER make unconditional causal assertions ("Skill X caused N tokens", "wasted $
 NUMERIC INTEGRITY RULE:
 Do NOT write explicit numbers bound to metric units (percentages, token counts, costs, or multipliers) in free prose fields. Reference deterministic metric keys through evidence entries and `reveal.evidenceRefs`; the rendering engine resolves and displays the exact figures from the immutable snapshot. Model names (e.g. GPT-4o, Claude 3.5), tool names, versions (e.g. v2, Python 3), years, and qualitative wording (e.g. "higher", "frequent") are acceptable.
 
-For every content claim, provide a verbatim excerpt of 200 characters or less from the supplied SKILL.md. If a claim says hard constraints and generic procedures coexist, provide evidence for both semantic roles; one excerpt cannot support both sides. Do not claim family-level shared capability from names alone: two members need their own verified content evidence and platform/environment differences.
+For every content claim, provide a verbatim excerpt of 200 characters or less from the supplied SKILL.md. If a claim says hard constraints and generic procedures coexist, provide evidence for both semantic roles; one excerpt cannot support both sides. Do not claim family-level shared capability from names alone: two members need their own verified content evidence; familyDifferences for platform/environment distinction is an optional quality enhancement.
 All user-facing prose must be written in the language specified by reportLocale.
 Return JSON only.
 ```
@@ -137,7 +137,7 @@ TASK:
 1. Examine the global distribution context (median, P75, P90, max callsPerTask, dominant family share, long-tail share).
 2. For each candidate skill, assess Semantic Role and Loading Scope.
 3. Form 0 to 5 high-impact Aha insights (typically 2 to 3 when the evidence supports only a few strong deltas; allow fewer if evidence is sparse, NEVER invent filler).
-4. For each insight, provide an explicit `kind` and, when applicable, a `candidateType` from `high_usage_strong_delta`, `high_usage_model_native_scaffold`, `high_usage_task_scoped_content`, `rare_strong_delta`, `family_shared_core`, or `behavior_outlier`. For `capability`, provide a qualitative Reveal object, Observation, Contrast, Interpretation, MentalModelShift as the Cognitive Delta, DecisionDelta, `claimStrength`, deletion `counterfactual`, and both sides of content evidence when the claim compares unique protocol with generic procedure. A family-level capability claim must also state `familyDifferences` for the platform/environment distinction.
+4. For each insight, provide an explicit `kind` and, when applicable, a `candidateType` from `high_usage_strong_delta`, `high_usage_model_native_scaffold`, `high_usage_task_scoped_content`, `rare_strong_delta`, `family_shared_core`, or `behavior_outlier`. For `capability`, provide a qualitative Reveal object, Observation, Contrast, Interpretation, MentalModelShift as the Cognitive Delta, DecisionDelta, and `claimStrength`. Providing a deletion `counterfactual` and citing both sides of content evidence when comparing unique protocol with generic procedure are quality targets for high-value insights; for family-level capability claims, stating `familyDifferences` is an optional quality enhancement.
 5. Put every quantitative comparison in evidence refs. Do not write the resulting number or derived relationship in prose.
 6. Prefer the highest-information contrast available, such as low-frequency Skill share versus low-frequency call share, or a calls-per-task outlier versus a distribution baseline. Do not let a dominant family crowd out a distinct global or outlier insight.
 7. Return JSON matching the required schema, including the exact top-level `snapshotId`, optional validated `contentProfiles`, and optional `rejectionReasons` only when a content candidate cannot pass.
@@ -200,7 +200,7 @@ TASK:
         "evidenceRefs": ["global:lowFrequencySkillShare", "global:lowFrequencyCallShare"]
       },
       "claimStrength": "coexistence | scaffold-interpretation | primary-delta",
-      "familyDifferences": ["Platform or environment distinction; family claims only"],
+      "familyDifferences": ["Optional platform or environment distinction; quality enhancement for family claims"],
       "mentalModelShift": {
         "surface": "Surface impression created by the available data",
         "observed": "Structural reality revealed by the strongest contrast"
@@ -213,8 +213,8 @@ TASK:
       "contrast": "Compared to baseline/distribution (Level 2 comparative fact)",
       "interpretation": "Architectural or capability reality (Level 3 deduction)",
       "counterfactual": {
-        "ifRemoved": "What the user loses if the whole Skill is removed",
-        "withoutGenericScaffold": "What remains if generic procedure is removed; AI interpretation, not measurement"
+        "ifRemoved": "Optional quality target: what the user loses if the whole Skill is removed",
+        "withoutGenericScaffold": "Optional quality target: what remains if generic procedure is removed; AI interpretation, not measurement"
       },
       "conditionalMechanism": "Optional conditional hypothesis with missing evidence stated (Level 4)",
       "consequence": "Actionable next step for skill management or optimization",

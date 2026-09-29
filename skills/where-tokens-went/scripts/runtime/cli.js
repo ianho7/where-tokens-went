@@ -997,9 +997,18 @@ async function reportRunAiAcceptMain(args) {
                     errors.push({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message: "Key Session Analysis entry is malformed." });
                     continue;
                 }
-                const result = (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, candidate, packets.filter((packet) => packet.sessionId === candidate.sessionId));
+                const sessionPackets = packets.filter((packet) => packet.sessionId === candidate.sessionId);
+                const { sanitized, redactions } = (0, key_session_analysis_1.sanitizeKeySessionAnalysis)(candidate, sessionPackets);
+                for (const redact of redactions) {
+                    errors.push({
+                        code: "RAW_EVIDENCE_REDACTED",
+                        fieldPath: `[${index}].${redact.fieldPath}`,
+                        message: `Redacted ${redact.count} raw evidence instance(s).`,
+                    });
+                }
+                const result = (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, sanitized, sessionPackets);
                 if (result.valid)
-                    validated.push(result.analysis ?? candidate);
+                    validated.push(result.analysis ?? sanitized);
                 else
                     errors.push(...result.errors.map((message) => ({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message })));
             }
@@ -1456,6 +1465,7 @@ async function composeAndRenderRun(run, options) {
             await (0, report_run_1.writeRunTextArtifact)(run, "html", subsetted);
             return writeAtomicLocal(htmlPath, subsetted);
         });
+        await (0, report_run_1.setReportRunStatus)(run, "awaiting-ui-dispatch");
         return { output, composition, reportJson };
     }
     catch (error) {
@@ -1645,7 +1655,10 @@ async function reportRunAdvanceMain(args) {
     let fontPath = null;
     let fontFamily = null;
     let uiStatus = null;
-    let laneFallback = null;
+    const workerObservations = [];
+    let workerLane = null;
+    let workerOutcome = null;
+    let workerReason = null;
     for (let index = 0; index < rest.length; index += 1) {
         const flag = rest[index];
         if (flag === "--html") {
@@ -1672,20 +1685,106 @@ async function reportRunAdvanceMain(args) {
             fontFamily = requireValue(rest, index, flag);
             index += 1;
         }
-        else if (flag === "--lane-fallback") {
-            laneFallback = parseLane(requireValue(rest, index, flag));
+        else if (flag === "--worker-observation") {
+            const raw = requireValue(rest, index, flag);
+            index += 1;
+            try {
+                const parsed = JSON.parse(raw);
+                const list = Array.isArray(parsed) ? parsed : [parsed];
+                for (const item of list) {
+                    if (!isRecord(item) || typeof item.lane !== "string" || typeof item.outcome !== "string") {
+                        throw new Error("Invalid worker observation shape");
+                    }
+                    const lane = parseLane(item.lane);
+                    const outcome = item.outcome;
+                    if (outcome !== "crash" && outcome !== "timeout" && outcome !== "failed" && outcome !== "unavailable") {
+                        throw new Error(`Invalid worker outcome: ${outcome}`);
+                    }
+                    workerObservations.push({
+                        lane,
+                        outcome,
+                        reason: typeof item.reason === "string" ? item.reason : null,
+                    });
+                }
+            }
+            catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                throw new Error(`Invalid --worker-observation: ${msg}.\n${usage()}`);
+            }
+        }
+        else if (flag === "--worker-lane") {
+            workerLane = parseLane(requireValue(rest, index, flag));
+            index += 1;
+        }
+        else if (flag === "--worker-outcome") {
+            const val = requireValue(rest, index, flag);
+            if (val !== "crash" && val !== "timeout" && val !== "failed" && val !== "unavailable") {
+                throw new Error(`--worker-outcome must be crash, timeout, failed, or unavailable.\n${usage()}`);
+            }
+            workerOutcome = val;
+            index += 1;
+        }
+        else if (flag === "--worker-reason") {
+            workerReason = requireValue(rest, index, flag);
             index += 1;
         }
         else {
             throw new Error(`Unknown report-run advance argument: ${flag}.\n${usage()}`);
         }
     }
+    if (workerLane !== null && workerOutcome !== null) {
+        workerObservations.push({
+            lane: workerLane,
+            outcome: workerOutcome,
+            reason: workerReason,
+        });
+    }
+    else if (workerLane !== null || workerOutcome !== null) {
+        throw new Error(`--worker-lane and --worker-outcome must be specified together.\n${usage()}`);
+    }
     const installedBundle = await (0, bundle_version_1.verifyInstalledSkill)();
     const run = await (0, report_run_1.openReportRun)(requireRunDirectory(runDir));
     (0, report_run_1.assertRunBundleVersion)(run, installedBundle.bundleVersion);
     const contract = await (0, report_run_1.resolveRunContractMetadata)();
     assertRunContract(run, installedBundle, contract);
+    for (const obs of workerObservations) {
+        const laneInfo = run.manifest.laneStatus[obs.lane];
+        if (laneInfo && !(0, report_run_1.isLaneTerminal)(laneInfo)) {
+            const reasonCode = obs.reason?.trim()
+                ? obs.reason.trim()
+                : obs.outcome === "timeout"
+                    ? "WORKER_TIMEOUT"
+                    : obs.outcome === "crash"
+                        ? "WORKER_CRASHED"
+                        : "WORKER_UNAVAILABLE";
+            await (0, report_run_1.writeRunLaneArtifact)(run, obs.lane, "fallback", {
+                version: 1,
+                runId: run.manifest.runId,
+                lane: obs.lane,
+                attempt: laneInfo.attempts,
+                status: "fallback",
+                reasonCode,
+                outputHash: null,
+            }, laneInfo.attempts);
+            await (0, report_run_1.finishReportLane)(run, obs.lane, laneInfo.attempts, run.manifest.stageStatus[obs.lane]?.spanId ?? (0, node_crypto_1.randomUUID)(), laneInfo.spanStartedAt ?? new Date().toISOString(), "unavailable", null, reasonCode, null, "host-agent", { workerOutcome: obs.outcome, observedReason: obs.reason ?? null });
+        }
+    }
     if (uiStatus !== null) {
+        if (run.manifest.status !== "awaiting-ui-dispatch" && run.manifest.status !== "incomplete") {
+            throw new Error(`Cannot submit --ui: Report Run is not awaiting UI dispatch (current status: ${run.manifest.status}).`);
+        }
+        const htmlRef = run.manifest.artifacts.html;
+        if (!htmlRef) {
+            throw new Error("Cannot submit --ui: Final HTML artifact was not recorded.");
+        }
+        const finalHtmlPath = path.join(run.runDir, htmlRef.file);
+        try {
+            await fs.stat(finalHtmlPath);
+        }
+        catch {
+            throw new Error(`Cannot submit --ui: Final HTML file does not exist on disk at ${finalHtmlPath}.`);
+        }
+        const now = new Date().toISOString();
         await (0, report_run_1.recordRunSpan)(run.runDir, {
             event: "start",
             spanId: `ui-dispatch:${run.manifest.runId}`,
@@ -1693,7 +1792,7 @@ async function reportRunAdvanceMain(args) {
             operation: "open-html",
             source: "host-agent",
             attempt: 1,
-            startedAt: new Date().toISOString(),
+            startedAt: now,
             metadata: { status: uiStatus },
         });
         await (0, report_run_1.recordRunSpan)(run.runDir, {
@@ -1703,43 +1802,62 @@ async function reportRunAdvanceMain(args) {
             operation: "open-html",
             source: "host-agent",
             attempt: 1,
-            startedAt: new Date().toISOString(),
-            endedAt: new Date().toISOString(),
-            durationMs: 1,
+            startedAt: now,
+            endedAt: now,
+            durationMs: null,
             status: uiStatus === "completed" || uiStatus === "queued" ? "completed" : "failed",
-            metadata: { status: uiStatus },
+            metadata: { status: uiStatus, generationTimingStatus: "unavailable" },
         });
         await (0, report_run_1.setRunUiDispatch)(run, uiStatus);
-        await (0, report_run_1.finalizeReportRun)(run, "completed");
-        await (0, report_run_1.cleanupSensitiveRunArtifacts)(run);
-        process.stdout.write(JSON.stringify({
-            status: run.manifest.status,
-            deliveryStatus: run.manifest.deliveryStatus,
-            runId: run.manifest.runId,
-            runDir: run.runDir,
-            uiDispatch: run.manifest.uiDispatch,
-            traceCompleteness: run.manifest.traceCompleteness,
-            warnings: run.manifest.warnings,
-            cleanedUp: true,
-        }) + "\n");
-        return 0;
-    }
-    if (laneFallback) {
-        const laneInfo = run.manifest.laneStatus[laneFallback];
-        if (laneInfo && laneInfo.status === "running") {
-            await (0, report_run_1.finishReportLane)(run, laneFallback, laneInfo.attempts, run.manifest.stageStatus[laneFallback]?.spanId ?? (0, node_crypto_1.randomUUID)(), laneInfo.spanStartedAt ?? new Date().toISOString(), "unavailable", null, "WORKER_CRASHED_OR_TIMEOUT", null, "host-agent");
+        if (uiStatus === "completed" || uiStatus === "queued") {
+            await (0, report_run_1.finalizeReportRun)(run, "completed");
+            await (0, report_run_1.cleanupSensitiveRunArtifacts)(run);
+            process.stdout.write(JSON.stringify({
+                status: run.manifest.status,
+                deliveryStatus: run.manifest.deliveryStatus,
+                runId: run.manifest.runId,
+                runDir: run.runDir,
+                uiDispatch: run.manifest.uiDispatch,
+                traceCompleteness: run.manifest.traceCompleteness,
+                warnings: run.manifest.warnings,
+                cleanedUp: true,
+            }) + "\n");
+            return 0;
+        }
+        else {
+            await (0, report_run_1.recordIncompleteUiDispatch)(run, uiStatus);
+            process.stdout.write(JSON.stringify({
+                status: "incomplete",
+                deliveryStatus: "incomplete",
+                retryable: true,
+                runId: run.manifest.runId,
+                runDir: run.runDir,
+                uiDispatch: run.manifest.uiDispatch,
+                traceCompleteness: run.manifest.traceCompleteness,
+                warnings: run.manifest.warnings,
+                cleanedUp: false,
+            }) + "\n");
+            return 0;
         }
     }
-    const eligibleLanes = Object.keys(run.manifest.laneStatus);
-    const pendingLanes = eligibleLanes.filter((lane) => !(0, report_run_1.isLaneTerminal)(run.manifest.laneStatus[lane]));
-    if (pendingLanes.length > 0) {
+    const claim = await (0, report_run_1.claimReportRunAdvance)(run);
+    if (!claim.claimed) {
+        if (claim.status === "lanes-not-ready") {
+            process.stdout.write(JSON.stringify({
+                status: "lanes-not-ready",
+                ready: false,
+                runId: run.manifest.runId,
+                runDir: run.runDir,
+                pendingLanes: claim.pendingLanes,
+                laneStatus: run.manifest.laneStatus,
+            }) + "\n");
+            return 0;
+        }
         process.stdout.write(JSON.stringify({
-            status: "lanes-not-ready",
+            status: claim.status,
             ready: false,
             runId: run.manifest.runId,
             runDir: run.runDir,
-            pendingLanes,
-            laneStatus: run.manifest.laneStatus,
         }) + "\n");
         return 0;
     }

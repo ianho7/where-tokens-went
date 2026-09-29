@@ -524,7 +524,7 @@ test('AC 4: model output validation failure creates validator fallback with raw/
       assert.equal(accept.code, 0, accept.stderr);
       const result = JSON.parse(accept.stdout);
 
-      assert.ok(result.status === 'retrying' || result.status === 'fallback');
+      assert.equal(result.status, 'retrying');
       assert.equal(result.validationStatus, 'rejected');
       assert.equal(result.reasonCode, tc.expectedReasonCode);
       assert.notEqual(result.reasonCode, 'AI_UNAVAILABLE');
@@ -545,7 +545,7 @@ test('AC 4: model output validation failure creates validator fallback with raw/
 
       // Manifest check
       const manifest = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
-      assert.ok(manifest.laneStatus[tc.lane].status === 'running' || manifest.laneStatus[tc.lane].status === 'fallback');
+      assert.equal(manifest.laneStatus[tc.lane].status, 'running');
       assert.ok(manifest.laneStatus[tc.lane].reasonCode === null || manifest.laneStatus[tc.lane].reasonCode === tc.expectedReasonCode);
       assert.notEqual(manifest.laneStatus[tc.lane].reasonCode, 'AI_UNAVAILABLE');
 
