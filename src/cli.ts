@@ -477,6 +477,7 @@ function runSummary(run: ReportRun): Record<string, unknown> {
     warnings: run.manifest.warnings,
     laneStatus: run.manifest.laneStatus,
     deliveryStatus: run.manifest.deliveryStatus,
+    cleanupStatus: run.manifest.cleanupStatus,
     degraded: run.manifest.degraded,
     uiDispatch: run.manifest.uiDispatch,
     laneArtifacts: run.manifest.laneArtifacts,
@@ -1720,12 +1721,18 @@ async function reportRunCleanupMain(args: string[]): Promise<number> {
   const { runDir, rest } = extractRunDirectory(args);
   if (rest.length > 0) throw new Error(`Unknown report-run cleanup argument: ${rest[0]}.\n${usage()}`);
   const run = await openReportRun(requireRunDirectory(runDir));
-  if (!run.manifest.artifacts.html && run.manifest.status !== "failed" && run.manifest.status !== "incomplete") {
+  if (!run.manifest.artifacts.html && run.manifest.status !== "failed" && run.manifest.status !== "incomplete" && run.manifest.deliveryStatus !== "completed") {
     throw new Error("REPORT_RUN_CLEANUP_REQUIRES_FINAL_HTML_OR_FAILED_STATUS");
   }
   const manifest = await cleanupSensitiveRunArtifacts(run);
-  outputRunSummary(run, { sensitiveArtifacts: "cleaned", retention: manifest.retention });
-  return 0;
+  const isCleaned = manifest.cleanupStatus === "completed";
+  outputRunSummary(run, {
+    sensitiveArtifacts: isCleaned ? "cleaned" : "cleanup-failed",
+    cleanedUp: isCleaned,
+    cleanupStatus: manifest.cleanupStatus,
+    retention: manifest.retention,
+  });
+  return isCleaned ? 0 : 2;
 }
 
 async function reportRunRunAllStartMain(args: string[]): Promise<number> {
@@ -1749,7 +1756,7 @@ async function reportRunRunAllStartMain(args: string[]): Promise<number> {
     const contract = await resolveRunContractMetadata();
     assertRunContract(run, installedBundle, contract);
 
-    if (run.manifest.status === "completed") {
+    if (run.manifest.status === "completed" && (run.manifest.cleanupStatus === "completed" || run.manifest.retention?.cleanedAt !== null)) {
       const targetHtmlPath = run.manifest.delivery?.targetPath ?? (run.manifest.artifacts.html ? path.join(run.runDir, run.manifest.artifacts.html.file) : "report.html");
       process.stdout.write(JSON.stringify({
         status: "completed",
@@ -1757,7 +1764,20 @@ async function reportRunRunAllStartMain(args: string[]): Promise<number> {
         runId: run.manifest.runId,
         runDir: run.runDir,
         htmlPath: targetHtmlPath,
-        cleanedUp: run.manifest.retention?.cleanedAt !== null,
+        cleanedUp: true,
+      }) + "\n");
+      return 0;
+    }
+
+    if (run.manifest.deliveryStatus === "completed") {
+      const targetHtmlPath = run.manifest.delivery?.targetPath ?? (run.manifest.artifacts.html ? path.join(run.runDir, run.manifest.artifacts.html.file) : "report.html");
+      process.stdout.write(JSON.stringify({
+        status: run.manifest.status,
+        deliveryStatus: "completed",
+        runId: run.manifest.runId,
+        runDir: run.runDir,
+        htmlPath: targetHtmlPath,
+        cleanedUp: run.manifest.cleanupStatus === "completed" || run.manifest.retention?.cleanedAt !== null,
       }) + "\n");
       return 0;
     }
@@ -2004,7 +2024,7 @@ async function reportRunAdvanceMain(args: string[]): Promise<number> {
   }
 
   if (uiStatus === null) {
-    if (run.manifest.status === "completed") {
+    if (run.manifest.status === "completed" && (run.manifest.cleanupStatus === "completed" || run.manifest.retention?.cleanedAt !== null)) {
       const targetHtmlPath = run.manifest.delivery?.targetPath ?? (run.manifest.artifacts.html ? path.join(run.runDir, run.manifest.artifacts.html.file) : "report.html");
       process.stdout.write(JSON.stringify({
         status: "completed",
@@ -2012,7 +2032,58 @@ async function reportRunAdvanceMain(args: string[]): Promise<number> {
         runId: run.manifest.runId,
         runDir: run.runDir,
         htmlPath: targetHtmlPath,
-        cleanedUp: run.manifest.retention?.cleanedAt !== null,
+        cleanedUp: true,
+      }) + "\n");
+      return 0;
+    }
+
+    if (run.manifest.deliveryStatus === "completed") {
+      const htmlRef = run.manifest.artifacts.html;
+      const actualTargetPath = run.manifest.delivery?.targetPath ?? (htmlRef ? path.join(run.runDir, htmlRef.file) : null);
+      let targetValid = true;
+      if (actualTargetPath) {
+        try {
+          const targetStat = await fs.stat(actualTargetPath);
+          const targetContents = await fs.readFile(actualTargetPath);
+          const expectedBytes = run.manifest.delivery?.bytes ?? htmlRef?.bytes;
+          const expectedHash = run.manifest.delivery?.sha256 ?? htmlRef?.sha256;
+          targetValid = targetStat.isFile()
+            && targetContents.byteLength === expectedBytes
+            && createHash("sha256").update(targetContents).digest("hex") === expectedHash
+            && (!run.manifest.delivery || run.manifest.delivery.bundleVersion === installedBundle.bundleVersion);
+        } catch {
+          targetValid = false;
+        }
+      }
+      if (!targetValid) {
+        await recordDeliveryTargetFailure(run, "Actual delivery target file is missing, modified, or has bundle version drift.");
+        process.stdout.write(JSON.stringify({
+          status: "incomplete",
+          deliveryStatus: "incomplete",
+          retryable: true,
+          runId: run.manifest.runId,
+          runDir: run.runDir,
+          uiDispatch: run.manifest.uiDispatch,
+          traceCompleteness: run.manifest.traceCompleteness,
+          warnings: run.manifest.warnings,
+          cleanedUp: false,
+          error: "DELIVERY_TARGET_INTEGRITY_FAILED",
+        }) + "\n");
+        return 0;
+      }
+
+      const cleanedManifest = await cleanupSensitiveRunArtifacts(run);
+      const isCleaned = cleanedManifest.cleanupStatus === "completed";
+      process.stdout.write(JSON.stringify({
+        status: cleanedManifest.status,
+        deliveryStatus: cleanedManifest.deliveryStatus,
+        runId: cleanedManifest.runId,
+        runDir: run.runDir,
+        uiDispatch: cleanedManifest.uiDispatch,
+        traceCompleteness: cleanedManifest.traceCompleteness,
+        warnings: cleanedManifest.warnings,
+        cleanedUp: isCleaned,
+        ...(isCleaned ? {} : { retryable: true }),
       }) + "\n");
       return 0;
     }
@@ -2033,7 +2104,7 @@ async function reportRunAdvanceMain(args: string[]): Promise<number> {
   }
 
   if (uiStatus !== null) {
-    if (run.manifest.status === "completed") {
+    if (run.manifest.status === "completed" && (run.manifest.cleanupStatus === "completed" || run.manifest.retention?.cleanedAt !== null)) {
       process.stdout.write(JSON.stringify({
         status: "completed",
         deliveryStatus: "completed",
@@ -2042,7 +2113,7 @@ async function reportRunAdvanceMain(args: string[]): Promise<number> {
         uiDispatch: run.manifest.uiDispatch,
         traceCompleteness: run.manifest.traceCompleteness,
         warnings: run.manifest.warnings,
-        cleanedUp: run.manifest.retention?.cleanedAt !== null,
+        cleanedUp: true,
       }) + "\n");
       return 0;
     }
@@ -2120,16 +2191,35 @@ async function reportRunAdvanceMain(args: string[]): Promise<number> {
         });
       }
       await finalizeReportRun(run, "completed");
-      await cleanupSensitiveRunArtifacts(run);
+
+      if (run.manifest.deliveryStatus !== "completed") {
+        process.stdout.write(JSON.stringify({
+          status: run.manifest.status,
+          deliveryStatus: run.manifest.deliveryStatus,
+          retryable: true,
+          runId: run.manifest.runId,
+          runDir: run.runDir,
+          uiDispatch: run.manifest.uiDispatch,
+          traceCompleteness: run.manifest.traceCompleteness,
+          warnings: run.manifest.warnings,
+          cleanedUp: false,
+          error: "FINALIZATION_FAILED",
+        }) + "\n");
+        return 0;
+      }
+
+      const cleanedManifest = await cleanupSensitiveRunArtifacts(run);
+      const isCleaned = cleanedManifest.cleanupStatus === "completed";
       process.stdout.write(JSON.stringify({
-        status: run.manifest.status,
-        deliveryStatus: run.manifest.deliveryStatus,
-        runId: run.manifest.runId,
+        status: cleanedManifest.status,
+        deliveryStatus: cleanedManifest.deliveryStatus,
+        runId: cleanedManifest.runId,
         runDir: run.runDir,
-        uiDispatch: run.manifest.uiDispatch,
-        traceCompleteness: run.manifest.traceCompleteness,
-        warnings: run.manifest.warnings,
-        cleanedUp: true,
+        uiDispatch: cleanedManifest.uiDispatch,
+        traceCompleteness: cleanedManifest.traceCompleteness,
+        warnings: cleanedManifest.warnings,
+        cleanedUp: isCleaned,
+        ...(isCleaned ? {} : { retryable: true }),
       }) + "\n");
       return 0;
     } else {

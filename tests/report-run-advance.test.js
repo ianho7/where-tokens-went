@@ -1012,3 +1012,263 @@ test('0034 AC-4: external delivery target modification/deletion blocks completed
   }
 });
 
+test('0035 AC-1 to AC-4: truthful cleanup failure preserves files and refs, recovery cleans remaining items without recompose, idempotent completion', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-0035-cleanup-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const d = new Date();
+  const year = String(d.getUTCFullYear());
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const sessions = path.join(codexHome, 'sessions', year, month, day);
+  const runDir = path.join(root, 'run');
+  const externalHtml = path.join(root, 'external-report.html');
+  const faultScript = path.join(root, 'fault-inject.js');
+  const sensitiveExcerpt = 'TOKEN_0035_HIGHLY_SENSITIVE_SECRET_XYZ987';
+  const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
+
+  try {
+    // 0. Setup fault injection script:
+    // - INJECT_TAMPER_AFTER_FIRST_READ=1: allows first delivery check to pass, then tampers external file before finalize recheck
+    // - INJECT_CLEANUP_EPERM=1: simulates FS refusing fs.rm for evidence and lanes
+    await writeFile(faultScript, `
+      const fs = require('node:fs/promises');
+      const origRm = fs.rm;
+      const origReadFile = fs.readFile;
+      let htmlReadCount = 0;
+
+      fs.readFile = async function(targetPath, opts) {
+        const str = String(targetPath);
+        if (str.includes('external-report.html') && process.env.INJECT_TAMPER_AFTER_FIRST_READ === '1') {
+          htmlReadCount += 1;
+          if (htmlReadCount === 1) {
+            const result = await origReadFile.call(this, targetPath, opts);
+            require('node:fs').writeFileSync(targetPath, '<html>tampered after first read</html>', 'utf8');
+            return result;
+          }
+        }
+        return origReadFile.call(this, targetPath, opts);
+      };
+
+      fs.rm = async function(targetPath, opts) {
+        if (process.env.INJECT_CLEANUP_EPERM === '1') {
+          const str = String(targetPath);
+          if (str.includes('evidence.json') || str.includes('lanes')) {
+            const err = new Error('EPERM: operation not permitted, unlink');
+            err.code = 'EPERM';
+            throw err;
+          }
+        }
+        return origRm.call(this, targetPath, opts);
+      };
+    `, 'utf8');
+
+    // 1. Setup session with sensitive content and run preflight
+    await mkdir(project, { recursive: true });
+    await mkdir(sessions, { recursive: true });
+    const timestamp = d.toISOString();
+    await writeFile(path.join(sessions, 'rollout-0035.jsonl'), [
+      { timestamp, type: 'session_meta', payload: { id: 'session-0035', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0' } },
+      { timestamp, type: 'turn_context', payload: { turn_id: 'turn-0035', cwd: project } },
+      { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'resp-0035', turn_id: 'turn-0035', usage: { input_tokens: 20, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 30 }, turn_token_usage: { input_tokens: 20, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 30 } } },
+      { timestamp, type: 'response_item', payload: { type: 'message', role: 'user', turn_id: 'turn-0035', content: 'Audit database secret access.' } },
+      { timestamp, type: 'response_item', payload: { type: 'message', role: 'assistant', turn_id: 'turn-0035', content: sensitiveExcerpt } },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+    const preflight = await runCli(['report-run', 'preflight'], env);
+    assert.equal(preflight.code, 0, preflight.stderr);
+
+    const start = await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(start.code, 0, start.stderr);
+
+    // Initial advance claims compose, renders external HTML, enters awaiting-ui-dispatch
+    const firstAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--html', externalHtml,
+      '--worker-observation', JSON.stringify([
+        { lane: 'report-synthesis', outcome: 'unavailable' },
+        { lane: 'key-session-analysis', outcome: 'unavailable' },
+        { lane: 'skill-insights', outcome: 'unavailable' },
+      ]),
+    ], env);
+    assert.equal(firstAdvance.code, 0, firstAdvance.stderr);
+    const firstAdvanceResult = JSON.parse(firstAdvance.stdout);
+    assert.equal(firstAdvanceResult.action, 'open-html');
+    assert.equal(firstAdvanceResult.status, 'awaiting-ui-dispatch');
+    const originalHtmlContent = await readFile(externalHtml, 'utf8');
+
+    // AC-1 Part A: UI dispatch failure -> does NOT cleanup sensitive artifacts, retention.cleanedAt remains null, returns incomplete
+    const failedUi = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'failed',
+    ], env);
+    assert.equal(failedUi.code, 0, failedUi.stderr);
+    const failedUiResult = JSON.parse(failedUi.stdout);
+    assert.equal(failedUiResult.status, 'incomplete');
+    assert.equal(failedUiResult.deliveryStatus, 'incomplete');
+    assert.equal(failedUiResult.cleanedUp, false);
+
+    // Verify sensitive files and refs are preserved under AC-1 Part A
+    assert.ok(await stat(path.join(runDir, 'evidence.json')), 'evidence.json must be preserved on UI failure');
+    assert.ok(await stat(path.join(runDir, 'lanes')), 'lanes/ must be preserved on UI failure');
+    const manifestAfterFailedUi = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestAfterFailedUi.retention.cleanedAt, null, 'cleanedAt must remain null on UI failure');
+    assert.ok(manifestAfterFailedUi.artifacts.evidence, 'evidence artifact ref must be preserved');
+    assert.ok(Object.keys(manifestAfterFailedUi.laneArtifacts).length > 0, 'laneArtifacts must be preserved');
+
+    // AC-1 Part B: Finalize failure (external HTML modified after first check, before finalize recheck)
+    // First check passes, but finalize recheck fails integrity -> advance must NOT cleanup, evidence must remain!
+    const tamperEnv = {
+      ...env,
+      NODE_OPTIONS: `-r ${faultScript.replace(/\\/g, '/')}`,
+      INJECT_TAMPER_AFTER_FIRST_READ: '1',
+    };
+    const finalizeFailedUi = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'completed',
+    ], tamperEnv);
+    assert.equal(finalizeFailedUi.code, 0, finalizeFailedUi.stderr);
+    const finalizeFailedResult = JSON.parse(finalizeFailedUi.stdout);
+    assert.equal(finalizeFailedResult.status, 'incomplete', 'Run status must be incomplete on finalization failure');
+    assert.equal(finalizeFailedResult.deliveryStatus, 'incomplete', 'deliveryStatus must be incomplete on finalization failure');
+    assert.equal(finalizeFailedResult.cleanedUp, false, 'cleanedUp must be false when finalization fails');
+    assert.equal(finalizeFailedResult.error, 'FINALIZATION_FAILED');
+
+    // Crucial AC-1 assertion: evidence and lanes MUST physically remain and retain refs, cleanedAt MUST be null!
+    assert.ok(await stat(path.join(runDir, 'evidence.json')), 'evidence.json must remain when finalization fails');
+    assert.ok(await stat(path.join(runDir, 'lanes')), 'lanes/ must remain when finalization fails');
+    const manifestAfterFinalizeFail = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestAfterFinalizeFail.status, 'incomplete');
+    assert.equal(manifestAfterFinalizeFail.deliveryStatus, 'incomplete');
+    assert.equal(manifestAfterFinalizeFail.cleanupStatus, 'pending');
+    assert.equal(manifestAfterFinalizeFail.retention.cleanedAt, null, 'cleanedAt must NOT be written on finalization failure');
+    assert.ok(manifestAfterFinalizeFail.artifacts.evidence, 'evidence ref must be retained on finalization failure');
+    assert.ok(manifestAfterFinalizeFail.warnings.some((w) => w.includes('Final HTML artifact integrity verification failed.')), 'warning must record actual failure reason');
+
+    // Restore valid external HTML content for AC-2 onwards
+    await writeFile(externalHtml, originalHtmlContent, 'utf8');
+
+    // AC-2: UI completed with simulated FS refusal (EPERM) -> files and refs retained, cleanupStatus failed, cleanedUp=false, diagnostics have no verbatim content
+    const faultEnv = {
+      ...env,
+      NODE_OPTIONS: `-r ${faultScript.replace(/\\/g, '/')}`,
+      INJECT_CLEANUP_EPERM: '1',
+    };
+    const completedUiWithFault = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'completed',
+    ], faultEnv);
+    assert.equal(completedUiWithFault.code, 0, completedUiWithFault.stderr);
+    const faultResult = JSON.parse(completedUiWithFault.stdout);
+    assert.equal(faultResult.status, 'incomplete', 'Run must be incomplete when cleanup fails');
+    assert.equal(faultResult.deliveryStatus, 'completed', 'Delivery itself succeeded');
+    assert.equal(faultResult.cleanedUp, false, 'cleanedUp must be false on deletion failure');
+    assert.equal(faultResult.retryable, true, 'Advance must remain retryable');
+
+    // Verify physical files remain on disk
+    assert.ok(await stat(path.join(runDir, 'evidence.json')), 'evidence.json must physically remain after EPERM');
+    assert.ok(await stat(path.join(runDir, 'lanes')), 'lanes directory must physically remain after EPERM');
+
+    // Verify manifest state after AC-2 failure
+    const manifestAfterFault = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestAfterFault.status, 'incomplete');
+    assert.equal(manifestAfterFault.deliveryStatus, 'completed');
+    assert.ok(manifestAfterFault.cleanupStatus === 'failed' || manifestAfterFault.cleanupStatus === 'partial');
+    assert.equal(manifestAfterFault.retention.cleanedAt, null, 'cleanedAt must be null on cleanup failure');
+    assert.ok(manifestAfterFault.artifacts.evidence, 'evidence artifact ref must remain');
+    assert.ok(manifestAfterFault.laneArtifacts['report-synthesis/input.json'], 'lane artifact ref must remain');
+
+    // AC-2 diagnostics verification: errors report code and relative path, NOT verbatim content
+    const manifestStr = JSON.stringify(manifestAfterFault);
+    assert.ok(!manifestStr.includes(sensitiveExcerpt), 'Manifest diagnostics must NOT contain sensitive verbatim content');
+    const cleanupWarning = manifestAfterFault.warnings.find((w) => w.includes('Cleanup failed:'));
+    assert.ok(cleanupWarning, 'Warning must record cleanup failure');
+    assert.match(cleanupWarning, /EPERM/);
+    assert.match(cleanupWarning, /evidence\.json/);
+
+    // AC-3: Fault cleared -> advance without --ui retries remaining cleanup ONLY, does not recompose or re-open HTML, becomes completed
+    const externalHtmlStatBefore = await stat(externalHtml);
+    const recoveryAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(recoveryAdvance.code, 0, recoveryAdvance.stderr);
+    const recoveryResult = JSON.parse(recoveryAdvance.stdout);
+    assert.equal(recoveryResult.status, 'completed');
+    assert.equal(recoveryResult.deliveryStatus, 'completed');
+    assert.equal(recoveryResult.cleanedUp, true);
+    assert.equal(recoveryResult.action, undefined, 'Advance recovery must NOT return open-html action');
+
+    // Physical files actually deleted
+    await assert.rejects(readFile(path.join(runDir, 'evidence.json')), { code: 'ENOENT' });
+    await assert.rejects(readFile(path.join(runDir, 'lanes')), { code: 'ENOENT' });
+
+    // Canonical Audit, manifest, trace, and external HTML retained
+    assert.ok(await stat(path.join(runDir, 'audit.json')), 'canonical audit must be retained');
+    assert.ok(await stat(path.join(runDir, 'manifest.json')), 'manifest must be retained');
+    assert.ok(await stat(path.join(runDir, 'trace.jsonl')), 'trace must be retained');
+    const externalHtmlStatAfter = await stat(externalHtml);
+    assert.equal(externalHtmlStatAfter.mtimeMs, externalHtmlStatBefore.mtimeMs, 'External delivery HTML must not be rewritten');
+
+    // Manifest after successful recovery
+    const manifestAfterRecovery = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestAfterRecovery.status, 'completed');
+    assert.equal(manifestAfterRecovery.deliveryStatus, 'completed');
+    assert.equal(manifestAfterRecovery.cleanupStatus, 'completed');
+    assert.ok(manifestAfterRecovery.retention.cleanedAt, 'cleanedAt must be recorded on successful cleanup');
+    assert.equal(manifestAfterRecovery.artifacts.evidence, undefined, 'evidence ref must be cleared');
+    assert.deepEqual(manifestAfterRecovery.laneArtifacts, {}, 'laneArtifacts must be cleared');
+    assert.ok(manifestAfterRecovery.artifacts.audit, 'audit ref retained');
+    assert.ok(manifestAfterRecovery.artifacts.trace, 'trace ref retained');
+
+    // Trace records cleanup events reflecting both failure and successful recovery
+    const traceLines = (await readFile(path.join(runDir, 'trace.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+    const cleanupTraceEvents = traceLines.filter((e) => e.event === 'cleanup');
+    assert.equal(cleanupTraceEvents.length, 2, 'trace must record both cleanup attempts');
+    assert.ok(cleanupTraceEvents[0].status === 'failed' || cleanupTraceEvents[0].status === 'partial');
+    assert.ok(cleanupTraceEvents[0].errors.some((err) => err.code === 'EPERM'), 'first cleanup trace must record EPERM failure');
+    assert.equal(cleanupTraceEvents[1].status, 'completed');
+    assert.equal(cleanupTraceEvents[1].errors.length, 0);
+
+    // AC-4: Repeated advance and repeated --ui completed are idempotent
+    const repeatAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(repeatAdvance.code, 0, repeatAdvance.stderr);
+    const repeatAdvanceResult = JSON.parse(repeatAdvance.stdout);
+    assert.equal(repeatAdvanceResult.status, 'completed');
+    assert.equal(repeatAdvanceResult.deliveryStatus, 'completed');
+    assert.equal(repeatAdvanceResult.cleanedUp, true);
+    assert.equal(repeatAdvanceResult.action, undefined);
+
+    const repeatUi = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'completed',
+    ], env);
+    assert.equal(repeatUi.code, 0, repeatUi.stderr);
+    const repeatUiResult = JSON.parse(repeatUi.stdout);
+    assert.equal(repeatUiResult.status, 'completed');
+    assert.equal(repeatUiResult.deliveryStatus, 'completed');
+    assert.equal(repeatUiResult.cleanedUp, true);
+
+    // Final verification: external delivery file remains completely intact
+    const finalHtmlStat = await stat(externalHtml);
+    assert.equal(finalHtmlStat.size, externalHtmlStatBefore.size);
+    assert.equal(finalHtmlStat.mtimeMs, externalHtmlStatBefore.mtimeMs);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+

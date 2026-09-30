@@ -105,7 +105,8 @@ export async function claimReportRunAdvance(run: ReportRun): Promise<AdvanceClai
     } else if (
       manifest.status === "awaiting-ui-dispatch" ||
       manifest.status === "completed" ||
-      manifest.status === "failed"
+      manifest.status === "failed" ||
+      manifest.deliveryStatus === "completed"
     ) {
       return { claimed: false, status: manifest.status, ready: false };
     }
@@ -194,6 +195,13 @@ export interface ComposingOwner {
   startedAt: string;
 }
 
+export type CleanupStatus = "pending" | "partial" | "failed" | "completed";
+
+export interface CleanupErrorRecord {
+  file: string;
+  code: string;
+}
+
 export interface ReportRunManifest {
   version: 1;
   runId: string;
@@ -233,6 +241,8 @@ export interface ReportRunManifest {
   warnings: string[];
   laneStatus: Record<ReportLane, RunLaneStatus>;
   deliveryStatus: ReportRunStatus;
+  cleanupStatus?: CleanupStatus;
+  cleanupErrors?: CleanupErrorRecord[];
   degraded: boolean;
   uiDispatch: "completed" | "queued" | "failed" | "unavailable";
   laneArtifacts: Record<string, ArtifactRef>;
@@ -501,6 +511,7 @@ function initialManifest(scope: ReportRunScope, runId: string): ReportRunManifes
       "skill-insights": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null },
     },
     deliveryStatus: "started",
+    cleanupStatus: "pending",
     degraded: false,
     uiDispatch: "unavailable",
     laneArtifacts: {},
@@ -892,15 +903,18 @@ export async function finalizeReportRun(run: ReportRun, status: ReportRunStatus)
       }
     }
     const traceReady = manifest.traceCompleteness === "complete" && !manifest.traceErrorCode;
+    const deliveryCompleted = !failedStage && !incompleteStage && lanesTerminal && htmlIntegrity && uiReady;
     manifest.executionMode ??= "unknown";
+    manifest.deliveryStatus = status === "completed"
+      ? (deliveryCompleted ? "completed" : "incomplete")
+      : status;
     manifest.status = status === "completed"
       ? failedStage
         ? "failed"
         : incompleteStage || !lanesTerminal || !htmlIntegrity || !uiReady
           ? "incomplete"
-          : "completed"
+          : (manifest.cleanupStatus === "failed" || manifest.cleanupStatus === "partial" ? "incomplete" : "completed")
       : status;
-    manifest.deliveryStatus = manifest.status;
     if (!htmlIntegrity) manifest.warnings = [...new Set([...manifest.warnings, "Final HTML artifact integrity verification failed."])];
     if (!uiReady) manifest.warnings = [...new Set([...manifest.warnings, "Final HTML UI dispatch was not observed as completed or queued."])];
     if (!lanesTerminal) manifest.warnings = [...new Set([...manifest.warnings, "One or more eligible AI lanes were not accepted or explicitly degraded."])];
@@ -1619,14 +1633,191 @@ const SENSITIVE_RUN_ARTIFACTS: readonly RunArtifactName[] = [
 export async function cleanupSensitiveRunArtifacts(run: ReportRun): Promise<ReportRunManifest> {
   return withRunLock(run.runDir, async () => {
     const manifest = await readRunManifest(run.runDir);
-    for (const name of SENSITIVE_RUN_ARTIFACTS) {
-      const file = manifest.artifacts[name]?.file ?? artifactFiles[name];
-      await rm(path.join(run.runDir, file), { force: true }).catch(() => undefined);
-      delete manifest.artifacts[name];
+    const resolvedRunDir = path.resolve(run.runDir);
+
+    const isDeliveryCompleted = manifest.deliveryStatus === "completed";
+    const isFailed = manifest.status === "failed";
+    const isExplicitStandaloneCleanup = !manifest.delivery && manifest.deliveryStatus === "started" && Boolean(manifest.artifacts.html);
+
+    if (!isDeliveryCompleted && !isFailed && !isExplicitStandaloneCleanup) {
+      return manifest;
     }
-    await rm(path.join(run.runDir, "lanes"), { recursive: true, force: true }).catch(() => undefined);
-    manifest.laneArtifacts = {};
-    manifest.retention = { workspace: "local-sensitive", policy: "explicit-cleanup", cleanedAt: nowIso() };
+
+    if (manifest.delivery) {
+      try {
+        const contents = await readFile(manifest.delivery.targetPath);
+        if (contents.byteLength !== manifest.delivery.bytes || hashBytes(contents) !== manifest.delivery.sha256) {
+          return manifest;
+        }
+      } catch {
+        return manifest;
+      }
+    }
+
+    const cleanupErrors: CleanupErrorRecord[] = [];
+    let deletedCount = 0;
+
+    for (const name of SENSITIVE_RUN_ARTIFACTS) {
+      const ref = manifest.artifacts[name];
+      const relativeFile = ref?.file ?? artifactFiles[name];
+      if (!relativeFile) continue;
+      const targetPath = path.resolve(resolvedRunDir, relativeFile);
+
+      if (!isWithin(resolvedRunDir, targetPath)) {
+        continue;
+      }
+
+      let exists = false;
+      try {
+        await stat(targetPath);
+        exists = true;
+      } catch (err: any) {
+        if (err?.code !== "ENOENT") {
+          exists = true;
+        }
+      }
+
+      if (!exists) {
+        if (manifest.artifacts[name]) {
+          delete manifest.artifacts[name];
+          deletedCount += 1;
+        }
+        continue;
+      }
+
+      try {
+        await rm(targetPath, { force: true });
+        delete manifest.artifacts[name];
+        deletedCount += 1;
+      } catch (error: any) {
+        const code = error?.code || "UNKNOWN";
+        cleanupErrors.push({ file: relativeFile, code });
+      }
+    }
+
+    const lanesDir = path.resolve(resolvedRunDir, "lanes");
+    let lanesDirExists = false;
+    try {
+      await stat(lanesDir);
+      lanesDirExists = true;
+    } catch (err: any) {
+      if (err?.code !== "ENOENT") {
+        lanesDirExists = true;
+      }
+    }
+
+    if (lanesDirExists) {
+      let lanesRmError: any = null;
+      try {
+        await rm(lanesDir, { recursive: true, force: true });
+      } catch (error: any) {
+        lanesRmError = error;
+      }
+
+      if (lanesRmError) {
+        const laneKeys = Object.keys(manifest.laneArtifacts || {});
+        for (const key of laneKeys) {
+          const laneRef = manifest.laneArtifacts[key];
+          if (!laneRef?.file) {
+            delete manifest.laneArtifacts[key];
+            continue;
+          }
+          const laneFilePath = path.resolve(resolvedRunDir, laneRef.file);
+          if (!isWithin(resolvedRunDir, laneFilePath)) {
+            continue;
+          }
+          try {
+            await stat(laneFilePath);
+            cleanupErrors.push({ file: laneRef.file, code: lanesRmError?.code || "UNKNOWN" });
+          } catch (err: any) {
+            if (err?.code === "ENOENT") {
+              delete manifest.laneArtifacts[key];
+              deletedCount += 1;
+            } else {
+              cleanupErrors.push({ file: laneRef.file, code: err?.code || "UNKNOWN" });
+            }
+          }
+        }
+        if (manifest.projections) {
+          for (const [laneKey, projRef] of Object.entries(manifest.projections)) {
+            if (projRef?.file) {
+              const projPath = path.resolve(resolvedRunDir, projRef.file);
+              try {
+                await stat(projPath);
+              } catch (err: any) {
+                if (err?.code === "ENOENT") {
+                  delete manifest.projections[laneKey as ReportLane];
+                }
+              }
+            }
+          }
+        }
+        cleanupErrors.push({ file: "lanes", code: lanesRmError?.code || "UNKNOWN" });
+      } else {
+        manifest.laneArtifacts = {};
+        if (manifest.projections) {
+          manifest.projections = {};
+        }
+        deletedCount += 1;
+      }
+    } else {
+      manifest.laneArtifacts = {};
+      if (manifest.projections) {
+        manifest.projections = {};
+      }
+    }
+
+    const remainingArtifacts = SENSITIVE_RUN_ARTIFACTS.filter((name) => Boolean(manifest.artifacts[name]));
+    const remainingLaneArtifacts = Object.keys(manifest.laneArtifacts || {});
+    const isFullyCleaned = cleanupErrors.length === 0 && remainingArtifacts.length === 0 && remainingLaneArtifacts.length === 0;
+
+    if (isFullyCleaned) {
+      manifest.cleanupStatus = "completed";
+      manifest.cleanupErrors = undefined;
+      manifest.retention = {
+        workspace: "local-sensitive",
+        policy: "explicit-cleanup",
+        cleanedAt: nowIso(),
+      };
+      if (manifest.deliveryStatus === "completed") {
+        manifest.status = "completed";
+      }
+      manifest.warnings = manifest.warnings.filter((w) => !w.startsWith("Cleanup failed:"));
+    } else {
+      manifest.cleanupStatus = deletedCount > 0 ? "partial" : "failed";
+      manifest.cleanupErrors = cleanupErrors;
+      manifest.retention = {
+        workspace: "local-sensitive",
+        policy: "explicit-cleanup",
+        cleanedAt: null,
+      };
+      manifest.status = "incomplete";
+      const errorSummaries = cleanupErrors.map((e) => `${e.file} (${e.code})`).join(", ");
+      const warningMsg = `Cleanup failed: ${errorSummaries}`;
+      if (!manifest.warnings.includes(warningMsg)) {
+        manifest.warnings = [...manifest.warnings.filter((w) => !w.startsWith("Cleanup failed:")), warningMsg];
+      }
+    }
+
+    await appendTraceLocked(run, manifest, {
+      event: "cleanup",
+      runId: manifest.runId,
+      cleanedAt: manifest.retention?.cleanedAt ?? null,
+      status: manifest.cleanupStatus,
+      retainedArtifacts: Object.keys(manifest.artifacts),
+      errors: cleanupErrors.map((e) => ({ file: e.file, code: e.code })),
+    });
+    try {
+      const traceContents = await readFile(run.traceFile);
+      manifest.artifacts.trace = {
+        file: "trace.jsonl",
+        bytes: traceContents.byteLength,
+        sha256: hashBytes(traceContents),
+      };
+    } catch {
+      // retain existing trace artifact
+    }
+
     manifest.updatedAt = nowIso();
     await writeAtomic(run.manifestFile, JSON.stringify(manifest, null, 2) + "\n");
     run.manifest = manifest;
@@ -1664,6 +1855,7 @@ export async function readRunManifest(runDir: string): Promise<ReportRunManifest
     manifest.laneStatus[lane].dispatched ??= false;
   }
   manifest.deliveryStatus ??= manifest.status;
+  manifest.cleanupStatus ??= manifest.retention?.cleanedAt ? "completed" : "pending";
   manifest.degraded ??= false;
   manifest.executionMode ??= null;
   manifest.executionModeReasonCode ??= null;
