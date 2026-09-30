@@ -538,6 +538,48 @@ export async function setReportRunStatus(run: ReportRun, status: ReportRunStatus
   });
 }
 
+export async function setRunNoHistoryInScope(run: ReportRun): Promise<void> {
+  await mutateRun(run, (manifest) => {
+    for (const lane of REPORT_LANES) {
+      manifest.laneStatus[lane] = {
+        status: "unavailable",
+        attempts: 0,
+        totalDurationMs: 0,
+        lastDurationMs: 0,
+        reasonCode: "NO_HISTORY_IN_SCOPE",
+        inputArtifact: null,
+        acceptedArtifact: null,
+        spanStartedAt: null,
+      };
+      manifest.stageStatus[lane] = {
+        status: "unavailable",
+        attempt: 0,
+        spanId: null,
+        durationMs: 0,
+      };
+    }
+    const noHistorySkippedStages = [
+      "content-selection",
+      "content-read",
+      "skill-candidate-select",
+      "skill-snapshot",
+      "validation",
+    ];
+    for (const stage of noHistorySkippedStages) {
+      manifest.stageStatus[stage] = {
+        status: "skipped",
+        attempt: 0,
+        spanId: null,
+        durationMs: 0,
+      };
+    }
+    manifest.degraded = true;
+    if (!manifest.warnings.includes("NO_HISTORY_IN_SCOPE")) {
+      manifest.warnings.push("NO_HISTORY_IN_SCOPE");
+    }
+  });
+}
+
 export async function setRunEligibleStages(run: ReportRun, stages: readonly string[]): Promise<void> {
   await mutateRun(run, (manifest) => {
     manifest.eligibleStages = [...new Set(stages)];
@@ -712,6 +754,10 @@ export async function finalizeReportRun(run: ReportRun, status: ReportRunStatus)
     const uiReady = manifest.uiDispatch === "completed" || manifest.uiDispatch === "queued";
     const incompleteStage = manifest.eligibleStages.some((phase) => {
       if (phase === "codex-open") return !uiReady;
+      if (REPORT_LANE_PHASES.has(phase as ReportLane)) {
+        const lane = manifest.laneStatus[phase as ReportLane];
+        return !lane || !isLaneTerminal(lane);
+      }
       const current = manifest.stageStatus[phase];
       return !current || current.status === "started" || current.status === "interrupted";
     });

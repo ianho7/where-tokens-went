@@ -40,6 +40,7 @@ exports.assertLocalSensitiveRunDirectory = assertLocalSensitiveRunDirectory;
 exports.createReportRun = createReportRun;
 exports.openReportRun = openReportRun;
 exports.setReportRunStatus = setReportRunStatus;
+exports.setRunNoHistoryInScope = setRunNoHistoryInScope;
 exports.setRunEligibleStages = setRunEligibleStages;
 exports.setRunPromptHashes = setRunPromptHashes;
 exports.setRunSourceInventory = setRunSourceInventory;
@@ -420,6 +421,47 @@ async function setReportRunStatus(run, status) {
         manifest.deliveryStatus = status;
     });
 }
+async function setRunNoHistoryInScope(run) {
+    await mutateRun(run, (manifest) => {
+        for (const lane of exports.REPORT_LANES) {
+            manifest.laneStatus[lane] = {
+                status: "unavailable",
+                attempts: 0,
+                totalDurationMs: 0,
+                lastDurationMs: 0,
+                reasonCode: "NO_HISTORY_IN_SCOPE",
+                inputArtifact: null,
+                acceptedArtifact: null,
+                spanStartedAt: null,
+            };
+            manifest.stageStatus[lane] = {
+                status: "unavailable",
+                attempt: 0,
+                spanId: null,
+                durationMs: 0,
+            };
+        }
+        const noHistorySkippedStages = [
+            "content-selection",
+            "content-read",
+            "skill-candidate-select",
+            "skill-snapshot",
+            "validation",
+        ];
+        for (const stage of noHistorySkippedStages) {
+            manifest.stageStatus[stage] = {
+                status: "skipped",
+                attempt: 0,
+                spanId: null,
+                durationMs: 0,
+            };
+        }
+        manifest.degraded = true;
+        if (!manifest.warnings.includes("NO_HISTORY_IN_SCOPE")) {
+            manifest.warnings.push("NO_HISTORY_IN_SCOPE");
+        }
+    });
+}
 async function setRunEligibleStages(run, stages) {
     await mutateRun(run, (manifest) => {
         manifest.eligibleStages = [...new Set(stages)];
@@ -557,6 +599,10 @@ async function finalizeReportRun(run, status) {
         const incompleteStage = manifest.eligibleStages.some((phase) => {
             if (phase === "codex-open")
                 return !uiReady;
+            if (REPORT_LANE_PHASES.has(phase)) {
+                const lane = manifest.laneStatus[phase];
+                return !lane || !isLaneTerminal(lane);
+            }
             const current = manifest.stageStatus[phase];
             return !current || current.status === "started" || current.status === "interrupted";
         });

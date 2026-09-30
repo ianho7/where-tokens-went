@@ -56,6 +56,7 @@ function usage() {
         "       where-tokens-went inspect --harness <codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
         "       where-tokens-went compose-report --locale zh-CN|en-US --font <font-file> [--font-family <name>] --html <final-path> < composition JSON envelope",
         "       where-tokens-went render-report --json <report.json> --html <final-path> [--run-dir <directory>]",
+        "       where-tokens-went report-run preflight [--skill-root <path>]",
         "       where-tokens-went report-run advance --run-dir <directory> [--html <final-path>] [--ui completed|queued|failed|unavailable]",
         "       where-tokens-went report-run run-all start --harness <codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
         "       where-tokens-went report-run run-all finish --run-dir <directory> [--html <final-path>]",
@@ -571,6 +572,13 @@ async function prepareReportRunInternal(args, runDir, installedBundle) {
         await (0, report_run_1.writeRunArtifact)(run, "firstUserMessages", read.firstUserMessages ?? []);
         await (0, report_run_1.setRunTopSessions)(run, audit.rankings.sessions, read.sessions);
         await (0, report_run_1.setRunAuditFingerprint)(run, (0, key_session_analysis_1.auditFingerprint)(audit));
+        if (audit.rankings.sessions.length === 0) {
+            await (0, report_run_1.setRunNoHistoryInScope)(run);
+            const finalBundle = await (0, bundle_version_1.verifyInstalledSkill)();
+            (0, report_run_1.assertRunBundleVersion)(run, finalBundle.bundleVersion);
+            await (0, report_run_1.setReportRunStatus)(run, "prepared");
+            return run;
+        }
         const totalTasks = typeof audit.summary.sessionCount?.value === "number" ? audit.summary.sessionCount.value : 0;
         const candidatesResult = await (0, report_run_1.withRunSpan)(run, { phase: "skill-candidate-select", operation: "select-skill-candidates", source: "runner" }, async () => {
             return (0, skill_insights_1.selectSkillCandidates)(audit.report.skills ?? [], totalTasks);
@@ -598,6 +606,9 @@ async function reportRunPrepareMain(args) {
     return 0;
 }
 async function autoEvidenceRunInternal(run) {
+    if (run.manifest.topSessions.length === 0) {
+        return [];
+    }
     const audit = await readCanonicalAudit(run);
     const input = await (0, report_run_1.withRunSpan)(run, { phase: "content-selection", operation: "auto-evidence-selection", source: "runner" }, async () => ({
         selections: run.manifest.topSessions.slice(0, 3).map((session) => ({
@@ -1643,7 +1654,23 @@ async function reportRunRunAllStartMain(args) {
     }
     else {
         run = await prepareReportRunInternal(rest, runDir, installedBundle);
-        await autoEvidenceRunInternal(run);
+        if (run.manifest.laneStatus["report-synthesis"]?.reasonCode !== "NO_HISTORY_IN_SCOPE") {
+            await autoEvidenceRunInternal(run);
+        }
+    }
+    if (run.manifest.laneStatus["report-synthesis"]?.reasonCode === "NO_HISTORY_IN_SCOPE") {
+        process.stdout.write(JSON.stringify({
+            action: "advance",
+            status: "lanes-ready",
+            runId: run.manifest.runId,
+            runDir: run.runDir,
+            auditFingerprint: run.manifest.auditFingerprint,
+            bundleVersion: run.manifest.bundleVersion,
+            locale: run.manifest.scope.locale,
+            tickets: {},
+            reason: "NO_HISTORY_IN_SCOPE",
+        }) + "\n");
+        return 0;
     }
     const snapshot = run.manifest.artifacts.skillSnapshot
         ? await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot")
@@ -1972,6 +1999,26 @@ async function reportRunRunAllFinishMain(args) {
     }) + "\n");
     return 0;
 }
+async function reportRunPreflightMain(args) {
+    let skillRoot;
+    for (let index = 0; index < args.length; index += 1) {
+        if (args[index] === "--skill-root") {
+            skillRoot = requireValue(args, index, "--skill-root");
+            index += 1;
+        }
+        else {
+            throw new Error(`Unknown report-run preflight argument: ${args[index]}.\n${usage()}`);
+        }
+    }
+    const bundle = await (0, bundle_version_1.verifySkillPackage)(skillRoot);
+    process.stdout.write(JSON.stringify({
+        status: "passed",
+        productVersion: bundle.productVersion,
+        bundleVersion: bundle.bundleVersion,
+        auditSchemaVersion: bundle.auditSchemaVersion,
+    }) + "\n");
+    return 0;
+}
 async function reportRunRunAllMain(args) {
     const command = args[0];
     if (command === "start")
@@ -1982,6 +2029,8 @@ async function reportRunRunAllMain(args) {
 }
 async function reportRunMain(args) {
     const command = args[0];
+    if (command === "preflight")
+        return reportRunPreflightMain(args.slice(1));
     if (command === "advance")
         return reportRunAdvanceMain(args.slice(1));
     if (command === "run-all")
@@ -2006,7 +2055,7 @@ async function reportRunMain(args) {
         return reportRunFinalizeMain(args.slice(1));
     if (command === "cleanup")
         return reportRunCleanupMain(args.slice(1));
-    throw new Error(`Use report-run advance, run-all, prepare, evidence, ai-start, ai-accept, ai-fallback, compose, event, status, finalize, or cleanup.\n${usage()}`);
+    throw new Error(`Use report-run preflight, advance, run-all, prepare, evidence, ai-start, ai-accept, ai-fallback, compose, event, status, finalize, or cleanup.\n${usage()}`);
 }
 async function composeReportMain(args) {
     const options = parseComposeArgs(args);

@@ -33,13 +33,30 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.INSTALL_HINT = exports.AUDIT_SCHEMA_VERSION = void 0;
+exports.REQUIRED_PACKAGE_FILES = exports.REINSTALL_HINT = exports.INSTALL_HINT = exports.AUDIT_SCHEMA_VERSION = void 0;
+exports.isBundleVersion = isBundleVersion;
+exports.collectBundleFiles = collectBundleFiles;
+exports.computeBundleDigest = computeBundleDigest;
+exports.isDevelopmentRepo = isDevelopmentRepo;
+exports.isPackagedSkillDirectory = isPackagedSkillDirectory;
+exports.resolveSkillRoot = resolveSkillRoot;
 exports.readCurrentBundleVersion = readCurrentBundleVersion;
+exports.verifySkillPackage = verifySkillPackage;
 exports.verifyInstalledSkill = verifyInstalledSkill;
 const promises_1 = require("node:fs/promises");
 const path = __importStar(require("node:path"));
+const node_crypto_1 = require("node:crypto");
 exports.AUDIT_SCHEMA_VERSION = 1;
 exports.INSTALL_HINT = "Run npm run install-local.";
+exports.REINSTALL_HINT = "Reinstall the where-tokens-went Skill package.";
+exports.REQUIRED_PACKAGE_FILES = [
+    "SKILL.md",
+    "scripts/where-tokens-went.js",
+    "scripts/runtime/cli.js",
+    "references/report-synthesis.md",
+    "references/key-session-analysis.md",
+    "references/skill-insights.md",
+];
 function isBundleVersion(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
         return false;
@@ -59,104 +76,160 @@ async function readBundleVersionFile(filePath) {
         return null;
     }
 }
-async function listFiles(root) {
-    const result = [];
-    const visit = async (directory, relative) => {
-        for (const entry of await (0, promises_1.readdir)(directory, { withFileTypes: true })) {
-            const next = path.join(directory, entry.name);
-            const nextRelative = path.join(relative, entry.name);
-            if (entry.isDirectory())
-                await visit(next, nextRelative);
-            else if (entry.isFile())
-                result.push(nextRelative);
-        }
-    };
-    await visit(root, "");
-    return result.sort();
+function isDescendantOf(parentPath, targetPath) {
+    const relative = path.relative(parentPath, targetPath);
+    return !relative.startsWith("..") && !path.isAbsolute(relative);
 }
-async function verifyInstalledContent(expectedRoot, actualRoot, label) {
-    let expectedFiles;
-    let actualFiles;
-    try {
-        [expectedFiles, actualFiles] = await Promise.all([listFiles(expectedRoot), listFiles(actualRoot)]);
-    }
-    catch {
-        throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed content is unavailable. ${exports.INSTALL_HINT}`);
-    }
-    if (expectedFiles.join("\n") !== actualFiles.join("\n")) {
-        throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed file set differs from the repository distribution. ${exports.INSTALL_HINT}`);
-    }
-    for (const relative of expectedFiles) {
-        const expected = await (0, promises_1.readFile)(path.join(expectedRoot, relative));
-        const actual = await (0, promises_1.readFile)(path.join(actualRoot, relative));
-        if (!expected.equals(actual)) {
-            throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed content differs at ${relative}. ${exports.INSTALL_HINT}`);
-        }
-    }
-}
-function ancestors(start) {
-    const result = [];
-    let current = path.resolve(start);
-    while (true) {
-        result.push(current);
-        const parent = path.dirname(current);
-        if (parent === current)
-            return result;
-        current = parent;
-    }
-}
-async function findRepositoryRoot() {
-    const starts = [
-        ...(process.env.WHERE_TOKENS_WENT_REPO_ROOT ? [process.env.WHERE_TOKENS_WENT_REPO_ROOT] : []),
-        process.cwd(),
-        path.resolve(__dirname, "../.."),
-        path.resolve(__dirname, "../../.."),
-    ];
-    for (const start of starts) {
-        for (const candidate of ancestors(start)) {
-            const bundle = await readBundleVersionFile(path.join(candidate, "skills", "where-tokens-went", "bundle-version.json"));
-            if (bundle)
-                return candidate;
-        }
-    }
-    return null;
-}
-async function readCurrentBundleVersion() {
-    const candidates = [
-        path.resolve(__dirname, "../../bundle-version.json"),
-        path.resolve(__dirname, "../../skills/where-tokens-went/bundle-version.json"),
-        ...(process.env.WHERE_TOKENS_WENT_REPO_ROOT
-            ? [path.resolve(process.env.WHERE_TOKENS_WENT_REPO_ROOT, "skills/where-tokens-went/bundle-version.json")]
-            : []),
-    ];
-    for (const filePath of candidates) {
-        const bundle = await readBundleVersionFile(filePath);
-        if (bundle)
-            return bundle;
-    }
-    return null;
-}
-async function verifyInstalledSkill() {
-    const repositoryRoot = await findRepositoryRoot();
-    if (!repositoryRoot)
-        throw new Error(`where-tokens-went Skill version preflight failed: repository distribution bundle is unavailable. ${exports.INSTALL_HINT}`);
-    const expected = await readBundleVersionFile(path.join(repositoryRoot, "skills", "where-tokens-went", "bundle-version.json"));
-    if (!expected)
-        throw new Error(`where-tokens-went Skill version preflight failed: repository distribution bundle is invalid. ${exports.INSTALL_HINT}`);
-    const locations = [
-        [".agents", path.join(repositoryRoot, ".agents", "skills", "where-tokens-went")],
-        [".claude", path.join(repositoryRoot, ".claude", "skills", "where-tokens-went")],
-    ];
-    for (const [label, skillRoot] of locations) {
-        const actual = await readBundleVersionFile(path.join(skillRoot, "bundle-version.json"));
-        if (!actual)
-            throw new Error(`where-tokens-went Skill version preflight failed: ${label} installed bundle is missing or invalid. ${exports.INSTALL_HINT}`);
-        for (const field of ["productVersion", "bundleVersion", "auditSchemaVersion"]) {
-            if (actual[field] !== expected[field]) {
-                throw new Error(`where-tokens-went Skill version preflight failed: ${label} ${field} does not match the repository distribution bundle. ${exports.INSTALL_HINT}`);
+async function collectBundleFiles(skillRoot) {
+    const realSkillRoot = await (0, promises_1.realpath)(skillRoot);
+    const files = [];
+    const visit = async (current, relative) => {
+        const entries = (await (0, promises_1.readdir)(current, { withFileTypes: true })).sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+        for (const entry of entries) {
+            const fullPath = path.join(current, entry.name);
+            const entryRelative = relative ? path.join(relative, entry.name) : entry.name;
+            const normalizedRelative = entryRelative.replaceAll("\\", "/");
+            if (normalizedRelative === "bundle-version.json") {
+                continue;
+            }
+            if (entry.isSymbolicLink()) {
+                let realTarget;
+                try {
+                    realTarget = await (0, promises_1.realpath)(fullPath);
+                }
+                catch {
+                    throw new Error(`where-tokens-went Skill preflight failed: broken symlink at ${normalizedRelative}`);
+                }
+                if (!isDescendantOf(realSkillRoot, realTarget) && realTarget !== realSkillRoot) {
+                    throw new Error(`where-tokens-went Skill preflight failed: symlink ${normalizedRelative} escapes package root`);
+                }
+            }
+            if (entry.isDirectory()) {
+                await visit(fullPath, entryRelative);
+            }
+            else if (entry.isFile()) {
+                files.push({ relative: normalizedRelative, path: fullPath });
             }
         }
-        await verifyInstalledContent(path.join(repositoryRoot, "skills", "where-tokens-went"), skillRoot, label);
+    };
+    await visit(skillRoot, "");
+    files.sort((left, right) => (left.relative < right.relative ? -1 : left.relative > right.relative ? 1 : 0));
+    const presentFiles = new Set(files.map((file) => file.relative));
+    for (const required of exports.REQUIRED_PACKAGE_FILES) {
+        if (!presentFiles.has(required)) {
+            throw new Error(`where-tokens-went Skill preflight failed: missing required package file ${required}`);
+        }
     }
-    return expected;
+    return files;
+}
+async function computeBundleDigest(skillRoot) {
+    const entries = await collectBundleFiles(skillRoot);
+    const digest = (0, node_crypto_1.createHash)("sha256");
+    for (const entry of entries) {
+        const contents = await (0, promises_1.readFile)(entry.path);
+        digest.update(entry.relative, "utf8");
+        digest.update("\0", "utf8");
+        digest.update(String(contents.byteLength), "utf8");
+        digest.update("\0", "utf8");
+        digest.update(contents);
+        digest.update("\0", "utf8");
+    }
+    return digest.digest("hex");
+}
+async function isDevelopmentRepo(skillRoot) {
+    try {
+        const candidateRepo = path.resolve(skillRoot, "../..");
+        const pkgPath = path.join(candidateRepo, "package.json");
+        const raw = await (0, promises_1.readFile)(pkgPath, "utf8");
+        const pkg = JSON.parse(raw);
+        return pkg && pkg.name === "where-tokens-went";
+    }
+    catch {
+        return false;
+    }
+}
+function isPackagedSkillDirectory(dir) {
+    const parentName = path.basename(path.resolve(dir, ".."));
+    const currentName = path.basename(dir);
+    return currentName === "runtime" && parentName === "scripts";
+}
+async function resolveSkillRoot(candidate) {
+    if (candidate) {
+        const resolved = path.resolve(candidate);
+        const bundle = await readBundleVersionFile(path.join(resolved, "bundle-version.json"));
+        if (bundle)
+            return resolved;
+        const subBundle = await readBundleVersionFile(path.join(resolved, "skills", "where-tokens-went", "bundle-version.json"));
+        if (subBundle)
+            return path.join(resolved, "skills", "where-tokens-went");
+        return resolved;
+    }
+    // Normal invocation of an installed Skill package: the invoking package is self-authoritative
+    // and must never be masked or redirected by ambient environment variables.
+    if (isPackagedSkillDirectory(__dirname)) {
+        return path.resolve(__dirname, "../..");
+    }
+    if (process.env.WHERE_TOKENS_WENT_SKILL_ROOT) {
+        return path.resolve(process.env.WHERE_TOKENS_WENT_SKILL_ROOT);
+    }
+    if (process.env.WHERE_TOKENS_WENT_REPO_ROOT) {
+        const envRepoDist = path.join(path.resolve(process.env.WHERE_TOKENS_WENT_REPO_ROOT), "skills", "where-tokens-went");
+        const envBundle = await readBundleVersionFile(path.join(envRepoDist, "bundle-version.json"));
+        if (envBundle)
+            return envRepoDist;
+    }
+    // Check two levels up from current file (e.g. <skillRoot>/scripts/runtime/cli.js -> <skillRoot>)
+    const directSkillRoot = path.resolve(__dirname, "../..");
+    const directBundle = await readBundleVersionFile(path.join(directSkillRoot, "bundle-version.json"));
+    if (directBundle) {
+        return directSkillRoot;
+    }
+    // Check development repository root (e.g. <repoRoot>/dist/src/cli.js -> <repoRoot>/skills/where-tokens-went)
+    const repoDistribution = path.join(directSkillRoot, "skills", "where-tokens-went");
+    const repoBundle = await readBundleVersionFile(path.join(repoDistribution, "bundle-version.json"));
+    if (repoBundle) {
+        return repoDistribution;
+    }
+    throw new Error("where-tokens-went Skill preflight failed: package root cannot be resolved.");
+}
+async function readCurrentBundleVersion(explicitSkillRoot) {
+    try {
+        const skillRoot = await resolveSkillRoot(explicitSkillRoot);
+        return await readBundleVersionFile(path.join(skillRoot, "bundle-version.json"));
+    }
+    catch {
+        return null;
+    }
+}
+async function verifySkillPackage(explicitSkillRoot) {
+    const skillRoot = await resolveSkillRoot(explicitSkillRoot);
+    const isDev = await isDevelopmentRepo(skillRoot);
+    const hint = isDev ? exports.INSTALL_HINT : exports.REINSTALL_HINT;
+    const bundle = await readBundleVersionFile(path.join(skillRoot, "bundle-version.json"));
+    if (!bundle) {
+        throw new Error(`where-tokens-went Skill version preflight failed: bundle-version.json is missing or invalid. ${hint}`);
+    }
+    if (bundle.auditSchemaVersion !== exports.AUDIT_SCHEMA_VERSION) {
+        throw new Error(`where-tokens-went Skill version preflight failed: unsupported auditSchemaVersion ${bundle.auditSchemaVersion}. ${hint}`);
+    }
+    const parts = bundle.bundleVersion.split("+");
+    const expectedDigest = parts[1];
+    if (!expectedDigest) {
+        throw new Error(`where-tokens-went Skill version preflight failed: invalid bundleVersion format ${bundle.bundleVersion}. ${hint}`);
+    }
+    let actualDigest;
+    try {
+        actualDigest = await computeBundleDigest(skillRoot);
+    }
+    catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        throw new Error(`${msg} ${hint}`);
+    }
+    if (actualDigest !== expectedDigest) {
+        throw new Error(`where-tokens-went Skill version preflight failed: package content digest mismatch. ${hint}`);
+    }
+    return bundle;
+}
+async function verifyInstalledSkill(explicitSkillRoot) {
+    return verifySkillPackage(explicitSkillRoot);
 }

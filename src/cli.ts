@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { verifyInstalledSkill } from "./bundle-version";
+import { verifyInstalledSkill, verifySkillPackage } from "./bundle-version";
 import { analyseAudit } from "./analysis";
 import { readClaude } from "./claude-reader";
 import { readCodex } from "./codex-reader";
@@ -33,6 +33,7 @@ import {
   validateHostFailureReceipt,
   setRunUiDispatch,
   setReportRunStatus,
+  setRunNoHistoryInScope,
   setRunAuditFingerprint,
   setRunPromptHashes,
   setRunSourceInventory,
@@ -85,6 +86,7 @@ function usage(): string {
     "       where-tokens-went inspect --harness <codex> --all-projects [--since 7d] [--format json|text] [--locale zh-CN|en-US] [--font <font-file>] [--font-family <name>] [--pricing litellm] [--view full|usage|window|report|tools|week|share]",
     "       where-tokens-went compose-report --locale zh-CN|en-US --font <font-file> [--font-family <name>] --html <final-path> < composition JSON envelope",
     "       where-tokens-went render-report --json <report.json> --html <final-path> [--run-dir <directory>]",
+    "       where-tokens-went report-run preflight [--skill-root <path>]",
     "       where-tokens-went report-run advance --run-dir <directory> [--html <final-path>] [--ui completed|queued|failed|unavailable]",
     "       where-tokens-went report-run run-all start --harness <codex> (--cwd <absolute-path>|--all-projects) [--since 7d] [--locale zh-CN|en-US] [--pricing litellm] [--run-dir <directory>]",
     "       where-tokens-went report-run run-all finish --run-dir <directory> [--html <final-path>]",
@@ -637,6 +639,15 @@ async function prepareReportRunInternal(
     await writeRunArtifact(run, "firstUserMessages", read.firstUserMessages ?? []);
     await setRunTopSessions(run, audit.rankings.sessions, read.sessions);
     await setRunAuditFingerprint(run, auditFingerprint(audit));
+
+    if (audit.rankings.sessions.length === 0) {
+      await setRunNoHistoryInScope(run);
+      const finalBundle = await verifyInstalledSkill();
+      assertRunBundleVersion(run, finalBundle.bundleVersion);
+      await setReportRunStatus(run, "prepared");
+      return run;
+    }
+
     const totalTasks = typeof audit.summary.sessionCount?.value === "number" ? audit.summary.sessionCount.value : 0;
     const candidatesResult = await withRunSpan(run, { phase: "skill-candidate-select", operation: "select-skill-candidates", source: "runner" }, async () => {
       return selectSkillCandidates(audit.report.skills ?? [], totalTasks);
@@ -664,6 +675,9 @@ async function reportRunPrepareMain(args: string[]): Promise<number> {
 }
 
 async function autoEvidenceRunInternal(run: ReportRun): Promise<ContentEvidencePacket[]> {
+  if (run.manifest.topSessions.length === 0) {
+    return [];
+  }
   const audit = await readCanonicalAudit(run);
   const input: EvidenceInput = await withRunSpan(run, { phase: "content-selection", operation: "auto-evidence-selection", source: "runner" }, async () => ({
     selections: run.manifest.topSessions.slice(0, 3).map((session) => ({
@@ -1708,7 +1722,24 @@ async function reportRunRunAllStartMain(args: string[]): Promise<number> {
     assertRunContract(run, installedBundle, contract);
   } else {
     run = await prepareReportRunInternal(rest, runDir, installedBundle);
-    await autoEvidenceRunInternal(run);
+    if (run.manifest.laneStatus["report-synthesis"]?.reasonCode !== "NO_HISTORY_IN_SCOPE") {
+      await autoEvidenceRunInternal(run);
+    }
+  }
+
+  if (run.manifest.laneStatus["report-synthesis"]?.reasonCode === "NO_HISTORY_IN_SCOPE") {
+    process.stdout.write(JSON.stringify({
+      action: "advance",
+      status: "lanes-ready",
+      runId: run.manifest.runId,
+      runDir: run.runDir,
+      auditFingerprint: run.manifest.auditFingerprint,
+      bundleVersion: run.manifest.bundleVersion,
+      locale: run.manifest.scope.locale,
+      tickets: {},
+      reason: "NO_HISTORY_IN_SCOPE",
+    }) + "\n");
+    return 0;
   }
 
   const snapshot = run.manifest.artifacts.skillSnapshot
@@ -2056,6 +2087,26 @@ async function reportRunRunAllFinishMain(args: string[]): Promise<number> {
   return 0;
 }
 
+async function reportRunPreflightMain(args: string[]): Promise<number> {
+  let skillRoot: string | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === "--skill-root") {
+      skillRoot = requireValue(args, index, "--skill-root");
+      index += 1;
+    } else {
+      throw new Error(`Unknown report-run preflight argument: ${args[index]}.\n${usage()}`);
+    }
+  }
+  const bundle = await verifySkillPackage(skillRoot);
+  process.stdout.write(JSON.stringify({
+    status: "passed",
+    productVersion: bundle.productVersion,
+    bundleVersion: bundle.bundleVersion,
+    auditSchemaVersion: bundle.auditSchemaVersion,
+  }) + "\n");
+  return 0;
+}
+
 async function reportRunRunAllMain(args: string[]): Promise<number> {
   const command = args[0];
   if (command === "start") return reportRunRunAllStartMain(args.slice(1));
@@ -2065,6 +2116,7 @@ async function reportRunRunAllMain(args: string[]): Promise<number> {
 
 async function reportRunMain(args: string[]): Promise<number> {
   const command = args[0];
+  if (command === "preflight") return reportRunPreflightMain(args.slice(1));
   if (command === "advance") return reportRunAdvanceMain(args.slice(1));
   if (command === "run-all") return reportRunRunAllMain(args.slice(1));
   if (command === "prepare") return reportRunPrepareMain(args.slice(1));
@@ -2077,7 +2129,7 @@ async function reportRunMain(args: string[]): Promise<number> {
   if (command === "status") return reportRunStatusMain(args.slice(1));
   if (command === "finalize") return reportRunFinalizeMain(args.slice(1));
   if (command === "cleanup") return reportRunCleanupMain(args.slice(1));
-  throw new Error(`Use report-run advance, run-all, prepare, evidence, ai-start, ai-accept, ai-fallback, compose, event, status, finalize, or cleanup.\n${usage()}`);
+  throw new Error(`Use report-run preflight, advance, run-all, prepare, evidence, ai-start, ai-accept, ai-fallback, compose, event, status, finalize, or cleanup.\n${usage()}`);
 }
 
 async function composeReportMain(args: string[]): Promise<number> {

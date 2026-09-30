@@ -441,7 +441,25 @@ function renderReportHeader(result, locale, composition, acceptedJson = false) {
     const eyebrow = labels.header.eyebrow(reportDateRange(result, locale));
     const synthesis = acceptedJson ? composition?.reportSynthesis ?? null : validatedReportSynthesis(result, composition);
     const overview = synthesis?.overview;
-    const overviewSummary = overview?.summary ?? labels.header.overviewUnavailable;
+    let overviewSummary = overview?.summary;
+    if (!overviewSummary) {
+        if (result.rankings.sessions.length === 0 || (typeof result.summary.sessionCount.value === "number" && result.summary.sessionCount.value === 0)) {
+            const hasMalformedOrSkipped = result.coverage.recordsSkipped > 0 || result.coverage.partialSessions > 0;
+            if (hasMalformedOrSkipped) {
+                overviewSummary = locale === "zh-CN"
+                    ? "本次范围未发现可分析会话，存在被跳过或格式错误的记录。"
+                    : "No analyzable sessions found in scope; skipped or malformed records exist.";
+            }
+            else {
+                overviewSummary = locale === "zh-CN"
+                    ? "本次范围没有可用历史记录。"
+                    : "No historical records available in the selected scope.";
+            }
+        }
+        else {
+            overviewSummary = labels.header.overviewUnavailable;
+        }
+    }
     const overviewEvidence = overview ? renderReportOverviewEvidence(result, overview, locale) : "";
     const apiCost = result.report.apiEquivalentCost.total;
     const apiCostText = typeof apiCost.value === "number"
