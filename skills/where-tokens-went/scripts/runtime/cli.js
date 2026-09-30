@@ -1298,6 +1298,14 @@ async function composeAndRenderRun(run, options) {
     const runFingerprint = run.manifest.auditFingerprint;
     if (!runFingerprint)
         throw new Error("Report Run Audit fingerprint is unavailable.");
+    if (!options.jsonOnly) {
+        if (!options.htmlPath)
+            throw new Error("report-run compose requires --html when JSON-only output is not selected.");
+        const resolvedTargetPath = path.resolve(options.htmlPath);
+        if (run.manifest.delivery && run.manifest.delivery.targetPath !== resolvedTargetPath) {
+            throw new Error(`Cannot change --html delivery target for an existing Report Run (expected ${run.manifest.delivery.targetPath}, got ${resolvedTargetPath}).`);
+        }
+    }
     await (0, report_run_1.setReportRunStatus)(run, "composing");
     let synthesisCandidate = null;
     let analyses = [];
@@ -1495,14 +1503,29 @@ async function composeAndRenderRun(run, options) {
         const htmlPath = options.htmlPath;
         if (!htmlPath)
             throw new Error("report-run compose requires --html when JSON-only output is not selected.");
+        const resolvedTargetPath = path.resolve(htmlPath);
+        if (run.manifest.delivery && run.manifest.delivery.targetPath !== resolvedTargetPath) {
+            throw new Error(`Cannot change --html delivery target for an existing Report Run (expected ${run.manifest.delivery.targetPath}, got ${resolvedTargetPath}).`);
+        }
         const fontConfig = reportFontConfig(options.fontPath ?? null, options.fontFamily ?? null);
         const rendered = await (0, report_run_1.withRunSpan)(run, { phase: "render", operation: "render-html", source: "runner" }, async () => (0, report_1.renderHtml)(audit, options.locale, renderComposition, firstUserMessages, fontConfig));
         const subsetted = await (0, report_run_1.withRunSpan)(run, { phase: "font-subset", operation: "subset-report-fonts", source: "runner" }, async () => (0, report_1.subsetReportFonts)(rendered));
         const output = await (0, report_run_1.withRunSpan)(run, { phase: "html-write", operation: "write-final-html", source: "filesystem" }, async () => {
             await (0, report_run_1.writeRunTextArtifact)(run, "html", subsetted);
-            return writeAtomicLocal(htmlPath, subsetted);
+            return writeAtomicLocal(resolvedTargetPath, subsetted);
         });
-        await (0, report_run_1.setReportRunStatus)(run, "awaiting-ui-dispatch");
+        const contentsBuffer = Buffer.from(subsetted, "utf8");
+        const htmlBytes = contentsBuffer.byteLength;
+        const htmlHash = (0, node_crypto_1.createHash)("sha256").update(contentsBuffer).digest("hex");
+        const actionId = run.manifest.delivery?.actionId ?? (0, node_crypto_1.randomUUID)();
+        await (0, report_run_1.completeRunComposing)(run, {
+            actionId,
+            targetPath: resolvedTargetPath,
+            bytes: htmlBytes,
+            sha256: htmlHash,
+            bundleVersion: run.manifest.bundleVersion ?? currentContract.bundleVersion?.bundleVersion ?? "",
+            uiStatus: "pending",
+        });
         return { output, composition, reportJson };
     }
     catch (error) {
@@ -1651,6 +1674,34 @@ async function reportRunRunAllStartMain(args) {
         (0, report_run_1.assertRunBundleVersion)(run, installedBundle.bundleVersion);
         const contract = await (0, report_run_1.resolveRunContractMetadata)();
         assertRunContract(run, installedBundle, contract);
+        if (run.manifest.status === "completed") {
+            const targetHtmlPath = run.manifest.delivery?.targetPath ?? (run.manifest.artifacts.html ? path.join(run.runDir, run.manifest.artifacts.html.file) : "report.html");
+            process.stdout.write(JSON.stringify({
+                status: "completed",
+                deliveryStatus: "completed",
+                runId: run.manifest.runId,
+                runDir: run.runDir,
+                htmlPath: targetHtmlPath,
+                cleanedUp: run.manifest.retention?.cleanedAt !== null,
+            }) + "\n");
+            return 0;
+        }
+        if (run.manifest.status === "awaiting-ui-dispatch" || (run.manifest.status === "incomplete" && run.manifest.artifacts.html)) {
+            const targetHtmlPath = run.manifest.delivery?.targetPath ?? (run.manifest.artifacts.html ? path.join(run.runDir, run.manifest.artifacts.html.file) : "report.html");
+            process.stdout.write(JSON.stringify({
+                action: "open-html",
+                status: run.manifest.status,
+                runId: run.manifest.runId,
+                runDir: run.runDir,
+                htmlPath: targetHtmlPath,
+                reportStatus: run.manifest.artifacts.reportSynthesis ? "ai-enhanced" : "fallback",
+                fallback: !run.manifest.artifacts.reportSynthesis,
+            }) + "\n");
+            return 0;
+        }
+        if (run.manifest.status === "prepared" && !run.manifest.artifacts.evidence && run.manifest.laneStatus["report-synthesis"]?.reasonCode !== "NO_HISTORY_IN_SCOPE") {
+            await autoEvidenceRunInternal(run);
+        }
     }
     else {
         run = await prepareReportRunInternal(rest, runDir, installedBundle);
@@ -1677,25 +1728,61 @@ async function reportRunRunAllStartMain(args) {
         : null;
     const snapshotId = snapshot?.snapshotId;
     const tickets = {};
+    let hasInFlightDispatchedWorkers = false;
     for (const lane of report_run_1.REPORT_LANES) {
-        if (run.manifest.laneStatus[lane].attempts === 0) {
-            tickets[lane] = await startLaneInternal(run, lane);
+        const laneInfo = run.manifest.laneStatus[lane];
+        if ((0, report_run_1.isLaneTerminal)(laneInfo)) {
+            continue;
+        }
+        const laneDispatched = (0, report_run_1.isLaneWorkerDispatched)(run.manifest, lane);
+        if (!laneDispatched) {
+            if (laneInfo.attempts === 0 && laneInfo.status === "pending") {
+                tickets[lane] = await startLaneInternal(run, lane);
+            }
+            else {
+                tickets[lane] = buildLaneTicket(run, lane, lane === "skill-insights" ? snapshotId : undefined);
+            }
         }
         else {
-            tickets[lane] = buildLaneTicket(run, lane, lane === "skill-insights" ? snapshotId : undefined);
+            hasInFlightDispatchedWorkers = true;
         }
     }
-    if (run.manifest.status === "prepared" || run.manifest.status === "evidence-ready") {
-        await (0, report_run_1.setReportRunStatus)(run, "awaiting-ai");
+    if (Object.keys(tickets).length > 0) {
+        if (run.manifest.status === "prepared" || run.manifest.status === "evidence-ready") {
+            await (0, report_run_1.setReportRunStatus)(run, "awaiting-ai");
+        }
+        process.stdout.write(JSON.stringify({
+            status: "lanes-ready",
+            runId: run.manifest.runId,
+            runDir: run.runDir,
+            auditFingerprint: run.manifest.auditFingerprint,
+            bundleVersion: run.manifest.bundleVersion,
+            locale: run.manifest.scope.locale,
+            tickets,
+        }) + "\n");
+        return 0;
+    }
+    if (hasInFlightDispatchedWorkers) {
+        process.stdout.write(JSON.stringify({
+            status: "wait-workers",
+            runId: run.manifest.runId,
+            runDir: run.runDir,
+            auditFingerprint: run.manifest.auditFingerprint,
+            bundleVersion: run.manifest.bundleVersion,
+            locale: run.manifest.scope.locale,
+            tickets: {},
+        }) + "\n");
+        return 0;
     }
     process.stdout.write(JSON.stringify({
-        status: "lanes-ready",
+        action: "advance",
+        status: "awaiting-advance",
         runId: run.manifest.runId,
         runDir: run.runDir,
         auditFingerprint: run.manifest.auditFingerprint,
         bundleVersion: run.manifest.bundleVersion,
         locale: run.manifest.scope.locale,
-        tickets,
+        tickets: {},
     }) + "\n");
     return 0;
 }
@@ -1822,7 +1909,47 @@ async function reportRunAdvanceMain(args) {
             await (0, report_run_1.finishReportLane)(run, obs.lane, laneInfo.attempts, run.manifest.stageStatus[obs.lane]?.spanId ?? (0, node_crypto_1.randomUUID)(), laneInfo.spanStartedAt ?? new Date().toISOString(), "unavailable", null, reasonCode, null, "host-agent", { workerOutcome: obs.outcome, observedReason: obs.reason ?? null });
         }
     }
+    if (uiStatus === null) {
+        if (run.manifest.status === "completed") {
+            const targetHtmlPath = run.manifest.delivery?.targetPath ?? (run.manifest.artifacts.html ? path.join(run.runDir, run.manifest.artifacts.html.file) : "report.html");
+            process.stdout.write(JSON.stringify({
+                status: "completed",
+                deliveryStatus: "completed",
+                runId: run.manifest.runId,
+                runDir: run.runDir,
+                htmlPath: targetHtmlPath,
+                cleanedUp: run.manifest.retention?.cleanedAt !== null,
+            }) + "\n");
+            return 0;
+        }
+        if (run.manifest.status === "awaiting-ui-dispatch" || (run.manifest.status === "incomplete" && run.manifest.artifacts.html)) {
+            const targetHtmlPath = run.manifest.delivery?.targetPath ?? (run.manifest.artifacts.html ? path.join(run.runDir, run.manifest.artifacts.html.file) : "report.html");
+            process.stdout.write(JSON.stringify({
+                action: "open-html",
+                status: run.manifest.status,
+                runId: run.manifest.runId,
+                runDir: run.runDir,
+                htmlPath: targetHtmlPath,
+                reportStatus: run.manifest.artifacts.reportSynthesis ? "ai-enhanced" : "fallback",
+                fallback: !run.manifest.artifacts.reportSynthesis,
+            }) + "\n");
+            return 0;
+        }
+    }
     if (uiStatus !== null) {
+        if (run.manifest.status === "completed") {
+            process.stdout.write(JSON.stringify({
+                status: "completed",
+                deliveryStatus: "completed",
+                runId: run.manifest.runId,
+                runDir: run.runDir,
+                uiDispatch: run.manifest.uiDispatch,
+                traceCompleteness: run.manifest.traceCompleteness,
+                warnings: run.manifest.warnings,
+                cleanedUp: run.manifest.retention?.cleanedAt !== null,
+            }) + "\n");
+            return 0;
+        }
         if (run.manifest.status !== "awaiting-ui-dispatch" && run.manifest.status !== "incomplete") {
             throw new Error(`Cannot submit --ui: Report Run is not awaiting UI dispatch (current status: ${run.manifest.status}).`);
         }
@@ -1830,12 +1957,36 @@ async function reportRunAdvanceMain(args) {
         if (!htmlRef) {
             throw new Error("Cannot submit --ui: Final HTML artifact was not recorded.");
         }
-        const finalHtmlPath = path.join(run.runDir, htmlRef.file);
+        const actualTargetPath = run.manifest.delivery?.targetPath ?? path.join(run.runDir, htmlRef.file);
+        let targetValid = false;
         try {
-            await fs.stat(finalHtmlPath);
+            const targetStat = await fs.stat(actualTargetPath);
+            const targetContents = await fs.readFile(actualTargetPath);
+            const expectedBytes = run.manifest.delivery?.bytes ?? htmlRef.bytes;
+            const expectedHash = run.manifest.delivery?.sha256 ?? htmlRef.sha256;
+            targetValid = targetStat.isFile()
+                && targetContents.byteLength === expectedBytes
+                && (0, node_crypto_1.createHash)("sha256").update(targetContents).digest("hex") === expectedHash
+                && (!run.manifest.delivery || run.manifest.delivery.bundleVersion === installedBundle.bundleVersion);
         }
         catch {
-            throw new Error(`Cannot submit --ui: Final HTML file does not exist on disk at ${finalHtmlPath}.`);
+            targetValid = false;
+        }
+        if (!targetValid) {
+            await (0, report_run_1.recordDeliveryTargetFailure)(run, "Actual delivery target file is missing, modified, or has bundle version drift.");
+            process.stdout.write(JSON.stringify({
+                status: "incomplete",
+                deliveryStatus: "incomplete",
+                retryable: true,
+                runId: run.manifest.runId,
+                runDir: run.runDir,
+                uiDispatch: run.manifest.uiDispatch,
+                traceCompleteness: run.manifest.traceCompleteness,
+                warnings: run.manifest.warnings,
+                cleanedUp: false,
+                error: "DELIVERY_TARGET_INTEGRITY_FAILED",
+            }) + "\n");
+            return 0;
         }
         const now = new Date().toISOString();
         await (0, report_run_1.recordRunSpan)(run.runDir, {
@@ -1863,6 +2014,12 @@ async function reportRunAdvanceMain(args) {
         });
         await (0, report_run_1.setRunUiDispatch)(run, uiStatus);
         if (uiStatus === "completed" || uiStatus === "queued") {
+            if (run.manifest.delivery) {
+                await (0, report_run_1.recordRunDelivery)(run, {
+                    ...run.manifest.delivery,
+                    uiStatus,
+                });
+            }
             await (0, report_run_1.finalizeReportRun)(run, "completed");
             await (0, report_run_1.cleanupSensitiveRunArtifacts)(run);
             process.stdout.write(JSON.stringify({
@@ -1903,6 +2060,15 @@ async function reportRunAdvanceMain(args) {
                 runDir: run.runDir,
                 pendingLanes: claim.pendingLanes,
                 laneStatus: run.manifest.laneStatus,
+            }) + "\n");
+            return 0;
+        }
+        if (claim.inProgress) {
+            process.stdout.write(JSON.stringify({
+                status: "in-progress",
+                ready: false,
+                runId: run.manifest.runId,
+                runDir: run.runDir,
             }) + "\n");
             return 0;
         }

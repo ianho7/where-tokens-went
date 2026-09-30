@@ -35,12 +35,18 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ALLOWED_GENERATION_FAILURE_REASONS = exports.DEFAULT_RUN_STAGES = exports.SEQUENTIAL_FALLBACK_REASON_CODES = exports.REPORT_LANES = void 0;
 exports.isLaneTerminal = isLaneTerminal;
+exports.isProcessAlive = isProcessAlive;
 exports.claimReportRunAdvance = claimReportRunAdvance;
 exports.assertLocalSensitiveRunDirectory = assertLocalSensitiveRunDirectory;
 exports.createReportRun = createReportRun;
 exports.openReportRun = openReportRun;
 exports.setReportRunStatus = setReportRunStatus;
 exports.setRunNoHistoryInScope = setRunNoHistoryInScope;
+exports.recordRunDelivery = recordRunDelivery;
+exports.clearComposingOwner = clearComposingOwner;
+exports.completeRunComposing = completeRunComposing;
+exports.isLaneWorkerDispatched = isLaneWorkerDispatched;
+exports.hasDispatchedWorkers = hasDispatchedWorkers;
 exports.setRunEligibleStages = setRunEligibleStages;
 exports.setRunPromptHashes = setRunPromptHashes;
 exports.setRunSourceInventory = setRunSourceInventory;
@@ -67,6 +73,7 @@ exports.startReportLane = startReportLane;
 exports.finishReportLane = finishReportLane;
 exports.setRunUiDispatch = setRunUiDispatch;
 exports.recordIncompleteUiDispatch = recordIncompleteUiDispatch;
+exports.recordDeliveryTargetFailure = recordDeliveryTargetFailure;
 exports.appendRunWarnings = appendRunWarnings;
 exports.cleanupSensitiveRunArtifacts = cleanupSensitiveRunArtifacts;
 exports.registerRunArtifact = registerRunArtifact;
@@ -101,6 +108,20 @@ function isLaneTerminal(lane) {
         return true;
     return false;
 }
+function isProcessAlive(pid) {
+    if (typeof pid !== "number" || pid <= 0)
+        return false;
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch (err) {
+        if (err && typeof err === "object" && err.code === "ESRCH") {
+            return false;
+        }
+        return true;
+    }
+}
 async function claimReportRunAdvance(run) {
     return withRunLock(run.runDir, async () => {
         const manifest = await readRunManifest(run.runDir);
@@ -110,14 +131,31 @@ async function claimReportRunAdvance(run) {
         if (pendingLanes.length > 0) {
             return { claimed: false, status: "lanes-not-ready", pendingLanes };
         }
-        if (manifest.status === "composing" ||
-            manifest.status === "awaiting-ui-dispatch" ||
+        if (manifest.status === "composing") {
+            const ownerPid = manifest.composingOwner?.pid;
+            if (typeof ownerPid === "number") {
+                if (isProcessAlive(ownerPid)) {
+                    return { claimed: false, status: "composing", ready: false, inProgress: true };
+                }
+                // Confirmed process exit via OS ESRCH: allow recovery from incomplete boundary
+            }
+            else {
+                // Unknown owner does not equal confirmed exit: preserve in-progress protection
+                return { claimed: false, status: "composing", ready: false, inProgress: true };
+            }
+        }
+        else if (manifest.status === "awaiting-ui-dispatch" ||
             manifest.status === "completed" ||
             manifest.status === "failed") {
             return { claimed: false, status: manifest.status, ready: false };
         }
         manifest.status = "composing";
         manifest.deliveryStatus = "composing";
+        manifest.composingOwner = {
+            pid: process.pid,
+            spanId: `composing:${manifest.runId}`,
+            startedAt: nowIso(),
+        };
         manifest.updatedAt = nowIso();
         await writeAtomic(run.manifestFile, JSON.stringify(manifest, null, 2) + "\n");
         run.manifest = manifest;
@@ -340,6 +378,8 @@ function initialManifest(scope, runId) {
         uiDispatch: "unavailable",
         laneArtifacts: {},
         projections: {},
+        delivery: undefined,
+        composingOwner: null,
         retention: { workspace: "local-sensitive", policy: "explicit-cleanup", cleanedAt: null },
     };
 }
@@ -461,6 +501,48 @@ async function setRunNoHistoryInScope(run) {
             manifest.warnings.push("NO_HISTORY_IN_SCOPE");
         }
     });
+}
+async function recordRunDelivery(run, delivery) {
+    await mutateRun(run, (manifest) => {
+        manifest.delivery = {
+            ...delivery,
+            recordedAt: nowIso(),
+        };
+    });
+}
+async function clearComposingOwner(run) {
+    await mutateRun(run, (manifest) => {
+        manifest.composingOwner = null;
+    });
+}
+async function completeRunComposing(run, delivery) {
+    await mutateRun(run, (manifest) => {
+        manifest.delivery = {
+            ...delivery,
+            recordedAt: nowIso(),
+        };
+        manifest.status = "awaiting-ui-dispatch";
+        manifest.deliveryStatus = "awaiting-ui-dispatch";
+        manifest.composingOwner = null;
+    });
+}
+function isLaneWorkerDispatched(manifest, lane) {
+    const laneInfo = manifest.laneStatus[lane];
+    if (!laneInfo)
+        return false;
+    if (isLaneTerminal(laneInfo))
+        return true;
+    return laneInfo.dispatched === true;
+}
+function hasDispatchedWorkers(manifest) {
+    if (manifest.executionMode !== null && manifest.executionMode !== undefined) {
+        return true;
+    }
+    const workerStage = manifest.stageStatus["lane-workers"];
+    if (workerStage && (workerStage.status === "started" || workerStage.status === "completed")) {
+        return true;
+    }
+    return false;
 }
 async function setRunEligibleStages(run, stages) {
     await mutateRun(run, (manifest) => {
@@ -617,14 +699,26 @@ async function finalizeReportRun(run, status) {
             return isLaneTerminal(current);
         });
         let htmlIntegrity = false;
-        const html = manifest.artifacts.html;
-        if (html) {
+        const delivery = manifest.delivery;
+        if (delivery) {
             try {
-                const contents = await (0, promises_1.readFile)(path.join(run.runDir, html.file));
-                htmlIntegrity = contents.byteLength === html.bytes && hashBytes(contents) === html.sha256;
+                const contents = await (0, promises_1.readFile)(delivery.targetPath);
+                htmlIntegrity = contents.byteLength === delivery.bytes && hashBytes(contents) === delivery.sha256;
             }
             catch {
                 htmlIntegrity = false;
+            }
+        }
+        else {
+            const html = manifest.artifacts.html;
+            if (html) {
+                try {
+                    const contents = await (0, promises_1.readFile)(path.join(run.runDir, html.file));
+                    htmlIntegrity = contents.byteLength === html.bytes && hashBytes(contents) === html.sha256;
+                }
+                catch {
+                    htmlIntegrity = false;
+                }
             }
         }
         const traceReady = manifest.traceCompleteness === "complete" && !manifest.traceErrorCode;
@@ -1097,6 +1191,7 @@ async function finishReportLane(run, lane, attempt, spanId, startedAt, status, d
             reasonCode,
             acceptedArtifact,
             spanStartedAt: current.spanStartedAt,
+            dispatched: true,
         };
         manifest.stageStatus[lane] = { status: status === "accepted" ? "completed" : status === "failed" ? "failed" : status, attempt, spanId, durationMs: durationMs ?? null, ...(reasonCode ? { errorCode: reasonCode } : {}) };
         manifest.degraded = Object.values(manifest.laneStatus).some((entry) => entry.status === "fallback" || entry.status === "failed" || entry.status === "unavailable");
@@ -1134,6 +1229,16 @@ async function recordIncompleteUiDispatch(run, uiStatus) {
         manifest.status = "incomplete";
         manifest.deliveryStatus = "incomplete";
         manifest.warnings = [...new Set([...manifest.warnings, `Final HTML UI dispatch outcome was ${uiStatus}.`])];
+    });
+}
+async function recordDeliveryTargetFailure(run, reason) {
+    await mutateRun(run, (manifest) => {
+        manifest.status = "incomplete";
+        manifest.deliveryStatus = "incomplete";
+        if (manifest.delivery) {
+            manifest.delivery.uiStatus = "failed";
+        }
+        manifest.warnings = [...new Set([...manifest.warnings, reason])];
     });
 }
 async function appendRunWarnings(run, warnings) {
@@ -1209,12 +1314,14 @@ async function readRunManifest(runDir) {
         throw new Error("Report Run manifest is malformed.");
     const manifest = value;
     manifest.laneStatus ??= {
-        "report-synthesis": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null },
-        "key-session-analysis": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null },
-        "skill-insights": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null },
+        "report-synthesis": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null, dispatched: false },
+        "key-session-analysis": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null, dispatched: false },
+        "skill-insights": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null, dispatched: false },
     };
-    for (const lane of ["report-synthesis", "key-session-analysis", "skill-insights"])
+    for (const lane of ["report-synthesis", "key-session-analysis", "skill-insights"]) {
         manifest.laneStatus[lane].spanStartedAt ??= null;
+        manifest.laneStatus[lane].dispatched ??= false;
+    }
     manifest.deliveryStatus ??= manifest.status;
     manifest.degraded ??= false;
     manifest.executionMode ??= null;
@@ -1260,6 +1367,27 @@ async function recordRunSpan(runDir, event) {
             }
             manifest.executionMode = executionMode;
             manifest.executionModeReasonCode = executionMode === "sequential-fallback" ? reasonCode : null;
+        }
+        if (event.event === "start" && (operation === "dispatch" || operation === "worker-dispatch")) {
+            const targetLanes = [];
+            if (exports.REPORT_LANES.includes(phase)) {
+                targetLanes.push(phase);
+            }
+            if (event.metadata && typeof event.metadata.lane === "string" && exports.REPORT_LANES.includes(event.metadata.lane)) {
+                targetLanes.push(event.metadata.lane);
+            }
+            if (event.metadata && Array.isArray(event.metadata.lanes)) {
+                for (const candidate of event.metadata.lanes) {
+                    if (typeof candidate === "string" && exports.REPORT_LANES.includes(candidate)) {
+                        targetLanes.push(candidate);
+                    }
+                }
+            }
+            for (const targetLane of new Set(targetLanes)) {
+                if (manifest.laneStatus[targetLane]) {
+                    manifest.laneStatus[targetLane].dispatched = true;
+                }
+            }
         }
         const current = manifest.stageStatus[phase];
         manifest.eligibleStages = [...new Set([...manifest.eligibleStages, phase])];

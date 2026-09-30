@@ -489,3 +489,526 @@ test('AC 2: Manifest executionMode immutability, reason code validation, and uno
     await rm(root, { recursive: true, force: true });
   }
 });
+
+function findDeadPid() {
+  let pid = 999999;
+  while (true) {
+    try {
+      process.kill(pid, 0);
+      pid += 1000;
+    } catch {
+      return pid;
+    }
+  }
+}
+
+test('0034 AC-1: prepared resume supplies missing evidence without rescan, terminal lanes not redispatched, dispatched returns wait-workers', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-0034-ac1-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const d = new Date();
+  const year = String(d.getUTCFullYear());
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const sessions = path.join(codexHome, 'sessions', year, month, day);
+  const runDir = path.join(root, 'run');
+  const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
+
+  try {
+    await mkdir(project, { recursive: true });
+    await mkdir(sessions, { recursive: true });
+    const timestamp = d.toISOString();
+    await writeFile(path.join(sessions, 'rollout-ac1.jsonl'), [
+      { timestamp, type: 'session_meta', payload: { id: 'ac1-session', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0' } },
+      { timestamp, type: 'turn_context', payload: { turn_id: 'ac1-turn', cwd: project, model: 'gpt-4o' } },
+      { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'ac1-response', turn_id: 'ac1-turn', usage: { input_tokens: 20, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 30 }, turn_token_usage: { input_tokens: 20, output_tokens: 10, reasoning_output_tokens: 0, total_tokens: 30 } } },
+      { timestamp, type: 'response_item', payload: { type: 'message', role: 'user', turn_id: 'ac1-turn', content: 'Task instruction' } },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+    // 1. Run prepare directly to create a prepared run without auto-evidence
+    const prep = await runCli([
+      'report-run', 'prepare',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(prep.code, 0, prep.stderr);
+
+    const manifestPrepared = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestPrepared.status, 'prepared');
+    assert.equal(manifestPrepared.artifacts.evidence, undefined, 'Evidence not yet created');
+
+    // 2. Resume via run-all start: must supply evidence without rescan and issue initial tickets
+    const resumeStart = await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(resumeStart.code, 0, resumeStart.stderr);
+    const resumeStartResult = JSON.parse(resumeStart.stdout);
+    assert.equal(resumeStartResult.status, 'lanes-ready');
+    assert.ok(resumeStartResult.tickets['report-synthesis']);
+    assert.ok(resumeStartResult.tickets['key-session-analysis']);
+    assert.ok(resumeStartResult.tickets['skill-insights']);
+
+    const manifestAfterResume = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.ok(manifestAfterResume.artifacts.evidence, 'Evidence must be supplied on resume');
+
+    // 3. Scenario 1: Zero dispatch. Repeated start retrieves the SAME 3 tickets without increasing attempts or rescanning
+    const zeroDispatchStart = await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(zeroDispatchStart.code, 0);
+    const zeroDispatchResult = JSON.parse(zeroDispatchStart.stdout);
+    assert.equal(zeroDispatchResult.status, 'lanes-ready');
+    assert.ok(zeroDispatchResult.tickets['report-synthesis']);
+    assert.ok(zeroDispatchResult.tickets['key-session-analysis']);
+    assert.ok(zeroDispatchResult.tickets['skill-insights']);
+    assert.equal(zeroDispatchResult.tickets['report-synthesis'].attempt, 1, 'Attempt must remain 1 on zero-dispatch resume');
+    assert.equal(zeroDispatchResult.tickets['report-synthesis'].spanId, resumeStartResult.tickets['report-synthesis'].spanId, 'SpanId must be identical');
+
+    // 4. Scenario 2: Batch-only start event (executionMode). Cannot prove individual worker dispatch!
+    const batchOnlyEvent = await runCli([
+      'report-run', 'event',
+      '--run-dir', runDir,
+    ], env, JSON.stringify({
+      event: 'start',
+      phase: 'lane-workers',
+      operation: 'dispatch',
+      source: 'host-agent',
+      spanId: 'workers-batch-1',
+      metadata: { executionMode: 'concurrent' },
+    }));
+    assert.equal(batchOnlyEvent.code, 0, batchOnlyEvent.stderr);
+
+    const batchOnlyStart = await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(batchOnlyStart.code, 0);
+    const batchOnlyResult = JSON.parse(batchOnlyStart.stdout);
+    assert.equal(batchOnlyResult.status, 'lanes-ready', 'Batch-only start must not fake per-lane dispatch');
+    assert.ok(batchOnlyResult.tickets['report-synthesis']);
+    assert.ok(batchOnlyResult.tickets['key-session-analysis']);
+    assert.ok(batchOnlyResult.tickets['skill-insights']);
+
+    // 5. Scenario 3: Partial lane dispatch (only report-synthesis is dispatched)
+    const laneDispatchEvent = await runCli([
+      'report-run', 'event',
+      '--run-dir', runDir,
+    ], env, JSON.stringify({
+      event: 'start',
+      phase: 'report-synthesis',
+      operation: 'dispatch',
+      source: 'host-agent',
+      spanId: resumeStartResult.tickets['report-synthesis'].spanId,
+    }));
+    assert.equal(laneDispatchEvent.code, 0, laneDispatchEvent.stderr);
+
+    const partialDispatchStart = await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(partialDispatchStart.code, 0);
+    const partialDispatchResult = JSON.parse(partialDispatchStart.stdout);
+    assert.equal(partialDispatchResult.status, 'lanes-ready');
+    assert.equal(partialDispatchResult.tickets['report-synthesis'], undefined, 'Dispatched lane must not be re-issued ticket');
+    assert.ok(partialDispatchResult.tickets['key-session-analysis'], 'Undispatched lane must receive ticket');
+    assert.ok(partialDispatchResult.tickets['skill-insights'], 'Undispatched lane must receive ticket');
+
+    // 6. Scenario 4: All remaining lanes dispatched
+    for (const lane of ['key-session-analysis', 'skill-insights']) {
+      const ev = await runCli([
+        'report-run', 'event',
+        '--run-dir', runDir,
+      ], env, JSON.stringify({
+        event: 'start',
+        phase: lane,
+        operation: 'dispatch',
+        source: 'host-agent',
+        spanId: resumeStartResult.tickets[lane].spanId,
+      }));
+      assert.equal(ev.code, 0);
+    }
+
+    const allDispatchedStart = await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(allDispatchedStart.code, 0);
+    const allDispatchedResult = JSON.parse(allDispatchedStart.stdout);
+    assert.equal(allDispatchedResult.status, 'wait-workers', 'All dispatched lanes must wait for workers');
+    assert.deepEqual(allDispatchedResult.tickets, {});
+
+    // 7. Mark report-synthesis as accepted (terminal)
+    const goodSynthesis = {
+      auditFingerprint: resumeStartResult.auditFingerprint,
+      overview: { summary: 'Valid overview', evidenceRefs: ['summary:totalTokens'] },
+      findings: [],
+      noStrongFindingReason: 'No pattern.',
+    };
+    const acceptRes = await runCli([
+      'report-run', 'ai-accept',
+      '--run-dir', runDir,
+      '--lane', 'report-synthesis',
+      '--attempt', '1',
+      '--span-id', resumeStartResult.tickets['report-synthesis'].spanId,
+    ], env, JSON.stringify(goodSynthesis));
+    assert.equal(acceptRes.code, 0);
+
+    // 8. Repeated run-all start while other lanes are dispatched: returns wait-workers, terminal lane not re-dispatched
+    const repeatedStart = await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(repeatedStart.code, 0);
+    const repeatedStartResult = JSON.parse(repeatedStart.stdout);
+    assert.equal(repeatedStartResult.status, 'wait-workers');
+    assert.deepEqual(repeatedStartResult.tickets, {});
+
+    // Check attempts did not increase for accepted lane
+    const manifestFinal = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.equal(manifestFinal.laneStatus['report-synthesis'].attempts, 1, 'Accepted lane attempt must not increase');
+    assert.equal(manifestFinal.laneStatus['report-synthesis'].status, 'accepted');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('0034 AC-2: composing owner locks against active process, and dead owner allows resume from incomplete boundary', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-0034-ac2-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const d = new Date();
+  const year = String(d.getUTCFullYear());
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const sessions = path.join(codexHome, 'sessions', year, month, day);
+  const runDir = path.join(root, 'run');
+  const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
+
+  try {
+    await mkdir(project, { recursive: true });
+    await mkdir(sessions, { recursive: true });
+    const timestamp = d.toISOString();
+    await writeFile(path.join(sessions, 'rollout-ac2.jsonl'), [
+      { timestamp, type: 'session_meta', payload: { id: 'ac2-session', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0' } },
+      { timestamp, type: 'turn_context', payload: { turn_id: 'ac2-turn', cwd: project } },
+      { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'ac2-response', turn_id: 'ac2-turn', usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 }, turn_token_usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 } } },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+    const start = await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(start.code, 0);
+
+    // 1. Simulate all lanes terminal and active composing owner: current pid is alive
+    const manifestPath = path.join(runDir, 'manifest.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    for (const lane of ['report-synthesis', 'key-session-analysis', 'skill-insights']) {
+      manifest.laneStatus[lane].status = 'unavailable';
+      manifest.laneStatus[lane].attempts = 1;
+    }
+    manifest.status = 'composing';
+    manifest.deliveryStatus = 'composing';
+    manifest.composingOwner = {
+      pid: process.pid,
+      spanId: 'composing:active-test',
+      startedAt: new Date().toISOString(),
+    };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+    // Calling advance while owner is active must return in-progress and not preempt
+    const activeAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(activeAdvance.code, 0);
+    const activeAdvanceResult = JSON.parse(activeAdvance.stdout);
+    assert.equal(activeAdvanceResult.status, 'in-progress');
+    assert.equal(activeAdvanceResult.ready, false);
+
+    // 2. Unknown owner does NOT equal confirmed exit: preserve in-progress protection
+    manifest.composingOwner = null;
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    const unknownOwnerAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(unknownOwnerAdvance.code, 0);
+    const unknownOwnerResult = JSON.parse(unknownOwnerAdvance.stdout);
+    assert.equal(unknownOwnerResult.status, 'in-progress', 'Unknown owner must preserve in-progress');
+    assert.equal(unknownOwnerResult.ready, false);
+
+    // 3. Simulate dead composing owner: dead PID allows recovery from incomplete boundary
+    const deadPid = findDeadPid();
+    manifest.composingOwner = {
+      pid: deadPid,
+      spanId: 'composing:dead-test',
+      startedAt: new Date().toISOString(),
+    };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+
+    const deadAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(deadAdvance.code, 0, deadAdvance.stderr);
+    const deadAdvanceResult = JSON.parse(deadAdvance.stdout);
+    assert.equal(deadAdvanceResult.action, 'open-html');
+    assert.equal(deadAdvanceResult.status, 'awaiting-ui-dispatch');
+    assert.ok(deadAdvanceResult.htmlPath);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('0034 AC-3: awaiting-ui and incomplete return identical open-html, completed is idempotent, changing delivery target is rejected', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-0034-ac3-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const d = new Date();
+  const year = String(d.getUTCFullYear());
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const sessions = path.join(codexHome, 'sessions', year, month, day);
+  const runDir = path.join(root, 'run');
+  const htmlPath = path.join(root, 'custom-report.html');
+  const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
+
+  try {
+    await mkdir(project, { recursive: true });
+    await mkdir(sessions, { recursive: true });
+    const timestamp = d.toISOString();
+    await writeFile(path.join(sessions, 'rollout-ac3.jsonl'), [
+      { timestamp, type: 'session_meta', payload: { id: 'ac3-session', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0' } },
+      { timestamp, type: 'turn_context', payload: { turn_id: 'ac3-turn', cwd: project } },
+      { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'ac3-response', turn_id: 'ac3-turn', usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 }, turn_token_usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 } } },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+    await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+
+    // 1. Initial advance with worker observations generates HTML at htmlPath and enters awaiting-ui-dispatch
+    const firstAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--html', htmlPath,
+      '--worker-observation', JSON.stringify([
+        { lane: 'report-synthesis', outcome: 'unavailable' },
+        { lane: 'key-session-analysis', outcome: 'unavailable' },
+        { lane: 'skill-insights', outcome: 'unavailable' },
+      ]),
+    ], env);
+    assert.equal(firstAdvance.code, 0);
+    const firstResult = JSON.parse(firstAdvance.stdout);
+    assert.equal(firstResult.action, 'open-html');
+    assert.equal(firstResult.status, 'awaiting-ui-dispatch');
+    assert.equal(firstResult.htmlPath, htmlPath);
+
+    // 2. Repeating advance without --ui returns identical open-html action and target
+    const repeatAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(repeatAdvance.code, 0);
+    const repeatResult = JSON.parse(repeatAdvance.stdout);
+    assert.equal(repeatResult.action, 'open-html');
+    assert.equal(repeatResult.htmlPath, htmlPath);
+
+    // 3. Repeating run-all start returns identical open-html action
+    const repeatStart = await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(repeatStart.code, 0);
+    const repeatStartResult = JSON.parse(repeatStart.stdout);
+    assert.equal(repeatStartResult.action, 'open-html');
+    assert.equal(repeatStartResult.htmlPath, htmlPath);
+
+    // 4. Changing delivery target is rejected
+    const diffHtmlPath = path.join(root, 'different-report.html');
+    const changeAttempt = await runCli([
+      'report-run', 'compose',
+      '--run-dir', runDir,
+      '--locale', 'en-US',
+      '--html', diffHtmlPath,
+    ], env);
+    assert.notEqual(changeAttempt.code, 0);
+    assert.match(changeAttempt.stderr, /Cannot change --html delivery target/);
+
+    // 5. Submit UI failed: moves to incomplete
+    const failedUi = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'failed',
+    ], env);
+    assert.equal(failedUi.code, 0, failedUi.stderr);
+    const failedUiResult = JSON.parse(failedUi.stdout);
+    assert.equal(failedUiResult.status, 'incomplete');
+
+    // Repeated advance in incomplete status re-issues same open-html action for retry
+    const incompleteAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(incompleteAdvance.code, 0);
+    const incompleteResult = JSON.parse(incompleteAdvance.stdout);
+    assert.equal(incompleteResult.action, 'open-html');
+    assert.equal(incompleteResult.htmlPath, htmlPath);
+
+    // 6. Finalize with completed UI: moves to completed
+    const successUi = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'completed',
+    ], env);
+    assert.equal(successUi.code, 0);
+    assert.equal(JSON.parse(successUi.stdout).status, 'completed');
+
+    // Repeated advance and repeated UI completed are idempotent
+    const repeatDoneAdvance = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+    ], env);
+    assert.equal(repeatDoneAdvance.code, 0);
+    assert.equal(JSON.parse(repeatDoneAdvance.stdout).status, 'completed');
+
+    const repeatDoneUi = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'completed',
+    ], env);
+    assert.equal(repeatDoneUi.code, 0);
+    assert.equal(JSON.parse(repeatDoneUi.stdout).status, 'completed');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('0034 AC-4: external delivery target modification/deletion blocks completed finalization and prevents cleanup', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'where-tokens-went-0034-ac4-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const d = new Date();
+  const year = String(d.getUTCFullYear());
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const sessions = path.join(codexHome, 'sessions', year, month, day);
+  const runDir = path.join(root, 'run');
+  const externalHtml = path.join(root, 'external-delivery.html');
+  const env = { CODEX_HOME: codexHome, TEMP: root, TMP: root };
+
+  try {
+    await mkdir(project, { recursive: true });
+    await mkdir(sessions, { recursive: true });
+    const timestamp = d.toISOString();
+    await writeFile(path.join(sessions, 'rollout-ac4.jsonl'), [
+      { timestamp, type: 'session_meta', payload: { id: 'ac4-session', cwd: project, originator: 'Codex CLI', cli_version: '0.1.0' } },
+      { timestamp, type: 'turn_context', payload: { turn_id: 'ac4-turn', cwd: project } },
+      { timestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'ac4-response', turn_id: 'ac4-turn', usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 }, turn_token_usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 } } },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+    await runCli([
+      'report-run', 'run-all', 'start',
+      '--harness', 'codex',
+      '--cwd', project,
+      '--since', '7d',
+      '--run-dir', runDir,
+    ], env);
+
+    // Advance with worker observations to write HTML to external path
+    const advanceRes = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--html', externalHtml,
+      '--worker-observation', JSON.stringify([
+        { lane: 'report-synthesis', outcome: 'unavailable' },
+        { lane: 'key-session-analysis', outcome: 'unavailable' },
+        { lane: 'skill-insights', outcome: 'unavailable' },
+      ]),
+    ], env);
+    assert.equal(advanceRes.code, 0);
+
+    const originalContent = await readFile(externalHtml, 'utf8');
+
+    // 1. Tamper external HTML while internal artifact remains intact
+    await writeFile(externalHtml, 'tampered external html content');
+
+    // Attempt to submit UI completed: must fail integrity and remain incomplete, not cleaned up
+    const tamperedUi = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'completed',
+    ], env);
+    assert.equal(tamperedUi.code, 0);
+    const tamperedUiResult = JSON.parse(tamperedUi.stdout);
+    assert.equal(tamperedUiResult.status, 'incomplete');
+    assert.equal(tamperedUiResult.deliveryStatus, 'incomplete');
+    assert.equal(tamperedUiResult.error, 'DELIVERY_TARGET_INTEGRITY_FAILED');
+    assert.equal(tamperedUiResult.cleanedUp, false);
+
+    const manifestTampered = JSON.parse(await readFile(path.join(runDir, 'manifest.json'), 'utf8'));
+    assert.notEqual(manifestTampered.status, 'completed', 'Run must not be completed on tampered target');
+    assert.ok(manifestTampered.warnings.some((w) => w.includes('Actual delivery target file is missing, modified, or has bundle version drift.') || w.includes('Final HTML artifact integrity verification failed.')));
+
+    // 2. Delete external HTML entirely
+    await rm(externalHtml);
+    const deletedUi = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'completed',
+    ], env);
+    assert.equal(deletedUi.code, 0);
+    const deletedUiResult = JSON.parse(deletedUi.stdout);
+    assert.equal(deletedUiResult.status, 'incomplete');
+    assert.equal(deletedUiResult.cleanedUp, false);
+
+    // 3. Restore external HTML to exact content and retry: finalizes as completed and cleans up
+    await writeFile(externalHtml, originalContent, 'utf8');
+    const restoredUi = await runCli([
+      'report-run', 'advance',
+      '--run-dir', runDir,
+      '--ui', 'completed',
+    ], env);
+    assert.equal(restoredUi.code, 0);
+    const restoredUiResult = JSON.parse(restoredUi.stdout);
+    assert.equal(restoredUiResult.status, 'completed');
+    assert.equal(restoredUiResult.deliveryStatus, 'completed');
+    assert.equal(restoredUiResult.cleanedUp, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
