@@ -4,6 +4,7 @@ const { mkdtemp, mkdir, readFile, rm, writeFile, stat } = require('node:fs/promi
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { readProjection, v2Synthesis, v2KeySessionAnalyses } = require('./fixtures/lane-contract-v2-fixtures');
 
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 
@@ -80,6 +81,7 @@ test('action/result protocol: single worker repair retry, advance open-html, and
     assert.match(prematureUi.stderr, /Cannot submit --ui: Report Run is not awaiting UI dispatch/);
 
     // 3. Worker 1: report-synthesis fails attempt 1, receives retryTicket, repairs in same session
+    const synthesisProjection = await readProjection(runDir, 'report-synthesis');
     const badSynthesis1 = {
       auditFingerprint: 'wrong-fingerprint',
       overview: { summary: 'Bad', evidenceRefs: ['summary:totalTokens'] },
@@ -101,12 +103,10 @@ test('action/result protocol: single worker repair retry, advance open-html, and
     assert.equal(acceptSynthesis1Result.retryTicket.attempt, 2);
 
     // Worker 1 repairs using retryTicket in same session
-    const goodSynthesis2 = {
-      auditFingerprint: startResult.auditFingerprint,
-      overview: { summary: 'Valid overview', evidenceRefs: ['summary:totalTokens'] },
-      findings: [],
+    const goodSynthesis2 = v2Synthesis(synthesisProjection, {
+      summary: 'Valid overview',
       noStrongFindingReason: 'No strong pattern in fixture.',
-    };
+    });
     const acceptSynthesis2 = await runCli([
       'report-run', 'ai-accept',
       '--run-dir', runDir,
@@ -122,18 +122,22 @@ test('action/result protocol: single worker repair retry, advance open-html, and
     // Session 1 copies verbatim sensitiveExcerpt; Session 2 has invalid structure (primaryFinding null but recommendation non-null)
     const evArtifact = JSON.parse(await readFile(path.join(runDir, 'evidence.json'), 'utf8'));
     const auditArtifact = JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8'));
-    const packet = evArtifact.packets.find((p) => p.sessionId === 'lane-session');
-    const turn = auditArtifact.turns.find((t) => t.sessionId === 'lane-session');
+    assert.ok(evArtifact.packets.some((p) => p.sessionId === 'lane-session'), 'evidence must cover the selected Session');
+    assert.ok(auditArtifact.turns.some((t) => t.sessionId === 'lane-session'), 'canonical Audit must cover the selected Session');
+    const keyProjection = await readProjection(runDir, 'key-session-analysis');
+    const keySessionHandle = keyProjection.directory.sessions.find((entry) => entry.canonicalId === 'lane-session').handle;
+    const keyTurnEntry = keyProjection.directory.evidence.find((entry) =>
+      entry.objectKind === 'turn' && entry.ownerCanonicalId === 'lane-session' && entry.metric === 'totalTokens');
+    assert.ok(keyTurnEntry, 'key-session directory must expose the selected Session Turn Tokens');
 
     const keySessionCandidates = [
       {
-        sessionId: 'lane-session',
-        auditFingerprint: startResult.auditFingerprint,
+        sessionHandle: keySessionHandle,
         taskContext: 'Valid task context for lane-session.',
         primaryFinding: {
           observation: `Observed query: ${sensitiveExcerpt} in execution log.`,
           interpretation: 'Direct database credentials query increases token footprint.',
-          evidenceIds: [turn.evidenceId],
+          evidenceIds: [keyTurnEntry.handle],
           support: 'moderate',
           alternativeExplanations: ['Query may be required for local integration setup.'],
         },
@@ -143,14 +147,12 @@ test('action/result protocol: single worker repair retry, advance open-html, and
           applicability: 'All database interaction turns.',
           tradeoff: null,
           verification: 'Verify that next turn masks secret values.',
-          targetEvidenceIds: [turn.evidenceId],
+          targetEvidenceIds: [keyTurnEntry.handle],
         },
-        evidenceRead: { turnIds: packet.turnIds, selectionReason: packet.selectionReason, unreadScope: packet.unreadScope },
         limitations: ['fixture limitation'],
       },
       {
-        sessionId: 'lane-session-invalid',
-        auditFingerprint: startResult.auditFingerprint,
+        sessionHandle: keySessionHandle,
         taskContext: 'Structurally invalid session.',
         primaryFinding: null,
         recommendation: {
@@ -159,9 +161,8 @@ test('action/result protocol: single worker repair retry, advance open-html, and
           applicability: 'applicability',
           tradeoff: null,
           verification: 'verification',
-          targetEvidenceIds: [turn.evidenceId],
+          targetEvidenceIds: [keyTurnEntry.handle],
         },
-        evidenceRead: { turnIds: packet.turnIds, selectionReason: packet.selectionReason, unreadScope: packet.unreadScope },
         limitations: ['limitation'],
       },
     ];
@@ -323,21 +324,14 @@ test('concurrent short lock: compose and render execute outside .run.lock withou
     assert.equal(start.code, 0);
     const startResult = JSON.parse(start.stdout);
 
-    const goodSynthesis = {
-      auditFingerprint: startResult.auditFingerprint,
-      overview: { summary: 'Valid overview', evidenceRefs: ['summary:totalTokens'] },
-      findings: [],
+    const goodSynthesis = v2Synthesis(await readProjection(runDir, 'report-synthesis'), {
+      summary: 'Valid overview',
       noStrongFindingReason: 'No strong pattern in fixture.',
-    };
-    const goodKeySession = [{
-      sessionId: 'lane-session',
-      auditFingerprint: startResult.auditFingerprint,
+    });
+    const goodKeySession = v2KeySessionAnalyses(await readProjection(runDir, 'key-session-analysis'), {
       taskContext: 'Valid task context.',
-      primaryFinding: null,
-      recommendation: null,
-      evidenceRead: { turnIds: ['lane-turn'], selectionReason: 'auto', unreadScope: 'none' },
       limitations: ['fixture limitation'],
-    }];
+    });
 
     // Run 3 concurrent worker ai-accept submissions and an advance call in parallel
     const [resSynth, resKey, resSkills, resAdvance] = await Promise.all([
@@ -657,12 +651,10 @@ test('0034 AC-1: prepared resume supplies missing evidence without rescan, termi
     assert.deepEqual(allDispatchedResult.tickets, {});
 
     // 7. Mark report-synthesis as accepted (terminal)
-    const goodSynthesis = {
-      auditFingerprint: resumeStartResult.auditFingerprint,
-      overview: { summary: 'Valid overview', evidenceRefs: ['summary:totalTokens'] },
-      findings: [],
+    const goodSynthesis = v2Synthesis(await readProjection(runDir, 'report-synthesis'), {
+      summary: 'Valid overview',
       noStrongFindingReason: 'No pattern.',
-    };
+    });
     const acceptRes = await runCli([
       'report-run', 'ai-accept',
       '--run-dir', runDir,

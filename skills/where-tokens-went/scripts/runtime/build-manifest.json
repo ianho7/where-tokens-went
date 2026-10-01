@@ -4,18 +4,19 @@
     "analysis.ts": "59ce4d0765a531588ccf5f4cbb19c6f8f5698f6849609e72d39387272398bf8c",
     "bundle-version.ts": "451d997b35a4aac7242f12da4c86f8e0a664329998d20b4d1960d119846599b2",
     "claude-reader.ts": "210ffb8225311a59f970cf3b45429fbc2d6421685e4f373894c67518cd42335c",
-    "cli.ts": "adb1104bb0cef808e9afb977780b3585350e2be82e5aa1cc5149fd5728daba9f",
+    "cli.ts": "cbb9c260ac6ef7ba924a69d524e343c186c2a4f3f41721b180e5a312f8919ed0",
     "codex-provenance.ts": "b923e4df546e8b6346417a363e04832c941fc1a359deec7c693b8e6909e099c9",
     "codex-reader.ts": "0894ccd6932ea79401a30002f417b5263115517ed263962b7d1a77dbb83dc879",
     "content-evidence.ts": "4a2b86125aa7cec9734e9e0c6e4c84affc358b464c5921ce1f13678fc482af89",
     "echarts-entry.ts": "a5cb4ddc6460ec273d2060edc485e5c870327176a53eea9c81ca4130f00edd46",
     "key-session-analysis.ts": "e86430eb378f192d4a6fbb27badc3601a30d958697c67217c77ef28d76577cfd",
+    "lane-contract.ts": "6a66878f8e1829c9750edbc5e272e115d8a0b045ef14fa4084b0922b998c9a04",
     "prompt-projection.ts": "40783587ccd596a333d5ef2164286ff22dbb9edd06e77f9f7ff8508d43218a4b",
     "rates.ts": "8d2fa3093c53e4ab788c8b9f7f779a116ba2a7ebb96709fe739f18e546bd1a9c",
     "report-messages.ts": "e825f81e1e1c51b5e9c73d377a44ec791ff875516875eef95f6d6aba06cd53ae",
-    "report-run.ts": "28a43979088051f9fca1f88163ed9e98c4535d04a6744dac11aa5e32ff0510ec",
-    "report.ts": "8c116b815beca88eecd4b9afa1cbebd8e48f7f7866070a3252d794946886cb84",
+    "report-run.ts": "4a9fe181ee2dcd59bd4f3e993e540bd8b80840f466e28bc303b9d113b870e4a4",
+    "report.ts": "c108df2549d13ace8aec84eee90b014d8b02eb1f938e2a5e5971b5d9476d55fd",
     "skill-insights.ts": "7c8c7202157d19696c3a75237dbf5a7a9bb0c3b79f182bc177f4f0df20b755ea",
-    "types.ts": "840ab46f9256af6541c0b64edcf0eafbc8b5a3733e39ff6ba7676e51befae4d9"
+    "types.ts": "801b4104673d71239cf230ead4332dbc653f7e46eaabc399321b03c3310ac8dc"
   }
 }

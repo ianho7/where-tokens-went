@@ -14,6 +14,13 @@ const {
   computeProjectionHash,
 } = require(path.resolve(__dirname, '..', 'dist', 'src', 'report-run.js'));
 const { resolveReportEvidence } = require(path.resolve(__dirname, '..', 'dist', 'src', 'key-session-analysis.js'));
+const {
+  bindSlotText,
+  parseReportSynthesisV2,
+  buildReportSynthesisDirectory,
+  emptyLaneDirectory,
+  formatSlotValue,
+} = require(path.resolve(__dirname, '..', 'dist', 'src', 'lane-contract.js'));
 
 function runCli(args, env, input = '') {
   return new Promise((resolve, reject) => {
@@ -289,9 +296,35 @@ test('table-driven Lane Input Projection contracts: identity, canonical resoluti
       assert.equal(projection.auditFingerprint, manifest.auditFingerprint);
       assert.equal(projection.bundleVersion, manifest.bundleVersion);
       assert.equal(projection.promptHash, testCase.promptHash);
-      assert.equal(projection.projectionSchemaVersion, 1);
+      assert.equal(projection.projectionSchemaVersion, 2);
+      assert.equal(projection.outputContractVersion, 2);
       assert.ok(/^[0-9a-f]{64}$/i.test(projection.projectionHash), 'projectionHash must be 64-char hex');
       assert.equal(projection.projectionHash, computeProjectionHash(projection));
+      // Contract v2: the frozen Evidence Directory travels inside the projection
+      // and is covered by projectionHash.
+      assert.ok(projection.directory, 'projection must carry the frozen Evidence Directory');
+      const handles = projection.directory.evidence.map((entry) => entry.handle);
+      assert.ok(handles.length > 0, 'Evidence Directory must expose citable entries');
+      assert.ok(handles.every((handle) => /^e[1-9][0-9]*$/.test(handle)), 'Evidence handles use the e namespace');
+      assert.equal(new Set(handles).size, handles.length, 'Evidence handles must be unique');
+      for (const entry of projection.directory.evidence) {
+        // Structural, check and turn entries must address a canonical reference the
+        // Audit resolver accepts once a derived metric suffix is removed. Summary
+        // entries carry the canonical summary key verbatim.
+        if (entry.objectKind === 'summary') {
+          assert.ok(canonicalAudit.summary[entry.canonicalRef.slice('summary:'.length)], `summary entry ${entry.handle} must name a canonical summary key`);
+        } else if (['check', 'turn', 'session', 'project', 'model', 'timeBucket'].includes(entry.objectKind)) {
+          const baseRef = entry.canonicalRef.replace(/:(?:sessionSharePercent|modelCallCount|sharePercent|count|durationMs|errorCount|toolResultBytes)$/, '');
+          assert.ok(
+            resolveReportEvidence(canonicalAudit, baseRef) !== null,
+            `directory entry ${entry.handle} (${entry.canonicalRef}) must map to a resolvable canonical reference`,
+          );
+        }
+        assert.equal(entry.display === null || typeof entry.display === 'string', true);
+      }
+      for (const session of projection.directory.sessions) {
+        assert.ok(/^s[1-9][0-9]*$/.test(session.handle), 'Session handles use the s namespace');
+      }
 
       // Criterion 5: Manifest registers projection hash and bytes
       assert.ok(manifest.projections, 'manifest.projections must be defined');
@@ -324,12 +357,16 @@ test('table-driven Lane Input Projection contracts: identity, canonical resoluti
     assert.equal(keyFailTurn.tokens.totalTokens.provenance, 'unavailable');
     assert.equal(keyFailTurn.tokens.totalTokens.value, null);
 
-    // Criterion 7: ai-accept validates known valid output against canonical artifact
+    // Criterion 7: ai-accept binds v2 handle output to canonical values
+    const synthesisProjection = JSON.parse(await readFile(path.join(runDir, 'lanes/report-synthesis/input.json'), 'utf8'));
+    const synthesisHandle = synthesisProjection.directory.evidence.find(
+      (entry) => entry.objectKind === 'summary' && entry.citable && entry.displayPolicy === 'allowed',
+    );
+    assert.ok(synthesisHandle, 'fixture audit must expose a printable summary entry');
     const synthesisValid = {
-      auditFingerprint: manifest.auditFingerprint,
       overview: {
-        summary: 'Activity is distributed across multiple observed sessions.',
-        evidenceRefs: [`summary:${Object.keys(canonicalAudit.summary)[0]}`],
+        summary: `The fixture records bounded activity around [[${synthesisHandle.handle}]].`,
+        evidenceRefs: [synthesisHandle.handle],
       },
       findings: [],
       noStrongFindingReason: 'Activity was insufficient for multiple distinct findings.',
@@ -345,6 +382,16 @@ test('table-driven Lane Input Projection contracts: identity, canonical resoluti
     const acceptSynthesisOutput = JSON.parse(acceptSynthesis.stdout);
     assert.equal(acceptSynthesisOutput.status, 'accepted');
     assert.equal(acceptSynthesisOutput.validationStatus, 'accepted');
+    const acceptedEnvelope = JSON.parse(await readFile(path.join(runDir, 'lanes/report-synthesis/accepted.json'), 'utf8'));
+    assert.equal(acceptedEnvelope.outputContractVersion, 2);
+    assert.equal(acceptedEnvelope.version, 2);
+    assert.equal(acceptedEnvelope.value.auditFingerprint, manifest.auditFingerprint);
+    assert.deepEqual(acceptedEnvelope.value.overview.evidenceRefs, [synthesisHandle.canonicalRef]);
+    assert.ok(
+      acceptedEnvelope.value.overview.summary.includes(String(synthesisHandle.value.value)),
+      'the numeric slot must be replaced by the canonical Audit value, not re-echoed by the model',
+    );
+    assert.ok(!acceptedEnvelope.value.overview.summary.includes('[['), 'no raw slot may remain in the accepted prose');
 
     // Criterion 8: Tampered projection identity or reference is rejected
     // 8A: Tamper projection identity (auditFingerprint) in lanes/key-session-analysis/input.json
@@ -404,18 +451,17 @@ test('table-driven Lane Input Projection contracts: identity, canonical resoluti
     await writeFile(keyInputPath, originalKeyInput);
     await writeFile(manifestPath, originalManifest);
 
-    // 8C: Tamper evidence reference in model output
-    const tamperedRefSynthesis = {
-      auditFingerprint: manifest.auditFingerprint,
-      overview: {
-        summary: 'Activity is distributed across multiple observed sessions.',
-        evidenceRefs: ['summary:nonexistent_tampered_metric_999'],
-      },
+    // 8C: Tamper evidence reference in model output.
+    // report-synthesis is already accepted, so bind the v2 parser directly with a
+    // fixed independent expectation: an unknown handle must reject, not be guessed.
+    const parserDirectory = synthesisProjection.directory;
+    const element = parseReportSynthesisV2({
+      overview: { summary: 'Activity is distributed across multiple observed sessions.', evidenceRefs: ['e999999'] },
       findings: [],
       noStrongFindingReason: 'Activity was insufficient for multiple distinct findings.',
-    };
-    // Need a running attempt for report-synthesis to test ai-accept rejection, but report-synthesis is already accepted
-    // Test resolveReportEvidence directly rejects the forged reference
+    }, { directory: parserDirectory, locale: 'en-US' });
+    assert.equal(element.accepted, null, 'an unknown handle must not be accepted');
+    assert.ok(element.issues.some((issue) => issue.code === 'EVIDENCE_REF_UNKNOWN'), 'unknown handle must be reported explicitly');
     assert.equal(
       resolveReportEvidence(canonicalAudit, 'summary:nonexistent_tampered_metric_999'),
       null,
@@ -434,19 +480,19 @@ test('table-driven Lane Input Projection contracts: identity, canonical resoluti
     };
 
     assert.throws(
-      () => projectReportSynthesisInput(dummyContext, {}),
+      () => projectReportSynthesisInput(dummyContext, {}, emptyLaneDirectory()),
       /PROJECTION_MISSING_REQUIRED_FIELD/,
       'report-synthesis projection must throw when required fields are missing',
     );
 
     assert.throws(
-      () => projectKeySessionAnalysisInput(dummyContext, {}, null),
+      () => projectKeySessionAnalysisInput(dummyContext, {}, null, emptyLaneDirectory()),
       /PROJECTION_MISSING_REQUIRED_FIELD/,
       'key-session-analysis projection must throw when required fields are missing',
     );
 
     assert.throws(
-      () => projectSkillInsightsInput(dummyContext, null),
+      () => projectSkillInsightsInput(dummyContext, null, emptyLaneDirectory()),
       /PROJECTION_MISSING_REQUIRED_FIELD/,
       'skill-insights projection must throw when required fields are missing',
     );

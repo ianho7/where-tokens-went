@@ -92,6 +92,7 @@ const node_crypto_1 = require("node:crypto");
 const node_perf_hooks_1 = require("node:perf_hooks");
 const bundle_version_1 = require("./bundle-version");
 const codex_provenance_1 = require("./codex-provenance");
+const lane_contract_1 = require("./lane-contract");
 exports.REPORT_LANES = [
     "report-synthesis",
     "key-session-analysis",
@@ -368,6 +369,7 @@ function initialManifest(scope, runId) {
         runtimeHash: null,
         executionMode: null,
         executionModeReasonCode: null,
+        outputContractVersion: lane_contract_1.OUTPUT_CONTRACT_VERSION,
         warnings: [],
         laneStatus: {
             "report-synthesis": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null },
@@ -964,12 +966,15 @@ function computeProjectionHash(payload) {
     const canonicalJson = JSON.stringify(stableSort(body));
     return (0, node_crypto_1.createHash)("sha256").update(canonicalJson).digest("hex");
 }
-function projectReportSynthesisInput(context, audit) {
+function projectReportSynthesisInput(context, audit, directory) {
     if (!audit || typeof audit !== "object") {
         throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: report-synthesis requires an audit object.");
     }
     if (!audit.summary || !audit.rankings || !Array.isArray(audit.checks)) {
         throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: report-synthesis requires audit summary, rankings, and checks.");
+    }
+    if (!(0, lane_contract_1.isLaneDirectory)(directory)) {
+        throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: report-synthesis requires the frozen Evidence Directory.");
     }
     const projectedAudit = {
         scope: audit.scope ?? context.scope,
@@ -989,7 +994,7 @@ function projectReportSynthesisInput(context, audit) {
         },
     };
     const body = {
-        version: 1,
+        version: 2,
         runId: context.runId,
         lane: "report-synthesis",
         scope: audit.scope ?? context.scope,
@@ -997,7 +1002,9 @@ function projectReportSynthesisInput(context, audit) {
         auditFingerprint: context.auditFingerprint,
         bundleVersion: context.bundleVersion,
         promptHash: context.promptHash,
-        projectionSchemaVersion: 1,
+        projectionSchemaVersion: lane_contract_1.PROJECTION_SCHEMA_VERSION,
+        outputContractVersion: lane_contract_1.OUTPUT_CONTRACT_VERSION,
+        directory,
         audit: projectedAudit,
         omittedFields: [
             "view",
@@ -1012,7 +1019,7 @@ function projectReportSynthesisInput(context, audit) {
     const projectionHash = computeProjectionHash(body);
     return { ...body, projectionHash };
 }
-function projectKeySessionAnalysisInput(context, audit, evidence) {
+function projectKeySessionAnalysisInput(context, audit, evidence, directory) {
     if (!audit || typeof audit !== "object") {
         throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: key-session-analysis requires an audit object.");
     }
@@ -1021,6 +1028,9 @@ function projectKeySessionAnalysisInput(context, audit, evidence) {
     }
     if (!evidence || !Array.isArray(evidence.packets)) {
         throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: key-session-analysis requires canonical evidence packets.");
+    }
+    if (!(0, lane_contract_1.isLaneDirectory)(directory)) {
+        throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: key-session-analysis requires the frozen Evidence Directory.");
     }
     const topSessions = audit.rankings.sessions.slice(0, 3);
     const topSessionIds = new Set(topSessions.map((session) => session.key));
@@ -1041,7 +1051,7 @@ function projectKeySessionAnalysisInput(context, audit, evidence) {
         ...(topAccounting.length > 0 ? { keySessionTokenAccounting: topAccounting } : {}),
     };
     const body = {
-        version: 1,
+        version: 2,
         runId: context.runId,
         lane: "key-session-analysis",
         scope: audit.scope ?? context.scope,
@@ -1049,7 +1059,9 @@ function projectKeySessionAnalysisInput(context, audit, evidence) {
         auditFingerprint: context.auditFingerprint,
         bundleVersion: context.bundleVersion,
         promptHash: context.promptHash,
-        projectionSchemaVersion: 1,
+        projectionSchemaVersion: lane_contract_1.PROJECTION_SCHEMA_VERSION,
+        outputContractVersion: lane_contract_1.OUTPUT_CONTRACT_VERSION,
+        directory,
         audit: projectedAudit,
         sessions: topSessions,
         turns: topTurns,
@@ -1071,12 +1083,15 @@ function projectKeySessionAnalysisInput(context, audit, evidence) {
     const projectionHash = computeProjectionHash(body);
     return { ...body, projectionHash };
 }
-function projectSkillInsightsInput(context, snapshot) {
+function projectSkillInsightsInput(context, snapshot, directory) {
     if (!snapshot || typeof snapshot !== "object" || !snapshot.snapshotId || !snapshot.globalUsage || !Array.isArray(snapshot.selectedSkills)) {
         throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: skill-insights requires snapshot with snapshotId, globalUsage, and selectedSkills.");
     }
+    if (!(0, lane_contract_1.isLaneDirectory)(directory)) {
+        throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: skill-insights requires the frozen Evidence Directory.");
+    }
     const body = {
-        version: 1,
+        version: 2,
         runId: context.runId,
         lane: "skill-insights",
         scope: context.scope,
@@ -1084,7 +1099,9 @@ function projectSkillInsightsInput(context, snapshot) {
         auditFingerprint: context.auditFingerprint,
         bundleVersion: context.bundleVersion,
         promptHash: context.promptHash,
-        projectionSchemaVersion: 1,
+        projectionSchemaVersion: lane_contract_1.PROJECTION_SCHEMA_VERSION,
+        outputContractVersion: lane_contract_1.OUTPUT_CONTRACT_VERSION,
+        directory,
         snapshotId: snapshot.snapshotId,
         snapshot,
         omittedFields: [
@@ -1102,13 +1119,13 @@ function projectSkillInsightsInput(context, snapshot) {
 }
 function buildLaneProjection(lane, context, inputs) {
     if (lane === "report-synthesis") {
-        return projectReportSynthesisInput(context, inputs.audit);
+        return projectReportSynthesisInput(context, inputs.audit, inputs.directory);
     }
     if (lane === "key-session-analysis") {
-        return projectKeySessionAnalysisInput(context, inputs.audit, inputs.evidence ?? null);
+        return projectKeySessionAnalysisInput(context, inputs.audit, inputs.evidence ?? null, inputs.directory);
     }
     if (lane === "skill-insights") {
-        return projectSkillInsightsInput(context, inputs.snapshot ?? null);
+        return projectSkillInsightsInput(context, inputs.snapshot ?? null, inputs.directory);
     }
     throw new Error(`Unknown lane: ${lane}`);
 }
@@ -1133,8 +1150,14 @@ function validateLaneProjection(run, lane, candidate, expectedPromptHash) {
     if (promptHash && projection.promptHash !== promptHash) {
         throw new Error(`LANE_PROJECTION_IDENTITY_TAMPERED: Projection promptHash does not match Run.`);
     }
-    if (projection.projectionSchemaVersion !== 1) {
+    if (projection.projectionSchemaVersion !== lane_contract_1.PROJECTION_SCHEMA_VERSION) {
         throw new Error(`LANE_PROJECTION_INVALID: Unsupported projectionSchemaVersion '${projection.projectionSchemaVersion}'.`);
+    }
+    if (projection.outputContractVersion !== lane_contract_1.OUTPUT_CONTRACT_VERSION) {
+        throw new Error(`LANE_PROJECTION_INVALID: Unsupported outputContractVersion '${projection.outputContractVersion}'.`);
+    }
+    if (!(0, lane_contract_1.isLaneDirectory)(projection.directory)) {
+        throw new Error("LANE_PROJECTION_INVALID: Projection must carry the frozen Evidence Directory.");
     }
     if (typeof projection.projectionHash !== "string" || !/^[0-9a-f]{64}$/i.test(projection.projectionHash)) {
         throw new Error("LANE_PROJECTION_INVALID: Projection projectionHash must be a valid sha256 hex string.");
@@ -1506,6 +1529,7 @@ async function readRunManifest(runDir) {
     manifest.degraded ??= false;
     manifest.executionMode ??= null;
     manifest.executionModeReasonCode ??= null;
+    manifest.outputContractVersion ??= lane_contract_1.OUTPUT_CONTRACT_VERSION;
     manifest.uiDispatch ??= "unavailable";
     manifest.laneArtifacts ??= {};
     manifest.retention ??= { workspace: "local-sensitive", policy: "explicit-cleanup", cleanedAt: null };

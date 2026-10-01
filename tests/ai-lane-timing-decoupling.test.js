@@ -113,26 +113,32 @@ async function prepareRun(fixture, runSubdir) {
   return { runDir, summary };
 }
 
-function validSynthesis(fingerprint, audit) {
-  const metricKey = Object.keys(audit.summary)[0] ?? 'totalTokens';
+/**
+ * Valid v2 Report Synthesis output built from the frozen Evidence Directory the
+ * Run produced. Contract v2 carries no fingerprint and cites handles only.
+ */
+function validSynthesis(projection) {
+  const entry = projection.directory.evidence.find(
+    (candidate) => candidate.objectKind === 'summary' && candidate.displayPolicy === 'allowed' && candidate.citable,
+  );
+  assert.ok(entry, 'projection must expose a printable summary entry');
   return {
-    auditFingerprint: fingerprint,
     overview: {
-      summary: 'Recorded usage is concentrated in a bounded test task.',
-      evidenceRefs: [`summary:${metricKey}`],
+      summary: `Recorded usage is concentrated in a bounded test task with ${'[['}${entry.handle}${']]'} observed.`,
+      evidenceRefs: [entry.handle],
     },
     findings: [
       {
         title: 'Primary task accounts for the recorded usage',
-        analysis: 'A single task accounts for all observed tokens in the period.',
-        evidenceRefs: [`summary:${metricKey}`],
+        analysis: 'A single task accounts for the observed usage in the period.',
+        evidenceRefs: [entry.handle],
         support: 'strong',
         uncertainty: null,
       },
       {
         title: 'Context composition reflects initial request size',
         analysis: 'Context input reflects initial prompt volume without large tool result growth.',
-        evidenceRefs: [`summary:${metricKey}`],
+        evidenceRefs: [entry.handle],
         support: 'moderate',
         uncertainty: 'Limited period history observed.',
       },
@@ -148,7 +154,6 @@ test('AC 1: missing host-response.json allows valid output to be accepted with d
   const fixture = await setupTestFixture();
   try {
     const { runDir, summary } = await prepareRun(fixture, 'run-ac1');
-    const audit = JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8'));
 
     const start = await runCli(['report-run', 'ai-start', '--run-dir', runDir, '--lane', 'report-synthesis'], fixture.env);
     assert.equal(start.code, 0, start.stderr);
@@ -158,7 +163,7 @@ test('AC 1: missing host-response.json allows valid output to be accepted with d
     const hostResponsePath = path.join(runDir, 'lanes', 'report-synthesis', 'host-response.json');
     await assert.rejects(readFile(hostResponsePath), { code: 'ENOENT' });
 
-    const synthesis = validSynthesis(summary.auditFingerprint, audit);
+    const synthesis = validSynthesis(JSON.parse(await readFile(path.join(runDir, 'lanes', 'report-synthesis', 'input.json'), 'utf8')));
     const accept = await runCli(
       ['report-run', 'ai-accept', '--run-dir', runDir, '--lane', 'report-synthesis', '--attempt', String(ticket.attempt), '--span-id', ticket.spanId],
       fixture.env,
@@ -296,13 +301,12 @@ test('AC 2: table-driven invalid, expired, or mismatched host-response.json pres
   try {
     for (const [index, tc] of invalidTimingCases.entries()) {
       const { runDir, summary } = await prepareRun(fixture, `run-ac2-${index}`);
-      const audit = JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8'));
 
       const start = await runCli(['report-run', 'ai-start', '--run-dir', runDir, '--lane', 'report-synthesis'], fixture.env);
       assert.equal(start.code, 0, start.stderr);
       const ticket = JSON.parse(start.stdout);
 
-      const synthesis = validSynthesis(summary.auditFingerprint, audit);
+      const synthesis = validSynthesis(JSON.parse(await readFile(path.join(runDir, 'lanes', 'report-synthesis', 'input.json'), 'utf8')));
       const rawText = JSON.stringify(synthesis);
       const outputHash = require('node:crypto').createHash('sha256').update(rawText).digest('hex');
 
@@ -495,14 +499,24 @@ test('AC 4: model output validation failure creates validator fallback with raw/
       lane: 'report-synthesis',
     },
     {
-      name: 'semantic-failure-report-synthesis',
+      name: 'code-field-echo-report-synthesis',
       rawText: JSON.stringify({
         auditFingerprint: 'wrong-fingerprint',
-        overview: { summary: 'Summary text.', evidenceRefs: ['summary:totalTokens'] },
+        overview: { summary: 'Summary text.', evidenceRefs: ['e1'] },
         findings: [],
         noStrongFindingReason: 'No patterns.',
       }),
-      expectedReasonCode: 'REPORT_SYNTHESIS_INVALID',
+      expectedReasonCode: 'OUTPUT_CONTRACT_CODE_FIELD',
+      lane: 'report-synthesis',
+    },
+    {
+      name: 'semantic-failure-report-synthesis',
+      rawText: JSON.stringify({
+        overview: { summary: 'Summary text.', evidenceRefs: ['e999999'] },
+        findings: [],
+        noStrongFindingReason: 'No patterns.',
+      }),
+      expectedReasonCode: 'EVIDENCE_REF_UNKNOWN',
       lane: 'report-synthesis',
     },
   ];

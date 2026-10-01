@@ -1369,7 +1369,7 @@ function renderSkillInsightProof(item: ValidatedSkillInsight, locale: ReportLoca
       const valStr = separator + formatSkillMetricValue(ev.metric, ev.value, locale);
       return "<span class=\"kami-badge metric-badge\">" + escapeHtml(skillMetricLabel(ev.metric, locale) + valStr) + "</span>";
     }
-    return "<blockquote class=\"skill-excerpt\">&ldquo;" + escapeHtml(ev.evidenceExcerpt || "") + "&rdquo;</blockquote>";
+    return "<blockquote class=\"skill-excerpt\">&ldquo;" + escapeHtml(ev.contentExcerpt ?? ev.evidenceExcerpt ?? "") + "&rdquo;</blockquote>";
   }).join("");
   return rendered ? "<div class=\"insight-proof\"><strong>" + escapeHtml(locale === "zh-CN" ? "关键对照：" : "Proof: ") + "</strong>" + rendered + "</div>" : "";
 }

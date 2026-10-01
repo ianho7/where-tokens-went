@@ -4,6 +4,7 @@ const { mkdtemp, mkdir, readFile, readdir, rm, writeFile, stat } = require('node
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { readProjection, v2Synthesis } = require('./fixtures/lane-contract-v2-fixtures');
 
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 
@@ -60,14 +61,9 @@ test('lane-only start/accept and artifact-only compose retain accepted content w
     assert.equal(start.code, 0, start.stderr);
     const ticket = JSON.parse(start.stdout);
     assert.equal(ticket.inputArtifact, 'lanes/report-synthesis/input.json');
-    const audit = JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8'));
-    const evidenceRef = `summary:${Object.keys(audit.summary)[0]}`;
-    const synthesis = {
-      auditFingerprint: summary.auditFingerprint,
-      overview: { summary: 'The fixture records a bounded activity period.', evidenceRefs: [evidenceRef] },
-      findings: [],
-      noStrongFindingReason: 'The fixture does not contain enough evidence for a distinct report-level finding.',
-    };
+    assert.equal(ticket.outputContractVersion, 2);
+    const projection = await readProjection(runDir, 'report-synthesis');
+    const synthesis = v2Synthesis(projection, { summary: 'The fixture records a bounded activity period.' });
     const wrongSpan = await runCli(['report-run', 'ai-accept', '--run-dir', runDir, '--lane', 'report-synthesis', '--attempt', String(ticket.attempt), '--span-id', 'wrong-span'], env, JSON.stringify(synthesis));
     assert.equal(wrongSpan.code, 2);
     assert.match(wrongSpan.stderr, /RUN_LANE_SPAN_MISMATCH/);
@@ -271,14 +267,9 @@ test('ai-accept rejects empty/whitespace stdin without consuming attempt; valid 
     assert.deepEqual(filesAfterWs, initialFiles, 'Lane directory must remain untouched after whitespace stdin');
 
     // 3. First formal submission: submit valid JSON, proved to be accepted as attempt 1
-    const audit = JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8'));
-    const evidenceRef = `summary:${Object.keys(audit.summary)[0]}`;
-    const validSynthesis = {
-      auditFingerprint: summary.auditFingerprint,
-      overview: { summary: 'The fixture records a bounded activity period.', evidenceRefs: [evidenceRef] },
-      findings: [],
-      noStrongFindingReason: 'The fixture does not contain enough evidence for a distinct report-level finding.',
-    };
+    const validSynthesis = v2Synthesis(await readProjection(runDir, 'report-synthesis'), {
+      summary: 'The fixture records a bounded activity period.',
+    });
     const validAccept = await runCli([
       'report-run', 'ai-accept', '--run-dir', runDir, '--lane', 'report-synthesis',
       '--attempt', String(ticket.attempt), '--span-id', ticket.spanId,

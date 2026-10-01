@@ -130,7 +130,28 @@ test('report-run compose integrates validated skill insights into HTML report', 
     const runDir = path.join(tmp, 'run');
     const skillDir = path.join(tmp, '.codex', 'skills', 'verified-skill');
     await mkdir(skillDir, { recursive: true });
-    await writeFile(path.join(skillDir, 'SKILL.md'), '# Verified Skill\nExecution policy requires explicit approval.\nSummarize the task before editing.');
+    // Long enough that 200/40 chunking produces several frozen fragments, so the
+    // two semantic roles can reference distinct approved excerpts.
+    const skillPadding = Array.from({ length: 6 }, (_, index) => `Reference note ${index + 1}: environment-specific context that is unrelated to the execution policy.`).join('\n');
+    const skillContent = '# Verified Skill\nExecution policy requires explicit approval.\n' + skillPadding + '\nSummarize the task before editing.';
+    await writeFile(path.join(skillDir, 'SKILL.md'), skillContent);
+
+    // A Scope-frozen Run needs at least one analyzable Session before a Lane can start.
+    const now = new Date();
+    const sessionsDir = path.join(
+      tmp, 'sessions',
+      String(now.getFullYear()),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    );
+    await mkdir(sessionsDir, { recursive: true });
+    const sessionTimestamp = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    await writeFile(path.join(sessionsDir, 'rollout-skill-compose.jsonl'), [
+      { timestamp: sessionTimestamp, type: 'session_meta', payload: { id: 'skill-compose-session', cwd: tmp, originator: 'Codex CLI', cli_version: '0.1.0', model_provider: 'openai' } },
+      { timestamp: sessionTimestamp, type: 'turn_context', payload: { turn_id: 'skill-compose-turn', cwd: tmp } },
+      { timestamp: sessionTimestamp, type: 'event_msg', payload: { type: 'token_usage_record', response_id: 'skill-compose-response', turn_id: 'skill-compose-turn', usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 }, turn_token_usage: { input_tokens: 10, output_tokens: 5, reasoning_output_tokens: 0, total_tokens: 15 } } },
+      { timestamp: sessionTimestamp, type: 'response_item', payload: { type: 'message', role: 'user', turn_id: 'skill-compose-turn', content: 'Fixture prompt for Skill Insights composition.' } },
+    ].map((record) => JSON.stringify(record)).join('\n') + '\n');
 
     const prepared = await runCli([
       'report-run', 'prepare',
@@ -146,7 +167,6 @@ test('report-run compose integrates validated skill insights into HTML report', 
     const htmlPath = path.join(tmp, 'final-report.html');
 
     const crypto = require('node:crypto');
-    const skillContent = '# Verified Skill\nExecution policy requires explicit approval.\nSummarize the task before editing.';
     const skillHash = crypto.createHash('sha256').update(skillContent).digest('hex');
     const customSnapshot = {
       snapshotId: 'test-snapshot',
@@ -207,17 +227,16 @@ test('report-run compose integrates validated skill insights into HTML report', 
       reportSynthesis: null,
       keySessionAnalyses: [],
       skillInsights: {
-        snapshotId: 'test-snapshot',
         insights: [{
           id: 'test-insight-1',
           kind: 'capability',
           scope: 'skill',
-          subject: { skillId: 'verified-skill' },
+          subject: { skillHandle: 'k1' },
           title: '执行策略具备强硬约束',
           reveal: {
             semantic: '执行策略的硬约束需要与通用流程分开理解',
             pattern: 'content_contrast',
-            evidenceRefs: ['skill:verified-skill:calls', 'content:verified-skill:hardConstraint', 'content:verified-skill:genericProcedure'],
+            evidenceRefs: ['eCALLS', 'cHARD', 'cGENERIC'],
           },
           mentalModelShift: {
             surface: '普通编码流程',
@@ -238,9 +257,9 @@ test('report-run compose integrates validated skill insights into HTML report', 
           claimStrength: 'coexistence',
           confidence: 'high',
           evidence: [
-            { kind: 'skill_metric', skillId: 'verified-skill', metric: 'calls' },
-            { kind: 'skill_content', skillId: 'verified-skill', role: 'hardConstraint', loadingScope: 'always', evidenceExcerpt: 'Execution policy requires explicit approval.' },
-            { kind: 'skill_content', skillId: 'verified-skill', role: 'genericProcedure', loadingScope: 'task_scoped', evidenceExcerpt: 'Summarize the task before editing.' }
+            { ref: 'eCALLS' },
+            { contentRef: 'cHARD', role: 'hardConstraint', loadingScope: 'always' },
+            { contentRef: 'cGENERIC', role: 'genericProcedure', loadingScope: 'task_scoped' }
           ]
         }]
       }
@@ -254,14 +273,53 @@ test('report-run compose integrates validated skill insights into HTML report', 
     ], env);
     assert.equal(started.code, 0, started.stderr);
     const ticket = JSON.parse(started.stdout);
+    assert.equal(ticket.outputContractVersion, 2);
+
+    // Resolve handles from the frozen Lane projection rather than hardcoding them,
+    // then submit model-shaped v2 output that names handles only.
+    const projection = JSON.parse(await readFile(path.join(runDir, 'lanes', 'skill-insights', 'input.json'), 'utf8'));
+    const skillHandle = projection.directory.skills.find((entry) => entry.canonicalId === 'verified-skill').handle;
+    const callsEntry = projection.directory.evidence.find((entry) => entry.objectKind === 'skill' && entry.ownerCanonicalId === 'verified-skill' && entry.metric === 'calls');
+    const contentEntries = projection.directory.content.filter((entry) => entry.skillId === 'verified-skill' && entry.available);
+    const chunkText = (entry) => skillContent.slice(entry.startOffset, entry.endOffset);
+    // Overlapping 200/40 chunks: the first chunk carrying each sentence gives two
+    // distinct, individually citable fragments.
+    const hardConstraintChunk = contentEntries.find((entry) => chunkText(entry).includes('Execution policy requires explicit approval.'));
+    const genericChunk = [...contentEntries].reverse().find((entry) => chunkText(entry).includes('Summarize the task before editing.'));
+    assert.ok(callsEntry && hardConstraintChunk && genericChunk, 'projection must expose the metric and both content fragments');
+    assert.notEqual(hardConstraintChunk.handle, genericChunk.handle, 'the two roles must bind distinct frozen fragments');
+
+    const modelOutput = JSON.parse(aiEnvelope).skillInsights;
+    modelOutput.insights[0].subject = { skillHandle };
+    modelOutput.insights[0].reveal.evidenceRefs = [callsEntry.handle, hardConstraintChunk.handle, genericChunk.handle];
+    modelOutput.insights[0].evidence = [
+      { ref: callsEntry.handle },
+      { contentRef: hardConstraintChunk.handle, role: 'hardConstraint', loadingScope: 'always' },
+      { contentRef: genericChunk.handle, role: 'genericProcedure', loadingScope: 'task_scoped' },
+    ];
+
     const accepted = await runCli([
       'report-run', 'ai-accept',
       '--run-dir', runDir,
       '--lane', 'skill-insights',
       '--attempt', String(ticket.attempt),
       '--span-id', ticket.spanId
-    ], env, JSON.stringify(JSON.parse(aiEnvelope).skillInsights));
+    ], env, JSON.stringify(modelOutput));
     assert.equal(accepted.code, 0, accepted.stderr);
+
+    // Code restores canonical identity, metric value and approved excerpt text.
+    const acceptedEnvelope = JSON.parse(await readFile(path.join(runDir, 'lanes', 'skill-insights', 'accepted.json'), 'utf8'));
+    assert.equal(acceptedEnvelope.outputContractVersion, 2);
+    assert.equal(acceptedEnvelope.snapshotId, 'test-snapshot');
+    const acceptedEvidence = acceptedEnvelope.value[0].evidence;
+    const metricEvidence = acceptedEvidence.find((entry) => entry.kind === 'skill_metric');
+    const contentEvidence = acceptedEvidence.filter((entry) => entry.kind === 'skill_content');
+    assert.equal(metricEvidence.skillId, 'verified-skill', 'code must restore the canonical Skill identity behind the handle');
+    assert.equal(metricEvidence.metric, 'calls');
+    assert.equal(metricEvidence.value, 10, 'code must restore the canonical metric value, not a model-supplied number');
+    assert.equal(contentEvidence.length, 2);
+    assert.ok(contentEvidence.every((entry) => typeof entry.contentExcerpt === 'string' && entry.contentExcerpt.length > 0), 'code must restore the approved excerpt text');
+    assert.ok(!JSON.stringify(acceptedEnvelope.value[0]).includes('evidenceExcerpt'), 'v2 accepted output must not rely on a model-supplied excerpt field');
 
     const composed = await runCli([
       'report-run', 'compose',
@@ -274,7 +332,8 @@ test('report-run compose integrates validated skill insights into HTML report', 
     const html = await readFile(htmlPath, 'utf8');
     assert.ok(html.includes('<section class="skill-insights">'), 'Composed HTML must contain skill-insights section');
     assert.ok(html.includes('执行策略的硬约束需要与通用流程分开理解'), 'Composed HTML must contain the Reveal');
-    assert.ok(html.includes('Execution policy requires explicit approval.'), 'Composed HTML must contain verified excerpt');
+    assert.ok(html.includes('Execution policy requires explicit approval.'), 'Composed HTML must contain the code-restored excerpt');
+    assert.ok(html.includes('10'), 'Composed HTML must render the canonical metric value bound from the directory');
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }

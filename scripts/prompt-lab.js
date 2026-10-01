@@ -2,8 +2,10 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 const { auditFingerprint, resolveReportEvidence, validateKeySessionAnalysis } = require("../dist/src/key-session-analysis.js");
 const { validateSkillInsights } = require("../dist/src/skill-insights.js");
+const { buildLaneDirectory } = require("../dist/src/lane-contract.js");
 
 const root = path.resolve(__dirname, "..");
 const auditFixturePath = path.join(root, "tests", "fixtures", "prompt-lab", "report-synthesis-normal.json");
@@ -261,10 +263,23 @@ function bindSkillInsightsPrompt(source, locale, snapshot) {
   const repeated = /\{\{#each skills\}\}([\s\S]*?)\{\{\/each\}\}/u;
   const loop = source.match(repeated);
   if (!loop) throw new Error("Skill Insights Prompt is missing its skills block.");
+  const { directory } = buildLaneDirectory("skill-insights", {
+    snapshot,
+    hash: (value) => createHash("sha256").update(value).digest("hex"),
+    locale,
+  });
+  const contentHandlesBySkill = new Map();
+  for (const entry of directory.content) {
+    if (!entry.skillHandle) continue;
+    contentHandlesBySkill.set(entry.skillHandle, [...(contentHandlesBySkill.get(entry.skillHandle) ?? []), entry.handle]);
+  }
   const skills = snapshot.selectedSkills.map((skill) => {
     const metadata = { ...skill };
     delete metadata.skillMdContent;
+    const handle = directory.skills.find((entry) => entry.canonicalId === skill.skillId)?.handle ?? "unavailable";
     return loop[1]
+      .replaceAll("{{skillHandle}}", handle)
+      .replaceAll("{{contentHandles}}", (contentHandlesBySkill.get(handle) ?? []).join(", ") || "unavailable")
       .replaceAll("{{skillId}}", skill.skillId)
       .replaceAll("{{skillName}}", skill.skillName)
       .replaceAll("{{skillPath}}", skill.skillPath ?? "unavailable")
@@ -276,19 +291,32 @@ function bindSkillInsightsPrompt(source, locale, snapshot) {
     .replaceAll("{{reportLocale}}", locale)
     .replaceAll("{{analysisPeriod}}", "fixed Prompt Lab snapshot")
     .replaceAll("{{skillSnapshotId}}", snapshot.snapshotId)
+    .replaceAll("{{directoryJson}}", JSON.stringify(directory, null, 2))
     .replaceAll("{{globalUsageJson}}", JSON.stringify(snapshot.globalUsage, null, 2))
     .replaceAll("{{candidateJson}}", JSON.stringify(snapshot.selectedCandidates, null, 2));
 }
 
 function bindAuditPrompt(source, promptName, locale, audit, fingerprint, packets = []) {
+  // Contract v2: the model receives the frozen Evidence Directory instead of echoing
+  // code-owned identity fields. Prompt Lab builds the same directory shape the Run
+  // projection carries so the Fast Loop reads the current Prompt truthfully.
+  const lane = promptName === "key-session-analysis" ? "key-session-analysis" : "report-synthesis";
+  const { directory } = buildLaneDirectory(lane, {
+    audit,
+    turns: audit.turns ?? [],
+    sessions: (audit.rankings?.sessions ?? []).slice(0, 3),
+    hash: (value) => createHash("sha256").update(value).digest("hex"),
+    locale,
+  });
   let prompt = source
     .replaceAll("{{locale}}", locale)
-    .replaceAll("{{auditFingerprint}}", fingerprint)
-    .replaceAll("{{auditResultJson}}", JSON.stringify(audit, null, 2));
+    .replaceAll("{{directoryJson}}", JSON.stringify(directory, null, 2))
+    .replaceAll("{{auditResultJson}}", JSON.stringify(audit, null, 2))
+    .replaceAll("{{auditFingerprint}}", fingerprint);
   if (promptName === "key-session-analysis") {
     prompt = prompt.replaceAll("{{contentEvidencePacketsJson}}", JSON.stringify(packets, null, 2));
   }
-  if (/\{\{(?:locale|auditFingerprint|auditResultJson|contentEvidencePacketsJson)\}\}/u.test(prompt)) {
+  if (/\{\{(?:locale|auditFingerprint|auditResultJson|directoryJson|contentEvidencePacketsJson)\}\}/u.test(prompt)) {
     throw new Error("Prompt Lab left an unbound runtime value.");
   }
   return prompt;

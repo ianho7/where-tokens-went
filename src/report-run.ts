@@ -20,6 +20,13 @@ import type {
 } from "./types";
 import { readCurrentBundleVersion, type BundleVersion } from "./bundle-version";
 import { verifyCodexFailureProvenance } from "./codex-provenance";
+import {
+  isLaneDirectory,
+  OUTPUT_CONTRACT_VERSION,
+  PROJECTION_SCHEMA_VERSION,
+  type LaneDirectory,
+  type OutputContractVersion,
+} from "./lane-contract";
 
 export type ReportRunStatus =
   | "started"
@@ -238,6 +245,8 @@ export interface ReportRunManifest {
   runtimeHash: string | null;
   executionMode: ReportRunExecutionMode | null;
   executionModeReasonCode: string | null;
+  /** Contract version code uses to bind model output for this Run. */
+  outputContractVersion?: OutputContractVersion;
   warnings: string[];
   laneStatus: Record<ReportLane, RunLaneStatus>;
   deliveryStatus: ReportRunStatus;
@@ -504,6 +513,7 @@ function initialManifest(scope: ReportRunScope, runId: string): ReportRunManifes
     runtimeHash: null,
     executionMode: null,
     executionModeReasonCode: null,
+    outputContractVersion: OUTPUT_CONTRACT_VERSION,
     warnings: [],
     laneStatus: {
       "report-synthesis": { status: "pending", attempts: 0, totalDurationMs: null, lastDurationMs: null, reasonCode: null, inputArtifact: null, acceptedArtifact: null, spanStartedAt: null },
@@ -1179,7 +1189,7 @@ export interface LaneProjectionContext {
 }
 
 export interface BaseLaneProjection {
-  version: 1;
+  version: 2;
   runId: string;
   lane: ReportLane;
   scope: AuditSnapshot["scope"];
@@ -1187,8 +1197,15 @@ export interface BaseLaneProjection {
   auditFingerprint: string;
   bundleVersion: string;
   promptHash: string;
-  projectionSchemaVersion: 1;
+  projectionSchemaVersion: 2;
   projectionHash: string;
+  /** Code-recorded model output contract version; the model never echoes it. */
+  outputContractVersion: 2;
+  /**
+   * Frozen Evidence Directory for this Lane. It carries handles plus the
+   * approved display values code binds after the model selects a handle.
+   */
+  directory: LaneDirectory;
 }
 
 export interface ReportSynthesisProjection extends BaseLaneProjection {
@@ -1265,12 +1282,16 @@ export function computeProjectionHash(payload: Record<string, unknown>): string 
 export function projectReportSynthesisInput(
   context: LaneProjectionContext,
   audit: AuditResult,
+  directory: LaneDirectory,
 ): ReportSynthesisProjection {
   if (!audit || typeof audit !== "object") {
     throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: report-synthesis requires an audit object.");
   }
   if (!audit.summary || !audit.rankings || !Array.isArray(audit.checks)) {
     throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: report-synthesis requires audit summary, rankings, and checks.");
+  }
+  if (!isLaneDirectory(directory)) {
+    throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: report-synthesis requires the frozen Evidence Directory.");
   }
   const projectedAudit = {
     scope: audit.scope ?? context.scope,
@@ -1290,7 +1311,7 @@ export function projectReportSynthesisInput(
     },
   };
   const body = {
-    version: 1 as const,
+    version: 2 as const,
     runId: context.runId,
     lane: "report-synthesis" as const,
     scope: audit.scope ?? context.scope,
@@ -1298,7 +1319,9 @@ export function projectReportSynthesisInput(
     auditFingerprint: context.auditFingerprint,
     bundleVersion: context.bundleVersion,
     promptHash: context.promptHash,
-    projectionSchemaVersion: 1 as const,
+    projectionSchemaVersion: PROJECTION_SCHEMA_VERSION,
+    outputContractVersion: OUTPUT_CONTRACT_VERSION,
+    directory,
     audit: projectedAudit,
     omittedFields: [
       "view",
@@ -1318,6 +1341,7 @@ export function projectKeySessionAnalysisInput(
   context: LaneProjectionContext,
   audit: AuditResult,
   evidence: { packets: ContentEvidencePacket[] } | null,
+  directory: LaneDirectory,
 ): KeySessionAnalysisProjection {
   if (!audit || typeof audit !== "object") {
     throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: key-session-analysis requires an audit object.");
@@ -1327,6 +1351,9 @@ export function projectKeySessionAnalysisInput(
   }
   if (!evidence || !Array.isArray(evidence.packets)) {
     throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: key-session-analysis requires canonical evidence packets.");
+  }
+  if (!isLaneDirectory(directory)) {
+    throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: key-session-analysis requires the frozen Evidence Directory.");
   }
   const topSessions = audit.rankings.sessions.slice(0, 3);
   const topSessionIds = new Set(topSessions.map((session) => session.key));
@@ -1352,7 +1379,7 @@ export function projectKeySessionAnalysisInput(
   };
 
   const body = {
-    version: 1 as const,
+    version: 2 as const,
     runId: context.runId,
     lane: "key-session-analysis" as const,
     scope: audit.scope ?? context.scope,
@@ -1360,7 +1387,9 @@ export function projectKeySessionAnalysisInput(
     auditFingerprint: context.auditFingerprint,
     bundleVersion: context.bundleVersion,
     promptHash: context.promptHash,
-    projectionSchemaVersion: 1 as const,
+    projectionSchemaVersion: PROJECTION_SCHEMA_VERSION,
+    outputContractVersion: OUTPUT_CONTRACT_VERSION,
+    directory,
     audit: projectedAudit,
     sessions: topSessions,
     turns: topTurns,
@@ -1386,12 +1415,16 @@ export function projectKeySessionAnalysisInput(
 export function projectSkillInsightsInput(
   context: LaneProjectionContext,
   snapshot: SkillSnapshotArtifact | null,
+  directory: LaneDirectory,
 ): SkillInsightsProjection {
   if (!snapshot || typeof snapshot !== "object" || !snapshot.snapshotId || !snapshot.globalUsage || !Array.isArray(snapshot.selectedSkills)) {
     throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: skill-insights requires snapshot with snapshotId, globalUsage, and selectedSkills.");
   }
+  if (!isLaneDirectory(directory)) {
+    throw new Error("PROJECTION_MISSING_REQUIRED_FIELD: skill-insights requires the frozen Evidence Directory.");
+  }
   const body = {
-    version: 1 as const,
+    version: 2 as const,
     runId: context.runId,
     lane: "skill-insights" as const,
     scope: context.scope,
@@ -1399,7 +1432,9 @@ export function projectSkillInsightsInput(
     auditFingerprint: context.auditFingerprint,
     bundleVersion: context.bundleVersion,
     promptHash: context.promptHash,
-    projectionSchemaVersion: 1 as const,
+    projectionSchemaVersion: PROJECTION_SCHEMA_VERSION,
+    outputContractVersion: OUTPUT_CONTRACT_VERSION,
+    directory,
     snapshotId: snapshot.snapshotId,
     snapshot,
     omittedFields: [
@@ -1423,16 +1458,17 @@ export function buildLaneProjection(
     audit: AuditResult;
     evidence?: { packets: ContentEvidencePacket[] } | null;
     snapshot?: SkillSnapshotArtifact | null;
+    directory: LaneDirectory;
   },
 ): LaneProjection {
   if (lane === "report-synthesis") {
-    return projectReportSynthesisInput(context, inputs.audit);
+    return projectReportSynthesisInput(context, inputs.audit, inputs.directory);
   }
   if (lane === "key-session-analysis") {
-    return projectKeySessionAnalysisInput(context, inputs.audit, inputs.evidence ?? null);
+    return projectKeySessionAnalysisInput(context, inputs.audit, inputs.evidence ?? null, inputs.directory);
   }
   if (lane === "skill-insights") {
-    return projectSkillInsightsInput(context, inputs.snapshot ?? null);
+    return projectSkillInsightsInput(context, inputs.snapshot ?? null, inputs.directory);
   }
   throw new Error(`Unknown lane: ${lane}`);
 }
@@ -1463,8 +1499,14 @@ export function validateLaneProjection(
   if (promptHash && projection.promptHash !== promptHash) {
     throw new Error(`LANE_PROJECTION_IDENTITY_TAMPERED: Projection promptHash does not match Run.`);
   }
-  if (projection.projectionSchemaVersion !== 1) {
+  if (projection.projectionSchemaVersion !== PROJECTION_SCHEMA_VERSION) {
     throw new Error(`LANE_PROJECTION_INVALID: Unsupported projectionSchemaVersion '${projection.projectionSchemaVersion}'.`);
+  }
+  if (projection.outputContractVersion !== OUTPUT_CONTRACT_VERSION) {
+    throw new Error(`LANE_PROJECTION_INVALID: Unsupported outputContractVersion '${projection.outputContractVersion}'.`);
+  }
+  if (!isLaneDirectory(projection.directory)) {
+    throw new Error("LANE_PROJECTION_INVALID: Projection must carry the frozen Evidence Directory.");
   }
   if (typeof projection.projectionHash !== "string" || !/^[0-9a-f]{64}$/i.test(projection.projectionHash)) {
     throw new Error("LANE_PROJECTION_INVALID: Projection projectionHash must be a valid sha256 hex string.");
@@ -1859,6 +1901,7 @@ export async function readRunManifest(runDir: string): Promise<ReportRunManifest
   manifest.degraded ??= false;
   manifest.executionMode ??= null;
   manifest.executionModeReasonCode ??= null;
+  manifest.outputContractVersion ??= OUTPUT_CONTRACT_VERSION;
   manifest.uiDispatch ??= "unavailable";
   manifest.laneArtifacts ??= {};
   manifest.retention ??= { workspace: "local-sensitive", policy: "explicit-cleanup", cleanedAt: null };

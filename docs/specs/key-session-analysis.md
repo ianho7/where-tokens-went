@@ -150,15 +150,44 @@ Turn 聚合不得改变现有 Harness-aware Token 组成语义。Codex 的 inclu
 
 ## KeySessionAnalysis Contract
 
+`outputContractVersion: 2`（当前）：模型只输出语义与该 Lane 的目录选择，代码恢复规范身份与事实。
+
+模型侧形状：
+
+```ts
+interface KeySessionAnalysisV2 {
+  sessionHandle: string;            // 当前投影 directory.sessions 的 sN 句柄
+  taskContext: string;              // 精确统计值用 [[eN]] 槽位
+  primaryFinding: {
+    observation: string;
+    interpretation: string;
+    evidenceIds: string[];          // 同 Session 的 e 句柄
+    support: "strong" | "moderate" | "limited";
+    alternativeExplanations: string[];
+  } | null;
+  recommendation: {
+    action: string;
+    rationale: string;
+    applicability: string;
+    tradeoff: string | null;
+    verification: string;
+    targetEvidenceIds: string[];    // 同 Session 的 e 句柄
+  } | null;
+  limitations: string[];
+}
+```
+
+代码绑定后的规范形状（renderer 与 validator 消费）：
+
 ```ts
 interface KeySessionAnalysis {
-  sessionId: string;
-  auditFingerprint: string;
+  sessionId: string;                // 由 sessionHandle 恢复，模型不回显
+  auditFingerprint: string;         // 由当前 Run 绑定，模型不回显
   taskContext: string;
   primaryFinding: {
     observation: string;
     interpretation: string;
-    evidenceIds: string[];
+    evidenceIds: string[];          // canonical Turn Evidence ID
     support: "strong" | "moderate" | "limited";
     alternativeExplanations: string[];
   } | null;
@@ -170,7 +199,7 @@ interface KeySessionAnalysis {
     verification: string;
     targetEvidenceIds: string[];
   } | null;
-  evidenceRead: {
+  evidenceRead: {                   // 由代码从实际提供的 packet 恢复，模型不回显
     turnIds: string[];
     selectionReason: string;
     unreadScope: string;
@@ -184,9 +213,13 @@ interface KeySessionAnalysis {
 - `primaryFinding === null` 时 `recommendation` 默认也为 `null`，除非建议是为了补齐一个明确数据缺口。
 - AI 文案不得修改 Evidence 数值、Provenance 或 Coverage。
 - 所有主要观察必须引用属于同一 Audit Scope 和 Session 的 `evidenceIds`。
+- 引用必须来自当前 Lane 的目录；未知、歧义、跨对象或与当前 Session 不相容的引用拒绝对应条目，不做编辑距离猜测。
+- `[[eN]]` 数值槽位只允许绑定 `displayPolicy: "allowed"` 的条目；private/unavailable 条目可作为支持引用，但不能变成数字。
 - 只有时间邻接时，使用“之后、伴随、值得检查”，不使用“导致、因此”。
 - 没有反事实时，不预测具体节省比例。
 - 建议只是报告提议；产品不跟踪是否采用、不保存建议账本、不证明建议有效。
+
+`report-run ai-accept --output-contract 1` 保留旧的规范回显合同作为显式诊断入口，仍拒绝错误 fingerprint。
 
 ## Report Presentation
 

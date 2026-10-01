@@ -19,21 +19,26 @@ test("Prompt Lab binds the selected source Prompt and only its fixed input", () 
   const prepared = preparePromptLabInput("report-synthesis");
   assert.equal(prepared.inputSummary.prompt, "report-synthesis");
   assert.equal(prepared.inputSummary.fixture, "normal-synthetic");
-  assert.match(prepared.modelInput, /auditFingerprint/);
-  assert.match(prepared.modelInput, new RegExp(prepared.inputSummary.auditFingerprint));
-  assert.doesNotMatch(prepared.modelInput, /\{\{(?:locale|auditFingerprint|auditResultJson)\}\}/u);
+  // Contract v2: the Prompt receives the frozen Evidence Directory, not the code-owned
+  // identity it must never echo.
+  assert.match(prepared.modelInput, /directory/);
+  assert.match(prepared.modelInput, /"handle": "e1"/);
+  assert.doesNotMatch(prepared.modelInput, /\{\{(?:locale|directoryJson|auditResultJson)\}\}/u);
 
   const keySession = preparePromptLabInput("key-session-analysis");
   assert.equal(keySession.inputSummary.fixture, "partial-key-session");
   assert.match(keySession.modelInput, /# Key Session Analysis Prompt/u);
-  assert.match(keySession.modelInput, new RegExp(keySession.inputSummary.auditFingerprint));
+  assert.match(keySession.modelInput, /"handle": "e1"/);
   assert.match(keySession.modelInput, /contentEvidencePackets/u);
   assert.doesNotMatch(keySession.modelInput, /# Report Synthesis Prompt/u);
 
   const skillInsights = preparePromptLabInput("skill-insights");
   assert.equal(skillInsights.inputSummary.fixture, "skill-insights-snapshot-v2");
   assert.match(skillInsights.modelInput, /# Skill Insights Prompts/u);
-  assert.match(skillInsights.modelInput, /fixture-skill-snapshot-v2/u);
+  assert.match(skillInsights.modelInput, /"handle": "k1"/);
+  assert.match(skillInsights.modelInput, /contentRef/);
+  // Contract v2: the Snapshot identity stays in code and is never echoed to the model.
+  assert.doesNotMatch(skillInsights.modelInput, /fixture-skill-snapshot-v2/u);
   assert.doesNotMatch(skillInsights.modelInput, /\{\{[^}]+\}\}/u);
   assert.doesNotMatch(skillInsights.modelInput, /# Key Session Analysis Prompt/u);
 });

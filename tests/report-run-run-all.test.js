@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { spawn } = require('node:child_process');
+const { readProjection, v2Synthesis } = require('./fixtures/lane-contract-v2-fixtures');
 
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 
@@ -119,14 +120,9 @@ test('run-all start and finish checkpoints orchestrate a complete Report Run wit
     await assert.rejects(readFile(htmlPath), { code: 'ENOENT' });
 
     // 4. Accept report-synthesis (attempt 1 succeeds)
-    const audit = JSON.parse(await readFile(path.join(runDir, 'audit.json'), 'utf8'));
-    const evidenceRef = `summary:${Object.keys(audit.summary)[0]}`;
-    const synthesis = {
-      auditFingerprint: start1Result.auditFingerprint,
-      overview: { summary: 'The fixture records a bounded activity period.', evidenceRefs: [evidenceRef] },
-      findings: [],
-      noStrongFindingReason: 'The fixture does not contain enough evidence for a distinct report-level finding.',
-    };
+    const synthesis = v2Synthesis(await readProjection(runDir, 'report-synthesis'), {
+      summary: 'The fixture records a bounded activity period.',
+    });
     const acceptSynthesis = await runCli([
       'report-run', 'ai-accept',
       '--run-dir', runDir,
@@ -165,14 +161,13 @@ test('run-all start and finish checkpoints orchestrate a complete Report Run wit
     ], env);
     assert.equal(fallbackSkills.code, 0, fallbackSkills.stderr);
 
-    // Fail key-session-analysis attempt 1 with invalid data (wrong auditFingerprint)
+    // Fail key-session-analysis attempt 1 with output that echoes a code-owned field
     const invalidAnalysisAttempt1 = [{
-      sessionId: 'lane-session',
+      sessionHandle: 's1',
       auditFingerprint: 'wrong-fingerprint-attempt-1',
       taskContext: 'Fixture task context.',
       primaryFinding: null,
       recommendation: null,
-      evidenceRead: { turnIds: ['lane-turn'], selectionReason: 'auto', unreadScope: 'remaining' },
       limitations: ['fixture limitation'],
     }];
     const acceptKeyInvalid1 = await runCli([
@@ -229,12 +224,10 @@ test('run-all start and finish checkpoints orchestrate a complete Report Run wit
 
     // 5. Fail attempt 2 for key-session-analysis -> uses fallback
     const invalidAnalysisAttempt2 = [{
-      sessionId: 'lane-session',
-      auditFingerprint: 'wrong-fingerprint-attempt-2',
+      sessionHandle: 's99',
       taskContext: 'Fixture task context.',
       primaryFinding: null,
       recommendation: null,
-      evidenceRead: { turnIds: ['lane-turn'], selectionReason: 'auto', unreadScope: 'remaining' },
       limitations: ['fixture limitation'],
     }];
     const acceptKeyInvalid2 = await runCli([

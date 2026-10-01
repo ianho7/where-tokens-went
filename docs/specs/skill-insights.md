@@ -155,3 +155,14 @@ Bug Fix 0029 clarifies the boundary between runtime verification and authoring q
   6. Prohibition on direct affirmative causal assertions without trigger trace.
 - **Quality targets**: cognitive delta depth, decision delta distinctiveness, deletion counterfactual depth, and multi-excerpt coverage are Prompt instructions and evaluation criteria for human review; they are not whole-output runtime regex vetoes.
 - **Partial acceptance**: Valid cards are retained even if sibling cards are discarded; the lane is accepted as long as at least one card passes validation.
+
+## 2026-09-30 v2 Contract: Handle Selection and Code Binding
+
+`outputContractVersion: 2` moves identity, measurements and excerpt text out of the model output:
+
+- The Lane projection carries a frozen **Evidence Directory**. `directory.skills` exposes `k` handles, `directory.families` exposes `f` handles, `directory.evidence` exposes `e` handles with the canonical metric and value, and `directory.content` exposes `c` handles for frozen `SKILL.md` fragments (at most 200 UTF-16 code units, 40-code-unit overlap, with source offsets and hash).
+- The model returns `subject.skillHandle` / `skillHandles` / `familyHandle`, metric evidence as `{ "ref": "eN" }`, and content evidence as `{ "contentRef": "cN", "role", "loadingScope" }`. `reveal.evidenceRefs` must reference `e`/`c` handles already used by that same insight's evidence.
+- Code restores the canonical Skill/family identity, the canonical metric and value, and the approved excerpt text from the frozen Snapshot. The accepted evidence carries `contentExcerpt`; the model never supplies or re-transcribes an excerpt, and `snapshotId` is bound by code from the verified Snapshot rather than echoed by the model.
+- `runId`, `snapshotId`, `auditFingerprint`, `bundleVersion`, `projectionHash` and `outputContractVersion` are code-owned. A v2 submission that echoes one of them is rejected instead of being read as an unrelated extra field.
+- Compose re-verifies the accepted v2 envelope for structure, Snapshot binding and restored content. It does not run a second semantic elimination pass.
+- `report-run ai-accept --output-contract 1` keeps the earlier canonical-echo contract as an explicit diagnostic entry; the default entry never infers a contract version from JSON appearance.

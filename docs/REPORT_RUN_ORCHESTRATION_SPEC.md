@@ -118,6 +118,8 @@ Validator 拒绝一个 Lane 时，`ai-accept` 为该 Lane 返回第二个且最�
 
 - Run、Scope、locale、auditFingerprint、bundleVersion、Prompt hash 与 Projection hash；
 - 对应源 Prompt要求的字段；
+- 代码维护的 `outputContractVersion` 与 `projectionSchemaVersion`；
+- 当前 Lane 的 Evidence Directory（`directory`）：`s`/`k`/`f` 对象句柄、`e` 证据句柄与 `c` 内容片段句柄，连同代码恢复规范身份所需的 canonical reference 与获准展示值；目录内容计入 Projection hash；
 - 可解析回 canonical Artifact 的 Evidence 或 source references；
 - 明确的 omitted-fields 清单或 Projection schema version；
 - 不可用值及其 Provenance，不能把缺失值变成零。
@@ -125,6 +127,14 @@ Validator 拒绝一个 Lane 时，`ai-accept` 为该 Lane 返回第二个且最�
 `report-synthesis` Projection保留形成 Overview、跨指标 Findings 和 Evidence refs 所需的完整语义，不再传输与该 Prompt无关的渲染数据或重复明细。`key-session-analysis` Projection只包含 Top 3 Session 的必要 Audit事实、逐 Session accounting、Turn Evidence 和同 Scope Content Evidence packets。`skill-insights` Projection保留 immutable Snapshot身份、全局 Usage、候选 Skill 与所选内容快照。
 
 Projection 不是新的事实权威。`ai-accept` 和 composition 继续用 canonical Audit、Evidence 与 Skill Snapshot校验返回值。Spec 不设置固定 50KB 上限，Manifest 必须记录 canonical 与 Projection bytes，供同范围比较。
+
+### 模型输出合同版本
+
+Run、Lane ticket 和 accepted envelope 记录代码维护的 `outputContractVersion`；模型不回显该版本。
+
+- v2（当前）：模型只输出语义与目录句柄（`[[eN]]` 数值槽位、`e`/`c` 引用、`s`/`k`/`f` 对象句柄），代码在核验当前 Run、Lane、attempt/span、bundle、Prompt hash 与 Projection hash 之后恢复 canonical 身份、事实、单位、来源与获准 Skill 摘录。出现 `runId`、`auditFingerprint`、`snapshotId`、`bundleVersion`、`projectionHash`、`outputContractVersion`、`evidenceRead`、`attempt`、`spanId` 或 `fingerprint` 等代码字段时拒绝该提交，不作为无关额外字段忽略。
+- v1（仅显式诊断）：`report-run ai-accept --output-contract 1` 是旧合同的诊断兼容入口，仍拒绝错误 fingerprint/snapshotId；默认入口从不从 JSON 外观猜测版本。旧 Run 在其原 bundle 上完成，不迁移旧模型输出。
+
 
 ## Prompt 与打包合同
 

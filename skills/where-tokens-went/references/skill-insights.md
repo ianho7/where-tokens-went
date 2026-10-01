@@ -4,7 +4,22 @@ This document defines the authoritative Host Agent Prompts, contracts, systemic 
 
 ## Immutable Evidence Snapshot Contract
 
-The input contains one immutable Skill Evidence Snapshot provided via the Skill Insights Lane Input Projection. Copy its exact `snapshotId` into the top-level output envelope. Do not derive, refresh, or recompute Skill metrics from any other source. The validator and renderer accept Skill Insights only when that `snapshotId` matches the snapshot used for analysis.
+The input contains one immutable Skill Evidence Snapshot provided through the Skill Insights Lane Input Projection, plus the frozen `directory` for this Lane. Do not derive, refresh, or recompute Skill metrics from any other source, and do not echo the `snapshotId`; code binds the identity it verified.
+
+Address every fact through `directory` handles:
+
+- `directory.skills` lists the candidate and selected Skills as `k1`, `k2`, …; `directory.families` lists detected families as `f1`, `f2`, ….
+- `directory.evidence` lists deterministic metric entries as `e1`, `e2`, … with the canonical metric and value.
+- `directory.content` lists frozen `SKILL.md` fragments as `c1`, `c2`, …, each carrying its Skill handle, source offsets, and content hash.
+
+Rules:
+
+- `subject` uses `skillHandle`, `skillHandles`, and `familyHandle`. Never echo a canonical Skill or family ID: it carries no binding, and code restores the identity from the handle you supplied.
+- Metric evidence is `{"ref": "e7"}`. Code restores the evidence kind, metric, and owning object behind that handle; do not restate them.
+- Content evidence is `{"contentRef": "c12", "role": "hardConstraint", "loadingScope": "always"}`. Code restores the approved excerpt text from the frozen Snapshot; never quote, paraphrase, or re-transcribe the excerpt, and never compute offsets yourself.
+- A content citation must belong to the objects the insight itself declares. A `skill` insight may only cite its own Skill; a `family` insight may cite its declared members; a `cross_skill` insight that cites content must declare at least two Skills and cite content from at least two of them. `global` analysis may compare across the population. A citation owned by an undeclared Skill rejects that insight with a located reason, so declare every Skill whose content you cite.
+- `reveal.evidenceRefs` must list only `e`/`c` handles already used by that same insight's `evidence`.
+- Never echo `snapshotId`, `runId`, `auditFingerprint`, `bundleVersion`, `projectionHash`, or `outputContractVersion`. An output containing a code-owned field is rejected.
 
 ---
 
@@ -45,8 +60,8 @@ CAPABILITY AHA CONTRACT:
 - `withoutGenericScaffold` is an AI interpretation, not a deterministic measurement. State uncertainty in the prose when the evidence does not support a stronger claim.
 
 REVEAL-FIRST CONTRACT:
-- Every insight must include a `reveal` object with a qualitative `semantic`, one deterministic `pattern`, and `evidenceRefs` pointing to the same evidence entries in the insight.
-- `semantic` names the structural surprise without numbers or derived quantitative language. The renderer generates all user-facing numeric wording from the bound snapshot.
+- Every insight must include a `reveal` object with a qualitative `semantic`, one deterministic `pattern`, and `evidenceRefs` pointing to `e`/`c` handles already used by that same insight's evidence.
+- `semantic` names the structural surprise without numbers or derived quantitative language. The renderer generates all user-facing numeric wording from the bound directory values.
 - Supported patterns are `share_inversion`, `distribution_outlier`, `family_concentration`, and `content_contrast`.
 - Use `content_contrast` when direct SKILL.md evidence creates the contrast and no quantitative comparison is available.
 - A Reveal must express a real contrast and a cognitive or decision delta. “High”, “important”, or “review this” is not a Reveal.
@@ -89,9 +104,9 @@ Distinguish these evidence levels:
 NEVER make unconditional causal assertions ("Skill X caused N tokens", "wasted $N", "callsPerTask proves prompt was injected N times").
 
 NUMERIC INTEGRITY RULE:
-Do NOT write explicit numbers bound to metric units (percentages, token counts, costs, or multipliers) in free prose fields. Reference deterministic metric keys through evidence entries and `reveal.evidenceRefs`; the rendering engine resolves and displays the exact figures from the immutable snapshot. Model names (e.g. GPT-4o, Claude 3.5), tool names, versions (e.g. v2, Python 3), years, and qualitative wording (e.g. "higher", "frequent") are acceptable.
+Do NOT write explicit numbers bound to metric units (percentages, token counts, costs, or multipliers) in free prose fields. Select the directory handle in `evidence` and cite it in `reveal.evidenceRefs`; the rendering engine resolves and displays the exact canonical figures from the immutable snapshot. Model names (e.g. GPT-4o, Claude 3.5), tool names, versions (e.g. v2, Python 3), years, and qualitative wording (e.g. "higher", "frequent") are acceptable.
 
-For every content claim, provide a verbatim excerpt of 200 characters or less from the supplied SKILL.md. If a claim says hard constraints and generic procedures coexist, provide evidence for both semantic roles; one excerpt cannot support both sides. Do not claim family-level shared capability from names alone: two members need their own verified content evidence; familyDifferences for platform/environment distinction is an optional quality enhancement.
+For every content claim, reference a frozen fragment through `contentRef`. If a claim says hard constraints and generic procedures coexist, reference a fragment for each semantic role; one reference cannot support both sides. Do not claim family-level shared capability from names alone: two members need their own verified content evidence; familyDifferences for platform/environment distinction is an optional quality enhancement.
 All user-facing prose must be written in the language specified by reportLocale.
 Return JSON only.
 ```
@@ -109,8 +124,8 @@ REPORT LOCALE
 ANALYSIS PERIOD
 {{analysisPeriod}}
 
-IMMUTABLE SKILL SNAPSHOT ID
-{{skillSnapshotId}}
+EVIDENCE DIRECTORY
+{{directoryJson}}
 
 GLOBAL USAGE & DISTRIBUTION CONTEXT
 {{globalUsageJson}}
@@ -122,25 +137,23 @@ SELECTED SKILLS CONTENT
 
 {{#each skills}}
 <skill>
-  <id>{{skillId}}</id>
+  <handle>{{skillHandle}}</handle>
   <name>{{skillName}}</name>
   <path>{{skillPath}}</path>
   <content_state>{{contentState}}</content_state>
   <metadata>{{metadataJson}}</metadata>
-  <skill_md>
-{{skillMdContent}}
-  </skill_md>
+  <content_handles>{{contentHandles}}</content_handles>
 </skill>
 {{/each}}
 
 TASK:
-1. Examine the global distribution context (median, P75, P90, max callsPerTask, dominant family share, long-tail share).
+1. Examine the global distribution context (median, P75, P90, max callsPerTask, dominant family share, long-tail share) through its directory handles.
 2. For each candidate skill, assess Semantic Role and Loading Scope.
 3. Form 0 to 5 high-impact Aha insights (typically 2 to 3 when the evidence supports only a few strong deltas; allow fewer if evidence is sparse, NEVER invent filler).
-4. For each insight, provide an explicit `kind` and, when applicable, a `candidateType` from `high_usage_strong_delta`, `high_usage_model_native_scaffold`, `high_usage_task_scoped_content`, `rare_strong_delta`, `family_shared_core`, or `behavior_outlier`. For `capability`, provide a qualitative Reveal object, Observation, Contrast, Interpretation, MentalModelShift as the Cognitive Delta, DecisionDelta, and `claimStrength`. Providing a deletion `counterfactual` and citing both sides of content evidence when comparing unique protocol with generic procedure are quality targets for high-value insights; for family-level capability claims, stating `familyDifferences` is an optional quality enhancement.
-5. Put every quantitative comparison in evidence refs. Do not write the resulting number or derived relationship in prose.
+4. For each insight, provide an explicit `kind` and, when applicable, a `candidateType` from `high_usage_strong_delta`, `high_usage_model_native_scaffold`, `high_usage_task_scoped_content`, `rare_strong_delta`, `family_shared_core`, or `behavior_outlier`. For `capability`, provide a qualitative Reveal object, Observation, Contrast, Interpretation, MentalModelShift as the Cognitive Delta, DecisionDelta, and `claimStrength`. Providing a deletion `counterfactual` and referencing both sides of content evidence when comparing unique protocol with generic procedure are quality targets for high-value insights; for family-level capability claims, stating `familyDifferences` is an optional quality enhancement.
+5. Put every quantitative comparison in `evidence` handles. Do not write the resulting number or derived relationship in prose.
 6. Prefer the highest-information contrast available, such as low-frequency Skill share versus low-frequency call share, or a calls-per-task outlier versus a distribution baseline. Do not let a dominant family crowd out a distinct global or outlier insight.
-7. Return JSON matching the required schema, including the exact top-level `snapshotId`, optional validated `contentProfiles`, and optional `rejectionReasons` only when a content candidate cannot pass.
+7. Return JSON matching the required schema: optional validated `contentProfiles`, the insight array, and optional `rejectionReasons` only when a content candidate cannot pass. Do not include a `snapshotId` or any other code-owned identity field.
 ```
 
 ---
@@ -149,15 +162,14 @@ TASK:
 
 ```json
 {
-  "snapshotId": "exact immutable snapshotId from input",
   "contentProfiles": [
     {
-      "skillId": "where-tokens-went-codex",
+      "skillHandle": "k1",
       "lossIfRemoved": [
         {
           "summary": "Project-specific protocol",
           "role": "hardConstraint",
-          "evidenceExcerpt": "verbatim SKILL.md excerpt <= 200 chars",
+          "contentRef": "c12",
           "whyModelWouldNotKnowThis": "Repository or project fact absent from general model knowledge",
           "loadingScope": "always | task_scoped | reference_candidate | unclear"
         }
@@ -165,7 +177,7 @@ TASK:
       "modelNativeScaffold": [
         {
           "summary": "General implementation loop",
-          "evidenceExcerpt": "verbatim SKILL.md excerpt <= 200 chars",
+          "contentRef": "c31",
           "observed": "What the document explicitly says",
           "interpretation": "Why a capable current coding agent may already know this",
           "rationale": "Evidence-based reason for the interpretation",
@@ -176,7 +188,7 @@ TASK:
         {
           "summary": "Report-specific guidance",
           "activationCondition": "When this task activates it",
-          "evidenceExcerpt": "verbatim SKILL.md excerpt <= 200 chars"
+          "contentRef": "c44"
         }
       ],
       "contentSummary": "Short internal summary"
@@ -185,19 +197,19 @@ TASK:
   "insights": [
     {
       "id": "insight-core-vs-tail",
-      "kind": "usage | capability | mechanism",
+      "kind": "usage | capability",
       "candidateType": "high_usage_strong_delta | high_usage_model_native_scaffold | high_usage_task_scoped_content | rare_strong_delta | family_shared_core | behavior_outlier",
       "scope": "global | family | cross_skill | skill",
       "subject": {
-        "familyId": "where-tokens-went",
-        "skillId": "where-tokens-went-codex",
-        "skillIds": ["where-tokens-went-codex", "where-tokens-went"]
+        "familyHandle": "f1",
+        "skillHandle": "k1",
+        "skillHandles": ["k1", "k2"]
       },
       "title": "Short punchy title highlighting the mental model shift",
       "reveal": {
         "semantic": "Qualitative structural surprise without any numeric wording",
         "pattern": "share_inversion | distribution_outlier | family_concentration | content_contrast",
-        "evidenceRefs": ["global:lowFrequencySkillShare", "global:lowFrequencyCallShare"]
+        "evidenceRefs": ["e4", "e5"]
       },
       "claimStrength": "coexistence | scaffold-interpretation | primary-delta",
       "familyDifferences": ["Optional platform or environment distinction; quality enhancement for family claims"],
@@ -220,19 +232,9 @@ TASK:
       "consequence": "Actionable next step for skill management or optimization",
       "confidence": "high | medium",
       "evidence": [
-        {
-          "kind": "global_metric | distribution_metric | family_metric | skill_metric",
-          "metric": "top4CallShare",
-          "familyId": "optional",
-          "skillId": "optional"
-        },
-        {
-          "kind": "skill_content | cross_skill_content",
-          "skillId": "where-tokens-went",
-          "role": "hardConstraint",
-          "loadingScope": "always",
-          "evidenceExcerpt": "verbatim text <= 200 chars"
-        }
+        { "ref": "e4" },
+        { "ref": "e9" },
+        { "contentRef": "c12", "role": "hardConstraint", "loadingScope": "always" }
       ]
     }
   ],
@@ -241,3 +243,5 @@ TASK:
   ]
 }
 ```
+
+`kind` no longer accepts `mechanism`: a mechanism insight still requires the deferred Skill Trigger Trace. Every metric evidence entry is exactly `{"ref": "eN"}`; every content evidence entry carries only `contentRef` plus the semantic `role` and `loadingScope` you judged. Code restores the canonical kind, metric, owner, and excerpt text.

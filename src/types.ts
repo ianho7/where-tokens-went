@@ -775,6 +775,12 @@ export interface SkillInsightEvidence {
   role?: SkillSemanticRole;
   loadingScope?: SkillLoadingScope;
   evidenceExcerpt?: string;
+  /** v2 Evidence Directory handle for a metric evidence entry. */
+  evidenceRef?: string;
+  /** v2 Evidence Directory handle for a content evidence entry. */
+  contentRef?: string;
+  /** Canonical Skill content restored by code from the frozen Snapshot. */
+  contentExcerpt?: string;
 }
 
 export interface MentalModelShift {

@@ -48,6 +48,7 @@ const content_evidence_1 = require("./content-evidence");
 const key_session_analysis_1 = require("./key-session-analysis");
 const rates_1 = require("./rates");
 const report_run_1 = require("./report-run");
+const lane_contract_1 = require("./lane-contract");
 const report_1 = require("./report");
 const skill_insights_1 = require("./skill-insights");
 function usage() {
@@ -797,6 +798,7 @@ function buildLaneTicket(run, lane, snapshotId) {
         runtimeHash: run.manifest.runtimeHash,
         inputArtifact: current.inputArtifact ?? `lanes/${lane}/input.json`,
         promptArtifact: `lanes/${lane}/prompt.json`,
+        outputContractVersion: run.manifest.outputContractVersion ?? lane_contract_1.OUTPUT_CONTRACT_VERSION,
         ...(snapshotId ? { snapshotId } : {}),
     };
 }
@@ -821,20 +823,41 @@ async function startLaneInternal(run, lane) {
     let projection;
     let snapshotId;
     if (lane === "report-synthesis") {
-        projection = (0, report_run_1.projectReportSynthesisInput)(context, audit);
+        const { directory } = (0, lane_contract_1.buildLaneDirectory)("report-synthesis", {
+            audit,
+            turns: audit.turns ?? [],
+            locale: run.manifest.scope.locale,
+            hash: sha256Text,
+        });
+        projection = (0, report_run_1.projectReportSynthesisInput)(context, audit, directory);
     }
     else if (lane === "key-session-analysis") {
         const evidence = run.manifest.artifacts.evidence ? await (0, report_run_1.readRunArtifact)(run.runDir, "evidence") : null;
         if (!evidence)
             throw new Error("Key Session Analysis requires report-run evidence --auto before ai-start.");
-        projection = (0, report_run_1.projectKeySessionAnalysisInput)(context, audit, evidence);
+        const sessions = audit.rankings.sessions.slice(0, 3);
+        const topSessionIds = new Set(sessions.map((session) => session.key));
+        const turns = (audit.turns ?? []).filter((turn) => topSessionIds.has(turn.sessionId));
+        const { directory } = (0, lane_contract_1.buildLaneDirectory)("key-session-analysis", {
+            audit,
+            sessions,
+            turns,
+            locale: run.manifest.scope.locale,
+            hash: sha256Text,
+        });
+        projection = (0, report_run_1.projectKeySessionAnalysisInput)(context, audit, evidence, directory);
     }
     else {
         if (!run.manifest.artifacts.skillSnapshot)
             throw new Error("Skill Insights requires a frozen Skill Snapshot.");
         const snapshot = await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot");
         snapshotId = snapshot.snapshotId;
-        projection = (0, report_run_1.projectSkillInsightsInput)(context, snapshot);
+        const { directory } = (0, lane_contract_1.buildLaneDirectory)("skill-insights", {
+            snapshot,
+            locale: run.manifest.scope.locale,
+            hash: sha256Text,
+        });
+        projection = (0, report_run_1.projectSkillInsightsInput)(context, snapshot, directory);
     }
     const inputRef = await (0, report_run_1.writeRunLaneArtifact)(run, lane, "input", projection);
     await (0, report_run_1.recordRunProjection)(run, lane, inputRef);
@@ -852,6 +875,7 @@ async function startLaneInternal(run, lane) {
         runtimeHash: run.manifest.runtimeHash,
         inputArtifact: inputRef.file,
         promptArtifact: promptRef.file,
+        outputContractVersion: run.manifest.outputContractVersion ?? lane_contract_1.OUTPUT_CONTRACT_VERSION,
         ...(snapshotId ? { snapshotId } : {}),
     };
 }
@@ -867,19 +891,22 @@ async function reportRunAiStartMain(args) {
 }
 function aiAcceptUsage() {
     return [
-        "Usage: where-tokens-went report-run ai-accept --run-dir <directory> --lane <report-synthesis|key-session-analysis|skill-insights> [--attempt <number>] [--span-id <span-id>] < lane output JSON on stdin",
+        "Usage: where-tokens-went report-run ai-accept --run-dir <directory> --lane <report-synthesis|key-session-analysis|skill-insights> [--attempt <number>] [--span-id <span-id>] [--output-contract <2|1>] < lane output JSON on stdin",
         "",
         "Accept model-generated JSON output for an active Report Run lane from stdin.",
         "",
         "Arguments:",
-        "  --run-dir <directory>  Report Run workspace directory (required)",
-        "  --lane <lane>          Report lane: report-synthesis, key-session-analysis, or skill-insights (required)",
-        "  --attempt <number>     Attempt number (optional; defaults to the lane's current attempt)",
-        "  --span-id <span-id>    Active span identifier (optional; defaults to the lane's current span)",
-        "  --help, -h             Show this help message",
+        "  --run-dir <directory>       Report Run workspace directory (required)",
+        "  --lane <lane>               Report lane: report-synthesis, key-session-analysis, or skill-insights (required)",
+        "  --attempt <number>          Attempt number (optional; defaults to the lane's current attempt)",
+        "  --span-id <span-id>         Active span identifier (optional; defaults to the lane's current span)",
+        "  --output-contract <2|1>     Output contract (optional; defaults to the Run contract version 2).",
+        "                              v1 is an explicit diagnostic compatibility entry for the earlier",
+        "                              canonical-reference output; it is never inferred from JSON shape.",
+        "  --help, -h                  Show this help message",
         "",
         "Input:",
-        "  Requires non-empty model-generated JSON on stdin matching the lane output contract.",
+        "  Requires non-empty model-generated JSON on stdin matching the selected lane output contract.",
     ].join("\n");
 }
 function parseAiAcceptArgs(args) {
@@ -887,6 +914,7 @@ function parseAiAcceptArgs(args) {
     let lane = null;
     let attempt = null;
     let spanId = null;
+    let outputContract = null;
     for (let index = 0; index < extracted.rest.length; index += 1) {
         const flag = extracted.rest[index];
         if (flag === "--lane")
@@ -899,6 +927,12 @@ function parseAiAcceptArgs(args) {
         }
         else if (flag === "--span-id")
             spanId = requireValue(extracted.rest, index, flag);
+        else if (flag === "--output-contract") {
+            const value = requireValue(extracted.rest, index, flag);
+            if (value !== "1" && value !== "2")
+                throw new Error("--output-contract must be 1 or 2.");
+            outputContract = value === "1" ? 1 : 2;
+        }
         else
             throw new Error(`Unknown ai-accept argument: ${flag}.\n${aiAcceptUsage()}`);
         index += 1;
@@ -907,7 +941,38 @@ function parseAiAcceptArgs(args) {
         throw new Error(`--run-dir is required.\n${aiAcceptUsage()}`);
     if (!lane)
         throw new Error(`--lane is required.\n${aiAcceptUsage()}`);
-    return { runDir: (0, report_run_1.assertLocalSensitiveRunDirectory)(extracted.runDir), lane, attempt, spanId };
+    return { runDir: (0, report_run_1.assertLocalSensitiveRunDirectory)(extracted.runDir), lane, attempt, spanId, outputContract };
+}
+/**
+ * v1 is a diagnostic compatibility entry only. Output that carries v2
+ * directory handles must never be silently read as v1: the code field guard
+ * below and the explicit contract flag keep the two protocols apart.
+ */
+function legacyContractViolation(raw) {
+    const v2OnlyFields = ["sessionHandle", "skillHandle", "familyHandle", "contentRef", "evidenceRef"];
+    const found = [];
+    const visit = (value, path) => {
+        if (Array.isArray(value)) {
+            value.forEach((item, index) => visit(item, `${path}[${index}]`));
+            return;
+        }
+        if (!value || typeof value !== "object")
+            return;
+        for (const [key, nested] of Object.entries(value)) {
+            if (v2OnlyFields.includes(key))
+                found.push(`${path}.${key}`);
+            visit(nested, `${path}.${key}`);
+        }
+    };
+    visit(raw, "$");
+    return found.length > 0
+        ? `v1 output must not carry v2 directory fields (${[...new Set(found)].join(", ")}).`
+        : null;
+}
+function laneIssueErrors(issues, fallbackCode) {
+    if (issues.length === 0)
+        return [{ code: fallbackCode, fieldPath: null, message: "Model output did not pass the lane output contract." }];
+    return issues.map((issue) => ({ code: issue.code || fallbackCode, fieldPath: issue.fieldPath, message: issue.message }));
 }
 async function readHostResponseTiming(run, lane, currentLane, outputHash) {
     const file = path.join(run.runDir, `lanes/${lane}/host-response.json`);
@@ -1005,62 +1070,178 @@ async function reportRunAiAcceptMain(args) {
     if (rawRef.sha256 !== outputHash)
         throw new Error("RUN_LANE_RAW_HASH_MISMATCH");
     const hostTiming = await readHostResponseTiming(run, options.lane, currentLane, outputHash);
+    const contractVersion = options.outputContract ?? run.manifest.outputContractVersion ?? lane_contract_1.OUTPUT_CONTRACT_VERSION;
     let errors = parseError ? [{ code: parseError, fieldPath: null, message: "Model output was not valid JSON." }] : [];
     let validationRejectionReasons = [];
     let unsupportedClaimsDropped = 0;
     let accepted = null;
     let validationAccepted = false;
-    if (!parseError) {
+    if (!parseError && contractVersion === 1) {
+        // v1 is an explicitly requested diagnostic contract; v2 handle output shapes
+        // must never be silently read as v1.
+        const legacyViolation = legacyContractViolation(raw);
+        if (legacyViolation)
+            errors = [{ code: "LEGACY_CONTRACT_VIOLATION", fieldPath: null, message: legacyViolation }];
+    }
+    if (!parseError && errors.length === 0) {
         const audit = await readCanonicalAudit(run);
-        if (options.lane === "report-synthesis") {
-            const result = (0, key_session_analysis_1.validateReportSynthesis)(audit, raw);
-            if (result.valid) {
-                accepted = result.synthesis;
-                validationAccepted = true;
+        if (contractVersion === 1) {
+            if (options.lane === "report-synthesis") {
+                const result = (0, key_session_analysis_1.validateReportSynthesis)(audit, raw);
+                if (result.valid) {
+                    accepted = result.synthesis;
+                    validationAccepted = true;
+                }
+                else
+                    errors = result.errors.map((message) => ({ code: "REPORT_SYNTHESIS_INVALID", fieldPath: null, message }));
             }
-            else
-                errors = result.errors.map((message) => ({ code: "REPORT_SYNTHESIS_INVALID", fieldPath: null, message }));
+            else if (options.lane === "key-session-analysis") {
+                const packets = run.manifest.artifacts.evidence ? (await (0, report_run_1.readRunArtifact)(run.runDir, "evidence")).packets : [];
+                const candidates = Array.isArray(raw) ? raw.slice(0, 3) : [];
+                const validated = [];
+                for (const [index, candidate] of candidates.entries()) {
+                    if (!isRecord(candidate) || typeof candidate.sessionId !== "string") {
+                        errors.push({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message: "Key Session Analysis entry is malformed." });
+                        continue;
+                    }
+                    const sessionPackets = packets.filter((packet) => packet.sessionId === candidate.sessionId);
+                    const { sanitized, redactions } = (0, key_session_analysis_1.sanitizeKeySessionAnalysis)(candidate, sessionPackets);
+                    for (const redact of redactions) {
+                        errors.push({
+                            code: "RAW_EVIDENCE_REDACTED",
+                            fieldPath: `[${index}].${redact.fieldPath}`,
+                            message: `Redacted ${redact.count} raw evidence instance(s).`,
+                        });
+                    }
+                    const result = (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, sanitized, sessionPackets);
+                    if (result.valid)
+                        validated.push(result.analysis ?? sanitized);
+                    else
+                        errors.push(...result.errors.map((message) => ({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message })));
+                }
+                if (candidates.length === 0)
+                    errors.push({ code: "KEY_SESSION_INVALID", fieldPath: null, message: "Expected a non-empty Key Session Analysis array." });
+                if (validated.length > 0) {
+                    accepted = validated;
+                    validationAccepted = true;
+                }
+            }
+            else {
+                const snapshot = await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot");
+                const result = (0, skill_insights_1.validateSkillInsights)(raw, snapshot);
+                validationRejectionReasons = result.rejectionReasons;
+                unsupportedClaimsDropped = result.unsupportedClaimsDropped;
+                errors = result.errors.map((message) => ({ code: "SKILL_INSIGHTS_INVALID", fieldPath: null, message }));
+                if (result.valid && result.insights.length > 0) {
+                    accepted = result.insights;
+                    validationAccepted = true;
+                }
+            }
+        }
+        else if (!(0, lane_contract_1.isLaneDirectory)(input.directory)) {
+            errors = [{ code: "LANE_DIRECTORY_UNAVAILABLE", fieldPath: null, message: "The current Lane projection does not carry a verifiable Evidence Directory." }];
+        }
+        else if (options.lane === "report-synthesis") {
+            const parsed = (0, lane_contract_1.parseReportSynthesisV2)(raw, { directory: input.directory, locale: run.manifest.scope.locale });
+            if (parsed.accepted) {
+                const result = (0, key_session_analysis_1.validateReportSynthesis)(audit, { ...parsed.accepted, auditFingerprint: (0, key_session_analysis_1.auditFingerprint)(audit) });
+                if (result.valid) {
+                    accepted = result.synthesis;
+                    validationAccepted = true;
+                    // Partial acceptance keeps the dropped-item reasons; a fully valid
+                    // submission must not carry a fallback rejection code.
+                    errors = parsed.issues.length > 0 ? laneIssueErrors(parsed.issues, "REPORT_SYNTHESIS_INVALID") : [];
+                }
+                else {
+                    errors = result.errors.map((message) => ({ code: "REPORT_SYNTHESIS_INVALID", fieldPath: null, message }));
+                }
+            }
+            else {
+                errors = laneIssueErrors(parsed.issues, "REPORT_SYNTHESIS_INVALID");
+            }
         }
         else if (options.lane === "key-session-analysis") {
             const packets = run.manifest.artifacts.evidence ? (await (0, report_run_1.readRunArtifact)(run.runDir, "evidence")).packets : [];
-            const candidates = Array.isArray(raw) ? raw.slice(0, 3) : [];
-            const validated = [];
-            for (const [index, candidate] of candidates.entries()) {
-                if (!isRecord(candidate) || typeof candidate.sessionId !== "string") {
-                    errors.push({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message: "Key Session Analysis entry is malformed." });
-                    continue;
+            const sessions = audit.rankings.sessions.slice(0, 3);
+            const parsed = (0, lane_contract_1.parseKeySessionAnalysesV2)(raw, {
+                directory: input.directory,
+                locale: run.manifest.scope.locale,
+                sessions,
+            });
+            errors = parsed.issues.length > 0 ? laneIssueErrors(parsed.issues, "KEY_SESSION_INVALID") : [];
+            if (parsed.accepted) {
+                const validated = [];
+                for (const [index, candidate] of parsed.accepted.entries()) {
+                    const selector = input.directory.sessions.find((entry) => entry.canonicalId === candidate.sessionId);
+                    const canonicalSessionId = selector?.canonicalId ?? candidate.sessionId;
+                    const sessionPackets = packets.filter((packet) => packet.sessionId === canonicalSessionId);
+                    const packet = sessionPackets.find((packet) => packet.sessionId === canonicalSessionId && packet.turnIds.length > 0);
+                    // v2 never echoes evidenceRead: code restores the packet it actually supplied.
+                    // A selected Session without a content packet still binds its canonical Audit
+                    // Turns, with an explicit unread-scope statement rather than an invented read.
+                    const fallbackTurnIds = (audit.turns ?? [])
+                        .filter((turn) => turn.sessionId === canonicalSessionId)
+                        .map((turn) => turn.turnId);
+                    const resolved = {
+                        ...candidate,
+                        sessionId: canonicalSessionId,
+                        auditFingerprint: run.manifest.auditFingerprint ?? (0, key_session_analysis_1.auditFingerprint)(audit),
+                        evidenceRead: packet
+                            ? { turnIds: packet.turnIds, selectionReason: packet.selectionReason, unreadScope: packet.unreadScope }
+                            : {
+                                turnIds: fallbackTurnIds,
+                                selectionReason: "No Content Evidence packet was supplied for this Session; the canonical Audit Turns define the read scope.",
+                                unreadScope: "No bounded Content Evidence was available for this Session.",
+                            },
+                    };
+                    const { sanitized, redactions } = (0, key_session_analysis_1.sanitizeKeySessionAnalysis)(resolved, sessionPackets);
+                    for (const redact of redactions) {
+                        errors.push({
+                            code: "RAW_EVIDENCE_REDACTED",
+                            fieldPath: `[${index}].${redact.fieldPath}`,
+                            message: `Redacted ${redact.count} raw evidence instance(s).`,
+                        });
+                    }
+                    const result = (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, sanitized, sessionPackets);
+                    if (result.valid)
+                        validated.push(result.analysis ?? sanitized);
+                    else
+                        errors.push(...result.errors.map((message) => ({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message })));
                 }
-                const sessionPackets = packets.filter((packet) => packet.sessionId === candidate.sessionId);
-                const { sanitized, redactions } = (0, key_session_analysis_1.sanitizeKeySessionAnalysis)(candidate, sessionPackets);
-                for (const redact of redactions) {
-                    errors.push({
-                        code: "RAW_EVIDENCE_REDACTED",
-                        fieldPath: `[${index}].${redact.fieldPath}`,
-                        message: `Redacted ${redact.count} raw evidence instance(s).`,
-                    });
+                if (validated.length > 0) {
+                    accepted = validated;
+                    validationAccepted = true;
                 }
-                const result = (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, sanitized, sessionPackets);
-                if (result.valid)
-                    validated.push(result.analysis ?? sanitized);
-                else
-                    errors.push(...result.errors.map((message) => ({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message })));
-            }
-            if (candidates.length === 0)
-                errors.push({ code: "KEY_SESSION_INVALID", fieldPath: null, message: "Expected a non-empty Key Session Analysis array." });
-            if (validated.length > 0) {
-                accepted = validated;
-                validationAccepted = true;
             }
         }
         else {
             const snapshot = await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot");
-            const result = (0, skill_insights_1.validateSkillInsights)(raw, snapshot);
-            validationRejectionReasons = result.rejectionReasons;
-            unsupportedClaimsDropped = result.unsupportedClaimsDropped;
-            errors = result.errors.map((message) => ({ code: "SKILL_INSIGHTS_INVALID", fieldPath: null, message }));
-            if (result.valid && result.insights.length > 0) {
-                accepted = result.insights;
-                validationAccepted = true;
+            const projectedSnapshot = isRecord(input.snapshot) ? input.snapshot : null;
+            const contentByHandle = new Map();
+            if (projectedSnapshot && projectedSnapshot.snapshotId !== snapshot.snapshotId) {
+                errors = [{ code: "SKILL_SNAPSHOT_MISMATCH", fieldPath: null, message: "Skill Insights projection does not match the frozen Skill Snapshot." }];
+            }
+            else {
+                const directory = input.directory;
+                for (const skill of projectedSnapshot?.selectedSkills ?? []) {
+                    if (typeof skill.skillMdContent !== "string")
+                        continue;
+                    const ownerHandle = directory.skills.find((entry) => entry.canonicalId === skill.skillId)?.handle;
+                    if (!ownerHandle)
+                        continue;
+                    for (const entry of directory.content) {
+                        if (entry.skillHandle !== ownerHandle || !entry.available)
+                            continue;
+                        contentByHandle.set(entry.handle, skill.skillMdContent.slice(entry.startOffset, entry.endOffset));
+                    }
+                }
+                const parsed = (0, lane_contract_1.parseSkillInsightsV2)(raw, { directory, contentByHandle, snapshotId: snapshot.snapshotId });
+                errors = parsed.issues.length > 0 ? laneIssueErrors(parsed.issues, "SKILL_INSIGHTS_INVALID") : [];
+                validationRejectionReasons = parsed.accepted?.rejectionReasons ?? [];
+                if (parsed.accepted) {
+                    accepted = parsed.accepted.insights;
+                    validationAccepted = true;
+                }
             }
         }
     }
@@ -1068,8 +1249,17 @@ async function reportRunAiAcceptMain(args) {
     const timing = hostTiming.status === "observed"
         ? { status: "observed", durationMs: hostTiming.durationMs }
         : { status: "unavailable", reasonCode: hostTiming.reasonCode };
+    const inputArtifactFile = currentLane.inputArtifact ?? `lanes/${options.lane}/input.json`;
+    const projectionBinding = {
+        projectionHash: typeof input.projectionHash === "string" ? input.projectionHash : null,
+        projectionSchemaVersion: typeof input.projectionSchemaVersion === "number" ? input.projectionSchemaVersion : null,
+        inputArtifact: inputArtifactFile,
+        inputArtifactSha256: run.manifest.laneArtifacts[`${options.lane}/${path.basename(inputArtifactFile)}`]?.sha256 ?? null,
+    };
     await (0, report_run_1.writeRunLaneArtifact)(run, options.lane, "validation", {
         version: 1, runId: run.manifest.runId, lane: options.lane, attempt, status: validationStatus,
+        outputContractVersion: contractVersion,
+        ...projectionBinding,
         outputHash,
         errors,
         rejectionReasons: [...new Set([...errors.map((error) => error.code), ...validationRejectionReasons])],
@@ -1086,10 +1276,12 @@ async function reportRunAiAcceptMain(args) {
             ? (await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot")).snapshotId
             : undefined;
         const acceptedRef = await (0, report_run_1.writeRunLaneArtifact)(run, options.lane, "accepted", {
-            version: 1,
+            version: 2,
             runId: run.manifest.runId,
             lane: options.lane,
             attempt,
+            outputContractVersion: contractVersion,
+            ...projectionBinding,
             outputHash,
             ...(snapshotId ? { snapshotId } : {}),
             value: accepted,
@@ -1352,8 +1544,14 @@ async function composeAndRenderRun(run, options) {
             }
             try {
                 const acceptedArtifact = await (0, report_run_1.readRunLaneArtifact)(run.runDir, "skill-insights", "accepted");
+                // v2 binds the immutable Snapshot identity in code: the envelope carries the
+                // snapshotId the accept step verified, and the model output never echoes it.
                 acceptedSkills = typeof acceptedArtifact.snapshotId === "string" && Array.isArray(acceptedArtifact.value)
-                    ? { snapshotId: acceptedArtifact.snapshotId, insights: acceptedArtifact.value }
+                    ? {
+                        snapshotId: acceptedArtifact.snapshotId,
+                        insights: acceptedArtifact.value,
+                        outputContractVersion: typeof acceptedArtifact.outputContractVersion === "number" ? acceptedArtifact.outputContractVersion : 1,
+                    }
                     : null;
             }
             catch {
@@ -1373,7 +1571,12 @@ async function composeAndRenderRun(run, options) {
                     if (snapshot) {
                         skillInsightsSnapshotId = snapshot.snapshotId;
                         if (rawSkillInsights) {
-                            const validation = (0, skill_insights_1.validateSkillInsights)(rawSkillInsights, snapshot);
+                            // v2 already completed the domain judgment at accept time. Compose
+                            // re-verifies binding and restored content instead of re-imposing the
+                            // v1 reference scheme or running a second semantic elimination pass.
+                            const validation = rawSkillInsights.outputContractVersion === 2
+                                ? (0, lane_contract_1.verifyAcceptedSkillInsightsV2)(rawSkillInsights.insights, snapshot.snapshotId)
+                                : (0, skill_insights_1.validateSkillInsights)(rawSkillInsights, snapshot);
                             skillInsightsRejectionReasons = validation.rejectionReasons;
                             if (validation.valid) {
                                 validatedSkillInsights = validation.insights;
