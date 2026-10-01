@@ -18,8 +18,12 @@ exports.dedupeIssues = dedupeIssues;
 exports.bindSlotText = bindSlotText;
 exports.parseReportSynthesisV2 = parseReportSynthesisV2;
 exports.parseKeySessionAnalysesV2 = parseKeySessionAnalysesV2;
+exports.laneIssueErrors = laneIssueErrors;
+exports.dedupeErrors = dedupeErrors;
+exports.acceptKeySessionAnalyses = acceptKeySessionAnalyses;
 exports.parseSkillInsightsV2 = parseSkillInsightsV2;
 exports.verifyAcceptedSkillInsightsV2 = verifyAcceptedSkillInsightsV2;
+const key_session_analysis_1 = require("./key-session-analysis");
 const skill_insights_1 = require("./skill-insights");
 /**
  * Model-facing Lane output contract version.
@@ -886,6 +890,8 @@ function parseKeySessionAnalysesV2(raw, input) {
         return { accepted: null, issues: contractIssues };
     const topSessionIds = new Set(input.sessions.map((session) => session.key));
     const accepted = [];
+    const seenSessions = new Set();
+    const seenSignatures = new Set();
     const reject = (fieldPath, message) => {
         issues.push({ code: "KEY_SESSION_INVALID", fieldPath, message });
     };
@@ -918,22 +924,27 @@ function parseKeySessionAnalysesV2(raw, input) {
             ? bindSlotText(record.taskContext, input.directory, input.locale, { fieldPath: `${path}.taskContext`, ownerCanonicalId: session.canonicalId })
             : { ok: true, text: "", issues: [], bindings: [] };
         itemIssues.push(...taskContext.issues);
+        if (!taskContext.ok || !nonEmptyString(taskContext.text)) {
+            issues.push(...itemIssues);
+            return;
+        }
         let primaryFinding = null;
+        const findingIssues = [];
         if (record.primaryFinding !== null && record.primaryFinding !== undefined) {
             if (typeof record.primaryFinding !== "object" || Array.isArray(record.primaryFinding)) {
-                itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding`, message: "primaryFinding must be an object or null." });
+                findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding`, message: "primaryFinding must be an object or null." });
             }
             else {
                 const finding = record.primaryFinding;
                 if (!nonEmptyString(finding.observation) || !nonEmptyString(finding.interpretation)) {
-                    itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding`, message: "primaryFinding observation and interpretation are required." });
+                    findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding`, message: "primaryFinding observation and interpretation are required." });
                 }
                 if (!isSupport(finding.support)) {
-                    itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.support`, message: "primaryFinding support is invalid." });
+                    findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.support`, message: "primaryFinding support is invalid." });
                 }
                 const alternatives = Array.isArray(finding.alternativeExplanations) ? finding.alternativeExplanations : [];
                 if (!alternatives.every(nonEmptyString)) {
-                    itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.alternativeExplanations`, message: "alternativeExplanations must be a list of non-empty strings." });
+                    findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.alternativeExplanations`, message: "alternativeExplanations must be a list of non-empty strings." });
                 }
                 const observation = nonEmptyString(finding.observation)
                     ? bindSlotText(finding.observation, input.directory, input.locale, { fieldPath: `${path}.primaryFinding.observation`, ownerCanonicalId: session.canonicalId })
@@ -941,10 +952,10 @@ function parseKeySessionAnalysesV2(raw, input) {
                 const interpretation = nonEmptyString(finding.interpretation)
                     ? bindSlotText(finding.interpretation, input.directory, input.locale, { fieldPath: `${path}.primaryFinding.interpretation`, ownerCanonicalId: session.canonicalId })
                     : { ok: true, text: "", issues: [], bindings: [] };
-                itemIssues.push(...observation.issues, ...interpretation.issues);
+                findingIssues.push(...observation.issues, ...interpretation.issues);
                 const evidenceIds = Array.isArray(finding.evidenceIds) ? finding.evidenceIds : [];
                 if (evidenceIds.length === 0) {
-                    itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.evidenceIds`, message: "primaryFinding must cite at least one Evidence handle." });
+                    findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.evidenceIds`, message: "primaryFinding must cite at least one Evidence handle." });
                 }
                 const canonicalEvidence = [];
                 evidenceIds.forEach((ref, refIndex) => {
@@ -952,11 +963,11 @@ function parseKeySessionAnalysesV2(raw, input) {
                         allowedObjectKinds: ["turn"],
                         ownerCanonicalId: session.canonicalId,
                     });
-                    itemIssues.push(...resolution.issues);
+                    findingIssues.push(...resolution.issues);
                     if (resolution.resolved)
                         canonicalEvidence.push(resolution.resolved.canonicalRef);
                 });
-                if (itemIssues.length === 0) {
+                if (findingIssues.length === 0) {
                     primaryFinding = {
                         observation: observation.text,
                         interpretation: interpretation.text,
@@ -968,17 +979,18 @@ function parseKeySessionAnalysesV2(raw, input) {
             }
         }
         let recommendation = null;
+        const recIssues = [];
         if (record.recommendation !== null && record.recommendation !== undefined) {
             if (typeof record.recommendation !== "object" || Array.isArray(record.recommendation)) {
-                itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation must be an object or null." });
+                recIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation must be an object or null." });
             }
             else {
                 const rec = record.recommendation;
                 if (!nonEmptyString(rec.action) || !nonEmptyString(rec.rationale) || !nonEmptyString(rec.applicability) || !nonEmptyString(rec.verification)) {
-                    itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation requires action, rationale, applicability, and verification." });
+                    recIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation requires action, rationale, applicability, and verification." });
                 }
                 if (rec.tradeoff !== null && rec.tradeoff !== undefined && !nonEmptyString(rec.tradeoff)) {
-                    itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation.tradeoff`, message: "recommendation tradeoff must be null or a non-empty string." });
+                    recIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation.tradeoff`, message: "recommendation tradeoff must be null or a non-empty string." });
                 }
                 const fields = ["action", "rationale", "applicability", "verification"].map((field) => {
                     const value = rec[field];
@@ -987,7 +999,7 @@ function parseKeySessionAnalysesV2(raw, input) {
                         : { ok: true, text: "", issues: [], bindings: [] };
                 });
                 for (const bound of fields)
-                    itemIssues.push(...bound.issues);
+                    recIssues.push(...bound.issues);
                 const targets = Array.isArray(rec.targetEvidenceIds) ? rec.targetEvidenceIds : [];
                 const canonicalTargets = [];
                 targets.forEach((ref, refIndex) => {
@@ -995,11 +1007,11 @@ function parseKeySessionAnalysesV2(raw, input) {
                         allowedObjectKinds: ["turn"],
                         ownerCanonicalId: session.canonicalId,
                     });
-                    itemIssues.push(...resolution.issues);
+                    recIssues.push(...resolution.issues);
                     if (resolution.resolved)
                         canonicalTargets.push(resolution.resolved.canonicalRef);
                 });
-                if (itemIssues.length === 0) {
+                if (recIssues.length === 0) {
                     recommendation = {
                         action: fields[0].text,
                         rationale: fields[1].text,
@@ -1011,35 +1023,469 @@ function parseKeySessionAnalysesV2(raw, input) {
                 }
             }
         }
-        const limitations = Array.isArray(record.limitations) ? record.limitations : [];
-        if (!limitations.every(nonEmptyString)) {
-            itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.limitations`, message: "limitations must be a list of non-empty strings." });
+        const rawLimitations = Array.isArray(record.limitations) ? record.limitations.filter(nonEmptyString) : [];
+        const limitations = [...rawLimitations];
+        if (findingIssues.length > 0) {
+            primaryFinding = null;
+            if (recommendation !== null || (record.recommendation !== null && record.recommendation !== undefined)) {
+                recommendation = null;
+                recIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation must be null when primaryFinding is null." });
+            }
+            const missingMechanismLimitation = "Primary mechanism was unavailable or failed validation; specific task is retained with limitations.";
+            if (!limitations.includes(missingMechanismLimitation)) {
+                limitations.push(missingMechanismLimitation);
+            }
         }
-        if (primaryFinding !== null && recommendation === null) {
-            itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "a supported primaryFinding requires one recommendation." });
+        if (primaryFinding === null) {
+            if (recommendation !== null) {
+                recommendation = null;
+                recIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation must be null when primaryFinding is null." });
+            }
+            if (limitations.length === 0) {
+                issues.push(...itemIssues, ...findingIssues, ...recIssues, { code: "KEY_SESSION_INVALID", fieldPath: `${path}.limitations`, message: "limitations must be a list of non-empty strings." });
+                return;
+            }
         }
-        if (primaryFinding === null && recommendation !== null) {
-            itemIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation must be null when primaryFinding is null." });
+        else if (recommendation === null) {
+            const droppedRecReason = "Recommendation was unavailable or failed validation; primary finding is retained.";
+            if (!limitations.includes(droppedRecReason)) {
+                limitations.push(droppedRecReason);
+            }
         }
-        if (itemIssues.length > 0) {
-            issues.push(...itemIssues);
+        issues.push(...itemIssues, ...findingIssues, ...recIssues);
+        if (seenSessions.has(session.canonicalId)) {
+            issues.push({
+                code: "DUPLICATE_SESSION_ENTRY",
+                fieldPath: `${path}.sessionHandle`,
+                message: `Duplicate entry for Session '${session.canonicalId}'; only the first valid entry is retained.`,
+            });
             return;
         }
-        accepted.push({
+        const candidateAnalysis = {
             sessionId: session.canonicalId,
             auditFingerprint: "",
             taskContext: taskContext.text,
             primaryFinding,
             recommendation,
             evidenceRead: { turnIds: [], selectionReason: "", unreadScope: "" },
-            limitations: limitations,
-        });
+            limitations,
+        };
+        if (input.audit) {
+            const signature = (0, key_session_analysis_1.normalizedFinding)(input.audit, candidateAnalysis);
+            if (signature !== null && seenSignatures.has(signature)) {
+                issues.push({
+                    code: "DUPLICATE_ANALYSIS_PROSE",
+                    fieldPath: path,
+                    message: "Duplicate analysis prose across Sessions; only the first valid entry is retained.",
+                });
+                return;
+            }
+            if (signature !== null)
+                seenSignatures.add(signature);
+        }
+        seenSessions.add(session.canonicalId);
+        accepted.push(candidateAnalysis);
     });
     if (accepted.length === 0) {
         reject(null, "No Key Session Analysis entry passed v2 directory binding.");
         return { accepted: null, issues: dedupeIssues(issues) };
     }
     return { accepted, issues: dedupeIssues(issues) };
+}
+function laneIssueErrors(issues, fallbackCode) {
+    return issues.map((issue) => ({
+        code: issue.code || fallbackCode,
+        fieldPath: issue.fieldPath ?? null,
+        message: issue.message,
+    }));
+}
+function dedupeErrors(errors) {
+    const seen = new Set();
+    const result = [];
+    for (const err of errors) {
+        const key = `${err.code}::${err.fieldPath ?? ""}::${err.message}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            result.push(err);
+        }
+    }
+    return result;
+}
+function acceptKeySessionAnalyses(input) {
+    const { audit, contractVersion, raw, directory, locale, packets, runFingerprint } = input;
+    const errors = [];
+    if (!Array.isArray(raw)) {
+        return {
+            accepted: null,
+            validationAccepted: false,
+            errors: [{ code: "KEY_SESSION_INVALID", fieldPath: null, message: "Key Session Analysis output must be a JSON array." }],
+        };
+    }
+    if (contractVersion === 2) {
+        if (!isLaneDirectory(directory)) {
+            return {
+                accepted: null,
+                validationAccepted: false,
+                errors: [{ code: "LANE_DIRECTORY_UNAVAILABLE", fieldPath: null, message: "The current Lane projection does not carry a verifiable Evidence Directory." }],
+            };
+        }
+        const contractIssues = forbiddenFieldIssues(raw, "Key Session Analysis");
+        if (contractIssues.length > 0) {
+            return {
+                accepted: null,
+                validationAccepted: false,
+                errors: laneIssueErrors(contractIssues, "KEY_SESSION_INVALID"),
+            };
+        }
+    }
+    const topSessionIds = new Set(audit.rankings.sessions.slice(0, 3).map((session) => session.key));
+    const candidates = Array.isArray(raw) ? raw : [];
+    if (candidates.length === 0) {
+        return {
+            accepted: null,
+            validationAccepted: false,
+            errors: [{ code: "KEY_SESSION_INVALID", fieldPath: null, message: "Expected a non-empty Key Session Analysis array." }],
+        };
+    }
+    const acceptedCandidates = [];
+    const seenFinalSessions = new Set();
+    const seenFinalSignatures = new Set();
+    for (const [index, item] of candidates.entries()) {
+        const path = `[${index}]`;
+        const candidateErrors = [];
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+            errors.push({ code: "KEY_SESSION_INVALID", fieldPath: path, message: "Key Session Analysis entry is malformed." });
+            continue;
+        }
+        const record = item;
+        // 1. Session 判定
+        let canonicalSessionId = null;
+        if (contractVersion === 2) {
+            const handle = sessionHandle(record.sessionHandle);
+            if (!handle) {
+                errors.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.sessionHandle`, message: "sessionHandle must be a current Lane directory session handle." });
+                continue;
+            }
+            const session = directory.sessions.find((entry) => entry.handle === handle);
+            if (!session) {
+                errors.push({ code: "EVIDENCE_REF_UNKNOWN", fieldPath: `${path}.sessionHandle`, message: `Session handle '${handle}' is not in the current Lane directory.` });
+                continue;
+            }
+            if (!topSessionIds.has(session.canonicalId)) {
+                errors.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.sessionHandle`, message: `Session handle '${handle}' is outside the Token-ranked Top 3.` });
+                continue;
+            }
+            canonicalSessionId = session.canonicalId;
+        }
+        else {
+            if (typeof record.sessionId !== "string" || !topSessionIds.has(record.sessionId)) {
+                errors.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.sessionId`, message: "Key Session Analysis entry has missing or invalid sessionId." });
+                continue;
+            }
+            canonicalSessionId = record.sessionId;
+        }
+        // 2. TaskContext 判定
+        let taskContextText = null;
+        if (contractVersion === 2) {
+            if (!nonEmptyString(record.taskContext)) {
+                candidateErrors.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.taskContext`, message: "taskContext is required." });
+            }
+            else {
+                const bound = bindSlotText(record.taskContext, directory, locale, { fieldPath: `${path}.taskContext`, ownerCanonicalId: canonicalSessionId });
+                candidateErrors.push(...laneIssueErrors(bound.issues, "KEY_SESSION_INVALID"));
+                if (bound.ok && nonEmptyString(bound.text))
+                    taskContextText = bound.text;
+            }
+        }
+        else {
+            if (!nonEmptyString(record.taskContext)) {
+                candidateErrors.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.taskContext`, message: "taskContext is required." });
+            }
+            else {
+                taskContextText = record.taskContext.trim();
+            }
+        }
+        if (!taskContextText) {
+            errors.push(...candidateErrors);
+            continue;
+        }
+        // 3. PrimaryFinding 检查
+        let primaryFinding = null;
+        let findingValid = false;
+        const findingProvided = record.primaryFinding !== null && record.primaryFinding !== undefined;
+        if (findingProvided) {
+            if (typeof record.primaryFinding !== "object" || Array.isArray(record.primaryFinding)) {
+                candidateErrors.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding`, message: "primaryFinding must be an object or null." });
+            }
+            else {
+                const finding = record.primaryFinding;
+                const findingIssues = [];
+                if (!nonEmptyString(finding.observation) || !nonEmptyString(finding.interpretation)) {
+                    findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding`, message: "primaryFinding observation and interpretation are required." });
+                }
+                if (!isSupport(finding.support)) {
+                    findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.support`, message: "primaryFinding support is invalid." });
+                }
+                const alternatives = Array.isArray(finding.alternativeExplanations) ? finding.alternativeExplanations : [];
+                if (!alternatives.every(nonEmptyString)) {
+                    findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.alternativeExplanations`, message: "alternativeExplanations must be a list of non-empty strings." });
+                }
+                let obsText = "";
+                let intText = "";
+                const canonicalEvidence = [];
+                if (contractVersion === 2) {
+                    const obsBound = nonEmptyString(finding.observation)
+                        ? bindSlotText(finding.observation, directory, locale, { fieldPath: `${path}.primaryFinding.observation`, ownerCanonicalId: canonicalSessionId })
+                        : { ok: true, text: "", issues: [] };
+                    const intBound = nonEmptyString(finding.interpretation)
+                        ? bindSlotText(finding.interpretation, directory, locale, { fieldPath: `${path}.primaryFinding.interpretation`, ownerCanonicalId: canonicalSessionId })
+                        : { ok: true, text: "", issues: [] };
+                    findingIssues.push(...laneIssueErrors(obsBound.issues, "KEY_SESSION_INVALID"), ...laneIssueErrors(intBound.issues, "KEY_SESSION_INVALID"));
+                    obsText = obsBound.text;
+                    intText = intBound.text;
+                    const evidenceIds = Array.isArray(finding.evidenceIds) ? finding.evidenceIds : [];
+                    if (evidenceIds.length === 0) {
+                        findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.evidenceIds`, message: "primaryFinding must cite at least one Evidence handle." });
+                    }
+                    evidenceIds.forEach((ref, refIndex) => {
+                        const resolution = resolveEvidenceRef(directory, ref, `${path}.primaryFinding.evidenceIds[${refIndex}]`, {
+                            allowedObjectKinds: ["turn"],
+                            ownerCanonicalId: canonicalSessionId,
+                        });
+                        findingIssues.push(...laneIssueErrors(resolution.issues, "KEY_SESSION_INVALID"));
+                        if (resolution.resolved)
+                            canonicalEvidence.push(resolution.resolved.canonicalRef);
+                    });
+                }
+                else {
+                    obsText = typeof finding.observation === "string" ? finding.observation.trim() : "";
+                    intText = typeof finding.interpretation === "string" ? finding.interpretation.trim() : "";
+                    const evidenceIds = Array.isArray(finding.evidenceIds) ? finding.evidenceIds : [];
+                    if (evidenceIds.length === 0 || !evidenceIds.every(nonEmptyString)) {
+                        findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.evidenceIds`, message: "primaryFinding must cite at least one Evidence ID." });
+                    }
+                    else {
+                        for (const ref of evidenceIds) {
+                            const match = (0, key_session_analysis_1.resolveReportEvidence)(audit, ref);
+                            if (!match || (match.kind === "turn" && match.evidence[0] && match.evidence[0].sessionId && match.evidence[0].sessionId !== canonicalSessionId)) {
+                                findingIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.primaryFinding.evidenceIds`, message: `primaryFinding Evidence is unknown or cross-Session: ${ref}` });
+                            }
+                            else {
+                                canonicalEvidence.push(ref);
+                            }
+                        }
+                    }
+                }
+                if (findingIssues.length === 0 && nonEmptyString(obsText) && nonEmptyString(intText) && canonicalEvidence.length > 0) {
+                    primaryFinding = {
+                        observation: obsText,
+                        interpretation: intText,
+                        evidenceIds: [...new Set(canonicalEvidence)],
+                        support: finding.support,
+                        alternativeExplanations: alternatives,
+                    };
+                    findingValid = true;
+                }
+                else {
+                    candidateErrors.push(...findingIssues);
+                }
+            }
+        }
+        // 4. Recommendation 检查
+        let recommendation = null;
+        let recValid = false;
+        const recProvided = record.recommendation !== null && record.recommendation !== undefined;
+        if (recProvided) {
+            if (typeof record.recommendation !== "object" || Array.isArray(record.recommendation)) {
+                candidateErrors.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation must be an object or null." });
+            }
+            else {
+                const rec = record.recommendation;
+                const recIssues = [];
+                if (!nonEmptyString(rec.action) || !nonEmptyString(rec.rationale) || !nonEmptyString(rec.applicability) || !nonEmptyString(rec.verification)) {
+                    recIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation requires action, rationale, applicability, and verification." });
+                }
+                if (rec.tradeoff !== null && rec.tradeoff !== undefined && !nonEmptyString(rec.tradeoff)) {
+                    recIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation.tradeoff`, message: "recommendation tradeoff must be null or a non-empty string." });
+                }
+                const canonicalTargets = [];
+                let boundFields = [];
+                if (contractVersion === 2) {
+                    const fields = ["action", "rationale", "applicability", "verification"].map((field) => {
+                        const value = rec[field];
+                        return nonEmptyString(value)
+                            ? bindSlotText(value, directory, locale, { fieldPath: `${path}.recommendation.${field}`, ownerCanonicalId: canonicalSessionId })
+                            : { ok: true, text: "", issues: [] };
+                    });
+                    for (const bound of fields)
+                        recIssues.push(...laneIssueErrors(bound.issues, "KEY_SESSION_INVALID"));
+                    boundFields = fields.map((f) => f.text);
+                    const targets = Array.isArray(rec.targetEvidenceIds) ? rec.targetEvidenceIds : [];
+                    targets.forEach((ref, refIndex) => {
+                        const resolution = resolveEvidenceRef(directory, ref, `${path}.recommendation.targetEvidenceIds[${refIndex}]`, {
+                            allowedObjectKinds: ["turn"],
+                            ownerCanonicalId: canonicalSessionId,
+                        });
+                        recIssues.push(...laneIssueErrors(resolution.issues, "KEY_SESSION_INVALID"));
+                        if (resolution.resolved)
+                            canonicalTargets.push(resolution.resolved.canonicalRef);
+                    });
+                }
+                else {
+                    boundFields = ["action", "rationale", "applicability", "verification"].map((field) => {
+                        const val = rec[field];
+                        return typeof val === "string" ? val.trim() : "";
+                    });
+                    const targets = Array.isArray(rec.targetEvidenceIds) ? rec.targetEvidenceIds : [];
+                    for (const ref of targets) {
+                        if (typeof ref === "string") {
+                            const match = (0, key_session_analysis_1.resolveReportEvidence)(audit, ref);
+                            if (match)
+                                canonicalTargets.push(ref);
+                            else
+                                recIssues.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation.targetEvidenceIds`, message: `recommendation Evidence is unknown or cross-Session: ${ref}` });
+                        }
+                    }
+                }
+                if (recIssues.length === 0 && boundFields.every(nonEmptyString)) {
+                    recommendation = {
+                        action: boundFields[0],
+                        rationale: boundFields[1],
+                        applicability: boundFields[2],
+                        tradeoff: rec.tradeoff ?? null,
+                        verification: boundFields[3],
+                        targetEvidenceIds: [...new Set(canonicalTargets)],
+                    };
+                    recValid = true;
+                }
+                else {
+                    candidateErrors.push(...recIssues);
+                }
+            }
+        }
+        // 5. 依赖判定与未知限制构建（AC-3）
+        const rawLimitations = Array.isArray(record.limitations) ? record.limitations.filter(nonEmptyString) : [];
+        const limitations = [...rawLimitations];
+        if (!findingValid) {
+            primaryFinding = null;
+            if (recommendation !== null || recProvided) {
+                recommendation = null;
+                candidateErrors.push({ code: "KEY_SESSION_INVALID", fieldPath: `${path}.recommendation`, message: "recommendation must be null when primaryFinding is null." });
+            }
+            const missingMechanismLimitation = "Primary mechanism was unavailable or failed validation; specific task is retained with limitations.";
+            if (!limitations.includes(missingMechanismLimitation)) {
+                limitations.push(missingMechanismLimitation);
+            }
+        }
+        else {
+            if (!recValid) {
+                recommendation = null;
+                const missingRecLimitation = "Recommendation was unavailable or failed validation; primary finding is retained.";
+                if (!limitations.includes(missingRecLimitation)) {
+                    limitations.push(missingRecLimitation);
+                }
+            }
+        }
+        // 6. 绑定 packets 与 evidenceRead
+        const sessionPackets = packets?.filter((packet) => packet.sessionId === canonicalSessionId) ?? [];
+        const packet = sessionPackets.find((p) => p.sessionId === canonicalSessionId && p.turnIds.length > 0);
+        const fallbackTurnIds = (audit.turns ?? [])
+            .filter((turn) => turn.sessionId === canonicalSessionId)
+            .map((turn) => turn.turnId);
+        const candidateObj = {
+            sessionId: canonicalSessionId,
+            auditFingerprint: contractVersion === 1
+                ? (typeof record.auditFingerprint === "string" ? record.auditFingerprint : "")
+                : (runFingerprint ?? (0, key_session_analysis_1.auditFingerprint)(audit)),
+            taskContext: taskContextText,
+            primaryFinding,
+            recommendation,
+            evidenceRead: packet
+                ? { turnIds: packet.turnIds, selectionReason: packet.selectionReason, unreadScope: packet.unreadScope }
+                : {
+                    turnIds: fallbackTurnIds,
+                    selectionReason: "No Content Evidence packet was supplied for this Session; the canonical Audit Turns define the read scope.",
+                    unreadScope: "No bounded Content Evidence was available for this Session.",
+                },
+            limitations,
+        };
+        // 7. Sanitizer
+        const { sanitized, redactions } = (0, key_session_analysis_1.sanitizeKeySessionAnalysis)(candidateObj, sessionPackets);
+        for (const redact of redactions) {
+            candidateErrors.push({
+                code: "RAW_EVIDENCE_REDACTED",
+                fieldPath: `${path}.${redact.fieldPath}`,
+                message: `Redacted ${redact.count} raw evidence instance(s).`,
+            });
+        }
+        // 8. Validator 校验
+        let finalCandidate = null;
+        const valResult = (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, sanitized, sessionPackets);
+        if (valResult.valid && valResult.analysis) {
+            finalCandidate = valResult.analysis;
+        }
+        else {
+            const fatalErrors = valResult.errors.filter((msg) => msg.includes("fingerprint") ||
+                msg.includes("outside the Token-ranked Top 3") ||
+                (msg.includes("credentials") && typeof sanitized.taskContext === "string" && /api_key|sk-[a-zA-Z0-9_-]+/i.test(sanitized.taskContext)));
+            if (fatalErrors.length === 0 && sanitized.primaryFinding !== null) {
+                const fallbackObj = {
+                    ...sanitized,
+                    primaryFinding: null,
+                    recommendation: null,
+                    limitations: [...sanitized.limitations, "Primary mechanism failed validation; specific task is retained with limitations."],
+                };
+                const retryVal = (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, fallbackObj, sessionPackets);
+                if (retryVal.valid && retryVal.analysis) {
+                    finalCandidate = retryVal.analysis;
+                    candidateErrors.push(...valResult.errors.map((msg) => ({ code: "KEY_SESSION_INVALID", fieldPath: path, message: msg })));
+                }
+                else {
+                    candidateErrors.push(...retryVal.errors.map((msg) => ({ code: "KEY_SESSION_INVALID", fieldPath: path, message: msg })));
+                }
+            }
+            else {
+                candidateErrors.push(...valResult.errors.map((msg) => ({ code: "KEY_SESSION_INVALID", fieldPath: path, message: msg })));
+            }
+        }
+        if (!finalCandidate) {
+            errors.push(...candidateErrors);
+            continue;
+        }
+        // 9. 最终去重（AC-2）：只有最终通过领域处理的合法项才参与去重！
+        if (seenFinalSessions.has(finalCandidate.sessionId)) {
+            candidateErrors.push({
+                code: "DUPLICATE_SESSION_ENTRY",
+                fieldPath: path,
+                message: `Duplicate entry for Session '${finalCandidate.sessionId}'; only the first valid entry is retained.`,
+            });
+            errors.push(...candidateErrors);
+            continue;
+        }
+        const signature = (0, key_session_analysis_1.normalizedFinding)(audit, finalCandidate);
+        if (signature !== null && seenFinalSignatures.has(signature)) {
+            candidateErrors.push({
+                code: "DUPLICATE_ANALYSIS_PROSE",
+                fieldPath: path,
+                message: "Duplicate analysis prose across Sessions; only the first valid entry is retained.",
+            });
+            errors.push(...candidateErrors);
+            continue;
+        }
+        seenFinalSessions.add(finalCandidate.sessionId);
+        if (signature !== null)
+            seenFinalSignatures.add(signature);
+        acceptedCandidates.push(finalCandidate);
+        errors.push(...candidateErrors);
+        if (acceptedCandidates.length >= 3)
+            break;
+    }
+    const validationAccepted = acceptedCandidates.length > 0;
+    return {
+        accepted: validationAccepted ? acceptedCandidates : null,
+        validationAccepted,
+        errors: dedupeErrors(errors),
+    };
 }
 // ---------------------------------------------------------------------------
 // Skill Insights v2

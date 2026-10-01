@@ -417,7 +417,9 @@ test('v2 parsers reject code-owned fields, unknown handles, and wrong-typed requ
     },
     limitations: ['x'],
   }], { directory, locale: 'en-US', sessions: [{ key: 'session-a' }] });
-  assert.equal(crossSessionEvidence.accepted, null, 'a non-turn, cross-object reference must not bind as Session evidence');
+  assert.equal(crossSessionEvidence.accepted[0].primaryFinding, null, 'a non-turn, cross-object reference must not bind as Session evidence');
+  assert.equal(crossSessionEvidence.accepted[0].recommendation, null);
+  assert.ok(crossSessionEvidence.issues.some((issue) => issue.code === 'EVIDENCE_REF_INCOMPATIBLE'));
 
   const snapshotIdEcho = parseSkillInsightsV2({
     snapshotId: 'x',

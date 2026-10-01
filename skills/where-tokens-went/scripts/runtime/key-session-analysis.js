@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.auditFingerprint = auditFingerprint;
+exports.normalizedFinding = normalizedFinding;
 exports.resolveReportEvidence = resolveReportEvidence;
 exports.validateReportSynthesis = validateReportSynthesis;
 exports.sanitizeKeySessionAnalysis = sanitizeKeySessionAnalysis;
@@ -729,8 +730,12 @@ function validateKeySessionAnalysis(audit, analysis, packets) {
         if (analysis.evidenceRead && strings(analysis.evidenceRead.turnIds) && strings(analysis.primaryFinding.evidenceIds)) {
             errors.push(...evidenceNotRead(audit, analysis.sessionId, analysis.evidenceRead.turnIds, analysis.primaryFinding.evidenceIds).map((id) => "primaryFinding Evidence was not read in evidenceRead: " + id));
         }
-        if (!analysis.recommendation)
-            errors.push("a supported primaryFinding requires one recommendation or an explicit data-gap explanation.");
+        if (!analysis.recommendation) {
+            const hasDataGap = Array.isArray(analysis.limitations) && analysis.limitations.length > 0 && analysis.limitations.some(nonEmpty);
+            if (!hasDataGap) {
+                errors.push("a supported primaryFinding requires one recommendation or an explicit data-gap explanation.");
+            }
+        }
     }
     if (analysis.recommendation !== null) {
         const recommendation = analysis.recommendation;
@@ -776,25 +781,22 @@ function composeKeySessionAnalyses(audit, analyses, packets) {
             unavailable.push(sessionId + ": malformed Key Session Analysis.");
         }
     }
-    const groups = new Map();
-    for (const candidate of validCandidates) {
-        if (candidate.signature === null)
-            continue;
-        groups.set(candidate.signature, [...(groups.get(candidate.signature) ?? []), candidate]);
-    }
-    const duplicateCandidates = new Set();
-    for (const group of groups.values()) {
-        if (group.length < 2)
-            continue;
-        for (const candidate of group)
-            duplicateCandidates.add(candidate);
-    }
+    const seenSessions = new Set();
+    const seenSignatures = new Set();
     const valid = [];
     for (const candidate of validCandidates) {
-        if (duplicateCandidates.has(candidate))
-            unavailable.push(candidate.sessionId + ": duplicate Session analysis prose; regenerate with Session-specific Evidence.");
-        else
-            valid.push(candidate.analysis);
+        if (seenSessions.has(candidate.sessionId)) {
+            unavailable.push(candidate.sessionId + ": duplicate Session entry in composition.");
+            continue;
+        }
+        if (candidate.signature !== null && seenSignatures.has(candidate.signature)) {
+            unavailable.push(candidate.sessionId + ": duplicate Session analysis prose; only first entry retained.");
+            continue;
+        }
+        seenSessions.add(candidate.sessionId);
+        if (candidate.signature !== null)
+            seenSignatures.add(candidate.signature);
+        valid.push(candidate.analysis);
     }
     if (candidates.length === 0)
         unavailable.push("Host Agent did not provide Key Session Analysis.");

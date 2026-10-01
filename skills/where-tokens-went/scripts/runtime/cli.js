@@ -969,11 +969,6 @@ function legacyContractViolation(raw) {
         ? `v1 output must not carry v2 directory fields (${[...new Set(found)].join(", ")}).`
         : null;
 }
-function laneIssueErrors(issues, fallbackCode) {
-    if (issues.length === 0)
-        return [{ code: fallbackCode, fieldPath: null, message: "Model output did not pass the lane output contract." }];
-    return issues.map((issue) => ({ code: issue.code || fallbackCode, fieldPath: issue.fieldPath, message: issue.message }));
-}
 async function readHostResponseTiming(run, lane, currentLane, outputHash) {
     const file = path.join(run.runDir, `lanes/${lane}/host-response.json`);
     let contents;
@@ -1091,40 +1086,24 @@ async function reportRunAiAcceptMain(args) {
                 if (result.valid) {
                     accepted = result.synthesis;
                     validationAccepted = true;
+                    errors = result.errors.map((message) => ({ code: "REPORT_SYNTHESIS_INVALID", fieldPath: null, message }));
                 }
                 else
                     errors = result.errors.map((message) => ({ code: "REPORT_SYNTHESIS_INVALID", fieldPath: null, message }));
             }
             else if (options.lane === "key-session-analysis") {
                 const packets = run.manifest.artifacts.evidence ? (await (0, report_run_1.readRunArtifact)(run.runDir, "evidence")).packets : [];
-                const candidates = Array.isArray(raw) ? raw.slice(0, 3) : [];
-                const validated = [];
-                for (const [index, candidate] of candidates.entries()) {
-                    if (!isRecord(candidate) || typeof candidate.sessionId !== "string") {
-                        errors.push({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message: "Key Session Analysis entry is malformed." });
-                        continue;
-                    }
-                    const sessionPackets = packets.filter((packet) => packet.sessionId === candidate.sessionId);
-                    const { sanitized, redactions } = (0, key_session_analysis_1.sanitizeKeySessionAnalysis)(candidate, sessionPackets);
-                    for (const redact of redactions) {
-                        errors.push({
-                            code: "RAW_EVIDENCE_REDACTED",
-                            fieldPath: `[${index}].${redact.fieldPath}`,
-                            message: `Redacted ${redact.count} raw evidence instance(s).`,
-                        });
-                    }
-                    const result = (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, sanitized, sessionPackets);
-                    if (result.valid)
-                        validated.push(result.analysis ?? sanitized);
-                    else
-                        errors.push(...result.errors.map((message) => ({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message })));
-                }
-                if (candidates.length === 0)
-                    errors.push({ code: "KEY_SESSION_INVALID", fieldPath: null, message: "Expected a non-empty Key Session Analysis array." });
-                if (validated.length > 0) {
-                    accepted = validated;
-                    validationAccepted = true;
-                }
+                const result = (0, lane_contract_1.acceptKeySessionAnalyses)({
+                    audit,
+                    contractVersion: 1,
+                    raw,
+                    locale: run.manifest.scope.locale,
+                    packets,
+                    runFingerprint: run.manifest.auditFingerprint ?? (0, key_session_analysis_1.auditFingerprint)(audit),
+                });
+                accepted = result.accepted;
+                validationAccepted = result.validationAccepted;
+                errors = result.errors;
             }
             else {
                 const snapshot = await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot");
@@ -1150,69 +1129,32 @@ async function reportRunAiAcceptMain(args) {
                     validationAccepted = true;
                     // Partial acceptance keeps the dropped-item reasons; a fully valid
                     // submission must not carry a fallback rejection code.
-                    errors = parsed.issues.length > 0 ? laneIssueErrors(parsed.issues, "REPORT_SYNTHESIS_INVALID") : [];
+                    const resultErrors = result.errors.map((message) => ({ code: "REPORT_SYNTHESIS_INVALID", fieldPath: null, message }));
+                    const parsedErrors = (0, lane_contract_1.laneIssueErrors)(parsed.issues, "REPORT_SYNTHESIS_INVALID");
+                    errors = [...parsedErrors, ...resultErrors];
                 }
                 else {
                     errors = result.errors.map((message) => ({ code: "REPORT_SYNTHESIS_INVALID", fieldPath: null, message }));
                 }
             }
             else {
-                errors = laneIssueErrors(parsed.issues, "REPORT_SYNTHESIS_INVALID");
+                errors = (0, lane_contract_1.laneIssueErrors)(parsed.issues, "REPORT_SYNTHESIS_INVALID");
             }
         }
         else if (options.lane === "key-session-analysis") {
             const packets = run.manifest.artifacts.evidence ? (await (0, report_run_1.readRunArtifact)(run.runDir, "evidence")).packets : [];
-            const sessions = audit.rankings.sessions.slice(0, 3);
-            const parsed = (0, lane_contract_1.parseKeySessionAnalysesV2)(raw, {
+            const result = (0, lane_contract_1.acceptKeySessionAnalyses)({
+                audit,
+                contractVersion: 2,
+                raw,
                 directory: input.directory,
                 locale: run.manifest.scope.locale,
-                sessions,
+                packets,
+                runFingerprint: run.manifest.auditFingerprint ?? (0, key_session_analysis_1.auditFingerprint)(audit),
             });
-            errors = parsed.issues.length > 0 ? laneIssueErrors(parsed.issues, "KEY_SESSION_INVALID") : [];
-            if (parsed.accepted) {
-                const validated = [];
-                for (const [index, candidate] of parsed.accepted.entries()) {
-                    const selector = input.directory.sessions.find((entry) => entry.canonicalId === candidate.sessionId);
-                    const canonicalSessionId = selector?.canonicalId ?? candidate.sessionId;
-                    const sessionPackets = packets.filter((packet) => packet.sessionId === canonicalSessionId);
-                    const packet = sessionPackets.find((packet) => packet.sessionId === canonicalSessionId && packet.turnIds.length > 0);
-                    // v2 never echoes evidenceRead: code restores the packet it actually supplied.
-                    // A selected Session without a content packet still binds its canonical Audit
-                    // Turns, with an explicit unread-scope statement rather than an invented read.
-                    const fallbackTurnIds = (audit.turns ?? [])
-                        .filter((turn) => turn.sessionId === canonicalSessionId)
-                        .map((turn) => turn.turnId);
-                    const resolved = {
-                        ...candidate,
-                        sessionId: canonicalSessionId,
-                        auditFingerprint: run.manifest.auditFingerprint ?? (0, key_session_analysis_1.auditFingerprint)(audit),
-                        evidenceRead: packet
-                            ? { turnIds: packet.turnIds, selectionReason: packet.selectionReason, unreadScope: packet.unreadScope }
-                            : {
-                                turnIds: fallbackTurnIds,
-                                selectionReason: "No Content Evidence packet was supplied for this Session; the canonical Audit Turns define the read scope.",
-                                unreadScope: "No bounded Content Evidence was available for this Session.",
-                            },
-                    };
-                    const { sanitized, redactions } = (0, key_session_analysis_1.sanitizeKeySessionAnalysis)(resolved, sessionPackets);
-                    for (const redact of redactions) {
-                        errors.push({
-                            code: "RAW_EVIDENCE_REDACTED",
-                            fieldPath: `[${index}].${redact.fieldPath}`,
-                            message: `Redacted ${redact.count} raw evidence instance(s).`,
-                        });
-                    }
-                    const result = (0, key_session_analysis_1.validateKeySessionAnalysis)(audit, sanitized, sessionPackets);
-                    if (result.valid)
-                        validated.push(result.analysis ?? sanitized);
-                    else
-                        errors.push(...result.errors.map((message) => ({ code: "KEY_SESSION_INVALID", fieldPath: `[${index}]`, message })));
-                }
-                if (validated.length > 0) {
-                    accepted = validated;
-                    validationAccepted = true;
-                }
-            }
+            accepted = result.accepted;
+            validationAccepted = result.validationAccepted;
+            errors = result.errors;
         }
         else {
             const snapshot = await (0, report_run_1.readRunArtifact)(run.runDir, "skillSnapshot");
@@ -1236,7 +1178,7 @@ async function reportRunAiAcceptMain(args) {
                     }
                 }
                 const parsed = (0, lane_contract_1.parseSkillInsightsV2)(raw, { directory, contentByHandle, snapshotId: snapshot.snapshotId });
-                errors = parsed.issues.length > 0 ? laneIssueErrors(parsed.issues, "SKILL_INSIGHTS_INVALID") : [];
+                errors = parsed.issues.length > 0 ? (0, lane_contract_1.laneIssueErrors)(parsed.issues, "SKILL_INSIGHTS_INVALID") : [];
                 validationRejectionReasons = parsed.accepted?.rejectionReasons ?? [];
                 if (parsed.accepted) {
                     accepted = parsed.accepted.insights;
@@ -1504,6 +1446,11 @@ async function composeAndRenderRun(run, options) {
     let skillInsightsStatus = "skipped";
     let skillInsightsValid = false;
     let skillInsightsRejectionReasons = [];
+    const laneIntegrityFailed = {
+        "report-synthesis": false,
+        "key-session-analysis": false,
+        "skill-insights": false,
+    };
     try {
         const currentContract = await (0, report_run_1.withRunSpan)(run, { phase: "prompt-read", operation: "verify-report-contract", source: "filesystem" }, async () => {
             const metadata = await (0, report_run_1.resolveRunContractMetadata)();
@@ -1529,33 +1476,51 @@ async function composeAndRenderRun(run, options) {
             let acceptedSynthesis = null;
             let acceptedAnalyses = [];
             let acceptedSkills = null;
-            try {
-                acceptedSynthesis = (await (0, report_run_1.readRunLaneArtifact)(run.runDir, "report-synthesis", "accepted")).value ?? null;
+            const synthesisStatus = run.manifest.laneStatus["report-synthesis"]?.status;
+            const synthesisHasAccepted = synthesisStatus === "accepted" || Boolean(run.manifest.laneStatus["report-synthesis"]?.acceptedArtifact);
+            if (synthesisHasAccepted) {
+                try {
+                    const acceptedArtifact = await (0, report_run_1.readRunLaneArtifact)(run.runDir, "report-synthesis", "accepted");
+                    acceptedSynthesis = acceptedArtifact?.value ?? null;
+                }
+                catch (error) {
+                    laneIntegrityFailed["report-synthesis"] = true;
+                    acceptedSynthesis = null;
+                    await (0, report_run_1.appendRunWarnings)(run, [`Report Run lane artifact integrity verification failed for report-synthesis: ${error?.message ?? String(error)}`]);
+                }
             }
-            catch {
-                acceptedSynthesis = null;
+            const keySessionStatus = run.manifest.laneStatus["key-session-analysis"]?.status;
+            const keySessionHasAccepted = keySessionStatus === "accepted" || Boolean(run.manifest.laneStatus["key-session-analysis"]?.acceptedArtifact);
+            if (keySessionHasAccepted) {
+                try {
+                    const acceptedArtifact = await (0, report_run_1.readRunLaneArtifact)(run.runDir, "key-session-analysis", "accepted");
+                    const value = acceptedArtifact?.value;
+                    acceptedAnalyses = Array.isArray(value) ? value : [];
+                }
+                catch (error) {
+                    laneIntegrityFailed["key-session-analysis"] = true;
+                    acceptedAnalyses = [];
+                    await (0, report_run_1.appendRunWarnings)(run, [`Report Run lane artifact integrity verification failed for key-session-analysis: ${error?.message ?? String(error)}`]);
+                }
             }
-            try {
-                const value = (await (0, report_run_1.readRunLaneArtifact)(run.runDir, "key-session-analysis", "accepted")).value;
-                acceptedAnalyses = Array.isArray(value) ? value : [];
-            }
-            catch {
-                acceptedAnalyses = [];
-            }
-            try {
-                const acceptedArtifact = await (0, report_run_1.readRunLaneArtifact)(run.runDir, "skill-insights", "accepted");
-                // v2 binds the immutable Snapshot identity in code: the envelope carries the
-                // snapshotId the accept step verified, and the model output never echoes it.
-                acceptedSkills = typeof acceptedArtifact.snapshotId === "string" && Array.isArray(acceptedArtifact.value)
-                    ? {
-                        snapshotId: acceptedArtifact.snapshotId,
-                        insights: acceptedArtifact.value,
-                        outputContractVersion: typeof acceptedArtifact.outputContractVersion === "number" ? acceptedArtifact.outputContractVersion : 1,
-                    }
-                    : null;
-            }
-            catch {
-                acceptedSkills = null;
+            const skillStatus = run.manifest.laneStatus["skill-insights"]?.status;
+            const skillHasAccepted = skillStatus === "accepted" || Boolean(run.manifest.laneStatus["skill-insights"]?.acceptedArtifact);
+            if (skillHasAccepted) {
+                try {
+                    const acceptedArtifact = await (0, report_run_1.readRunLaneArtifact)(run.runDir, "skill-insights", "accepted");
+                    acceptedSkills = typeof acceptedArtifact?.snapshotId === "string" && Array.isArray(acceptedArtifact?.value)
+                        ? {
+                            snapshotId: acceptedArtifact.snapshotId,
+                            insights: acceptedArtifact.value,
+                            outputContractVersion: typeof acceptedArtifact.outputContractVersion === "number" ? acceptedArtifact.outputContractVersion : 1,
+                        }
+                        : null;
+                }
+                catch (error) {
+                    laneIntegrityFailed["skill-insights"] = true;
+                    acceptedSkills = null;
+                    await (0, report_run_1.appendRunWarnings)(run, [`Report Run lane artifact integrity verification failed for skill-insights: ${error?.message ?? String(error)}`]);
+                }
             }
             synthesisCandidate = acceptedSynthesis === null ? null : acceptedSynthesis;
             analyses = acceptedAnalyses.slice(0, 3);
@@ -1669,21 +1634,33 @@ async function composeAndRenderRun(run, options) {
         const projectName = run.manifest.scope.cwd ? (0, report_1.resolveReportProjectName)(run.manifest.scope.cwd) ?? undefined : undefined;
         const renderComposition = projectName ? { ...composition, projectName } : composition;
         const selectedSessionIds = new Set(composition.keySessionAnalyses.map((analysis) => analysis.sessionId));
-        const keySessionFallbackReason = audit.rankings.sessions.slice(0, 3).some((session) => !selectedSessionIds.has(session.key))
-            ? run.manifest.laneStatus["key-session-analysis"].reasonCode ?? "KEY_SESSION_ANALYSIS_UNAVAILABLE_OR_INVALID"
-            : null;
+        const reportSynthesisFallbackReason = composition.reportSynthesis
+            ? null
+            : laneIntegrityFailed["report-synthesis"]
+                ? "ARTIFACT_INTEGRITY_FAILED"
+                : run.manifest.laneStatus["report-synthesis"].reasonCode ?? "REPORT_SYNTHESIS_UNAVAILABLE_OR_INVALID";
+        const keySessionFallbackReason = laneIntegrityFailed["key-session-analysis"]
+            ? "ARTIFACT_INTEGRITY_FAILED"
+            : audit.rankings.sessions.slice(0, 3).some((session) => !selectedSessionIds.has(session.key))
+                ? run.manifest.laneStatus["key-session-analysis"].reasonCode ?? "KEY_SESSION_ANALYSIS_UNAVAILABLE_OR_INVALID"
+                : null;
+        const skillInsightsFallbackReason = laneIntegrityFailed["skill-insights"]
+            ? "ARTIFACT_INTEGRITY_FAILED"
+            : skillInsightsValid
+                ? null
+                : run.manifest.laneStatus["skill-insights"].reasonCode ?? "SKILL_INSIGHTS_UNAVAILABLE_OR_INVALID";
         const reportJson = {
             version: 1,
             audit,
             ai: {
                 reportSynthesis: {
                     result: composition.reportSynthesis,
-                    fallbackReason: composition.reportSynthesis ? null : run.manifest.laneStatus["report-synthesis"].reasonCode ?? "REPORT_SYNTHESIS_UNAVAILABLE_OR_INVALID",
+                    fallbackReason: reportSynthesisFallbackReason,
                 },
                 keySessionAnalyses: { result: composition.keySessionAnalyses, fallbackReason: keySessionFallbackReason },
                 skillInsights: {
                     result: composition.skillInsights ?? [],
-                    fallbackReason: skillInsightsValid ? null : run.manifest.laneStatus["skill-insights"].reasonCode ?? "SKILL_INSIGHTS_UNAVAILABLE_OR_INVALID",
+                    fallbackReason: skillInsightsFallbackReason,
                 },
             },
             render: {
