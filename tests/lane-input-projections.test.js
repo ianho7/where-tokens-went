@@ -208,14 +208,19 @@ test('table-driven Lane Input Projection contracts: identity, canonical resoluti
         lane: 'key-session-analysis',
         promptHash: manifest.promptHashes.keySessionAnalysis,
         verifyProjection(projection) {
-          // Criterion 2: Source references resolve to canonical artifact
+          // Criterion 2: Single authoritative location in projection.audit, no duplicated root collections
+          assert.equal(projection.sessions, undefined, 'root sessions collection must be omitted');
+          assert.equal(projection.turns, undefined, 'root turns collection must be omitted');
+          assert.equal(projection.keySessionTokenAccounting, undefined, 'root keySessionTokenAccounting collection must be omitted');
+
+          // Source references resolve to canonical artifact
           const canonicalSessionKeys = new Set(canonicalAudit.rankings.sessions.map((s) => s.key));
           const canonicalTurnIds = new Set(canonicalAudit.turns.map((t) => t.turnId));
 
-          for (const session of projection.sessions) {
+          for (const session of projection.audit.rankings.sessions) {
             assert.ok(canonicalSessionKeys.has(session.key), `session ${session.key} must exist in canonical audit`);
           }
-          for (const turn of projection.turns) {
+          for (const turn of projection.audit.turns) {
             assert.ok(canonicalTurnIds.has(turn.turnId), `turn ${turn.turnId} must exist in canonical audit`);
           }
           if (canonicalEvidence && canonicalEvidence.packets) {
@@ -227,19 +232,19 @@ test('table-driven Lane Input Projection contracts: identity, canonical resoluti
 
           // Criterion 3: Scope and Session set is bounded (Top 3 only, cannot expand)
           assert.ok(canonicalAudit.rankings.sessions.length >= 5, 'canonical audit has at least 5 sessions');
-          assert.equal(projection.sessions.length, 3, 'projection must strictly contain Top 3 sessions');
+          assert.equal(projection.audit.rankings.sessions.length, 3, 'projection must strictly contain Top 3 sessions');
           assert.deepEqual(
-            projection.sessions.map((s) => s.key),
+            projection.audit.rankings.sessions.map((s) => s.key),
             canonicalAudit.rankings.sessions.slice(0, 3).map((s) => s.key),
           );
 
           // Sessions 4 and 5 must NOT be in projection
-          const projectionSessionKeys = new Set(projection.sessions.map((s) => s.key));
+          const projectionSessionKeys = new Set(projection.audit.rankings.sessions.map((s) => s.key));
           assert.ok(!projectionSessionKeys.has('session-delta'), 'session-delta must not be in key-session projection');
           assert.ok(!projectionSessionKeys.has('session-epsilon'), 'session-epsilon must not be in key-session projection');
 
           // Turns must only belong to top 3 sessions
-          for (const turn of projection.turns) {
+          for (const turn of projection.audit.turns) {
             assert.ok(projectionSessionKeys.has(turn.sessionId), `turn ${turn.turnId} must belong to top 3 sessions`);
           }
 
@@ -248,6 +253,9 @@ test('table-driven Lane Input Projection contracts: identity, canonical resoluti
           assert.ok(projection.omittedFields.includes('turnsOutsideTop3'));
           assert.ok(projection.omittedFields.includes('checks'));
           assert.ok(projection.omittedFields.includes('report'));
+          assert.ok(projection.omittedFields.includes('rootSessionsDuplicate'));
+          assert.ok(projection.omittedFields.includes('rootTurnsDuplicate'));
+          assert.ok(projection.omittedFields.includes('rootTokenAccountingDuplicate'));
         },
       },
       {
@@ -352,8 +360,11 @@ test('table-driven Lane Input Projection contracts: identity, canonical resoluti
     assert.equal(reportFailTurn.tokens.totalTokens.value, null);
 
     const keyProj = JSON.parse(await readFile(path.join(runDir, 'lanes/key-session-analysis/input.json'), 'utf8'));
-    const keyFailTurn = keyProj.turns.find((t) => t.turnId.includes('fail'));
-    assert.ok(keyFailTurn, 'key-session-analysis projection must retain fail turn');
+    assert.equal(keyProj.sessions, undefined, 'key-session projection must omit duplicate root sessions');
+    assert.equal(keyProj.turns, undefined, 'key-session projection must omit duplicate root turns');
+    assert.equal(keyProj.keySessionTokenAccounting, undefined, 'key-session projection must omit duplicate root accounting');
+    const keyFailTurn = keyProj.audit.turns.find((t) => t.turnId.includes('fail'));
+    assert.ok(keyFailTurn, 'key-session-analysis projection must retain fail turn in authoritative audit.turns');
     assert.equal(keyFailTurn.tokens.totalTokens.provenance, 'unavailable');
     assert.equal(keyFailTurn.tokens.totalTokens.value, null);
 

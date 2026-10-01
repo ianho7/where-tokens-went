@@ -1242,9 +1242,6 @@ export interface KeySessionAnalysisProjection extends BaseLaneProjection {
     turns: TurnAnalysisEntry[];
     keySessionTokenAccounting?: KeySessionTokenAccounting[];
   };
-  sessions: ContributionEntry[];
-  turns: TurnAnalysisEntry[];
-  keySessionTokenAccounting: KeySessionTokenAccounting[];
   contentEvidencePackets: ContentEvidencePacket[];
   omittedFields: string[];
 }
@@ -1391,9 +1388,6 @@ export function projectKeySessionAnalysisInput(
     outputContractVersion: OUTPUT_CONTRACT_VERSION,
     directory,
     audit: projectedAudit,
-    sessions: topSessions,
-    turns: topTurns,
-    keySessionTokenAccounting: topAccounting,
     contentEvidencePackets: scopedPackets,
     omittedFields: [
       "rankings.projects",
@@ -1406,6 +1400,9 @@ export function projectKeySessionAnalysisInput(
       "turnCandidates",
       "view",
       "weekComparison",
+      "rootSessionsDuplicate",
+      "rootTurnsDuplicate",
+      "rootTokenAccountingDuplicate",
     ],
   };
   const projectionHash = computeProjectionHash(body);

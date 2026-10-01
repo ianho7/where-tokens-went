@@ -1063,9 +1063,6 @@ function projectKeySessionAnalysisInput(context, audit, evidence, directory) {
         outputContractVersion: lane_contract_1.OUTPUT_CONTRACT_VERSION,
         directory,
         audit: projectedAudit,
-        sessions: topSessions,
-        turns: topTurns,
-        keySessionTokenAccounting: topAccounting,
         contentEvidencePackets: scopedPackets,
         omittedFields: [
             "rankings.projects",
@@ -1078,6 +1075,9 @@ function projectKeySessionAnalysisInput(context, audit, evidence, directory) {
             "turnCandidates",
             "view",
             "weekComparison",
+            "rootSessionsDuplicate",
+            "rootTurnsDuplicate",
+            "rootTokenAccountingDuplicate",
         ],
     };
     const projectionHash = computeProjectionHash(body);
