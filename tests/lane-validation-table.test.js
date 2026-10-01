@@ -6,6 +6,7 @@ const path = require('node:path');
 const {
   validateReportSynthesis,
   validateKeySessionAnalysis,
+  sanitizeKeySessionAnalysis,
   auditFingerprint,
   resolveReportEvidence,
 } = require('../dist/src/key-session-analysis.js');
@@ -554,4 +555,227 @@ test('AC 3: data contract owner proof: table-driven evidence resolution, metric 
   assert.equal(acceptedAnomaly.length, 1, 'Behavior anomalies must be capped at exactly 1');
   assert.equal(acceptedTopology.length, 1, 'Usage topologies must be capped at exactly 1');
   assert.equal(limitResult.insights.length, 4, 'Total accepted cards must be exactly 2+1+1=4');
+});
+
+test('0037: partial history privacy boundary (AC-1 to AC-4)', () => {
+  const audit = makeFixtureAudit();
+  const fingerprint = auditFingerprint(audit);
+  const turn1EvidenceId = audit.turns[0].evidenceId;
+  const turn2EvidenceId = audit.turns[1].evidenceId;
+
+  // --- AC-1: Partial match (80 chars in 450 chars evidence), CRLF/whitespace variants, and full replacement ---
+  const excerpt80 = 'SELECT users.id, users.email, users.password_hash FROM production_orders_cluster;'; // 81 chars
+  assert.ok(excerpt80.length >= 40, 'excerpt80 must be at least 40 code units');
+  const content450 = 'PRE_PADDING_'.repeat(15) + excerpt80 + '_POST_PADDING_'.repeat(15) + '…';
+  assert.ok(content450.length >= 450, 'content450 must be at least 450 chars');
+
+  const packetSession1 = {
+    sessionId: 'session-1',
+    turnIds: ['turn-1'],
+    selectionReason: 'top-token turn',
+    unreadScope: 'none',
+    scope: audit.scope,
+    items: [
+      { kind: 'assistant', content: content450 },
+    ],
+  };
+
+  // Candidate with 80-char partial excerpt with CRLF and multiple spaces in observation, and verbatim in action
+  const candidatePartial = {
+    sessionId: 'session-1',
+    auditFingerprint: fingerprint,
+    taskContext: 'Paraphrased investigation of query execution in turn 1.',
+    primaryFinding: {
+      observation: `Observed query execution:\r\n  SELECT users.id,   users.email,\r\n  users.password_hash FROM production_orders_cluster;\r\nin execution log.`,
+      interpretation: 'Database queries in turn 1 kept input context footprint high.',
+      evidenceIds: [turn1EvidenceId],
+      support: 'moderate',
+      alternativeExplanations: ['Query complexity requires database schema context.'],
+    },
+    recommendation: {
+      action: `Avoid embedding verbatim query ${excerpt80} across subsequent calls.`,
+      rationale: 'Reduces prompt token growth across subsequent turns.',
+      applicability: 'Database inspection tasks.',
+      tradeoff: null,
+      verification: 'Check turn 2 input tokens on next query.',
+      targetEvidenceIds: [turn1EvidenceId],
+    },
+    evidenceRead: { turnIds: ['turn-1'], selectionReason: 'top-token turn', unreadScope: 'none' },
+    limitations: ['Token accounting was not reconciled for this session; conclusions are based on observed tool and turn behavior.'],
+  };
+
+  // 1. Validator rejects unredacted partial citation
+  const valBefore = validateKeySessionAnalysis(audit, candidatePartial, [packetSession1]);
+  assert.equal(valBefore.valid, false, 'Unredacted partial excerpt must be rejected by validator');
+  assert.ok(valBefore.errors.some((e) => e.includes('repeats raw historical content')));
+
+  // 2. Sanitizer replaces CRLF/whitespace variant and verbatim action
+  const { sanitized: sanitized1, redactions: redactions1 } = sanitizeKeySessionAnalysis(candidatePartial, [packetSession1]);
+  assert.equal(redactions1.length, 2, 'Must record 2 redactions for observation and action');
+  assert.equal(sanitized1.primaryFinding.observation.includes(excerpt80), false, 'Observation must not contain excerpt80');
+  assert.equal(sanitized1.primaryFinding.observation.includes('SELECT users.id'), false, 'Observation must not contain variant query');
+  assert.ok(sanitized1.primaryFinding.observation.includes('[已移除直接引用的历史内容]'), 'Observation must include redaction placeholder');
+  assert.ok(sanitized1.primaryFinding.observation.includes('Observed query execution:'), 'Observation structure outside excerpt must be preserved');
+  assert.ok(sanitized1.recommendation.action.includes('[已移除直接引用的历史内容]'), 'Action must include redaction placeholder');
+
+  // 3. Validator accepts sanitized object
+  const valAfter = validateKeySessionAnalysis(audit, sanitized1, [packetSession1]);
+  assert.equal(valAfter.valid, true, `Sanitized candidate must be accepted: ${valAfter.errors.join('; ')}`);
+
+  // --- AC-2: Field isolation, no kind exemption, and short credential boundary ---
+  // Field isolation: 25 chars in taskContext, 25 chars in observation - cannot concatenate across fields
+  const boundaryText = 'BOUNDARY_PIECE_ALPHA_12345_BOUNDARY_PIECE_BETA_67890'; // 52 chars
+  const packetBoundary = {
+    sessionId: 'session-1',
+    turnIds: ['turn-1'],
+    selectionReason: 'top-token turn',
+    unreadScope: 'none',
+    scope: audit.scope,
+    items: [{ kind: 'tool', content: boundaryText }],
+  };
+  const candidateIsolatedFields = {
+    ...sanitized1,
+    taskContext: `Investigating ${boundaryText.slice(0, 25)}.`, // 25 chars < 40
+    primaryFinding: {
+      ...sanitized1.primaryFinding,
+      observation: `${boundaryText.slice(25)} appeared in tool output.`, // 27 chars < 40
+    },
+  };
+  const { sanitized: sanitizedIso, redactions: redIso } = sanitizeKeySessionAnalysis(candidateIsolatedFields, [packetBoundary]);
+  assert.equal(redIso.length, 0, 'Must NOT create false match by concatenating adjacent fields');
+  assert.equal(sanitizedIso.taskContext, candidateIsolatedFields.taskContext);
+
+  // Kind exemption check: user and tool kinds are equally redacted
+  const userText = 'USER_INTENT_COMMAND_STRING_REPEATED_OVER_FORTY_UNITS_TEST';
+  const toolText = 'TOOL_OUTPUT_BUFFER_RAW_DATA_STREAM_EXCEEDING_FORTY_UNITS';
+  const packetKinds = {
+    sessionId: 'session-1',
+    turnIds: ['turn-1'],
+    selectionReason: 'top-token turn',
+    unreadScope: 'none',
+    scope: audit.scope,
+    items: [
+      { kind: 'user', content: userText },
+      { kind: 'tool', content: toolText },
+    ],
+  };
+  const candidateKinds = {
+    ...sanitized1,
+    primaryFinding: {
+      ...sanitized1.primaryFinding,
+      observation: `User entered ${userText} and received ${toolText}.`,
+    },
+  };
+  const { sanitized: sanitizedKinds, redactions: redKinds } = sanitizeKeySessionAnalysis(candidateKinds, [packetKinds]);
+  assert.equal(redKinds.length, 1);
+  assert.equal(redKinds[0].count, 2, 'Both user and tool historical contents must be redacted without kind exemption');
+  assert.equal(sanitizedKinds.primaryFinding.observation.includes(userText), false);
+  assert.equal(sanitizedKinds.primaryFinding.observation.includes(toolText), false);
+
+  // Short credential rule (< 40 chars not exempt)
+  const candidateWithShortCred = {
+    ...sanitized1,
+    recommendation: {
+      ...sanitized1.recommendation,
+      action: 'Run command with api_key=sk-secret-12345.', // 28 chars < 40
+    },
+  };
+  const valCred = validateKeySessionAnalysis(audit, candidateWithShortCred, [packetSession1]);
+  assert.equal(valCred.valid, false, 'Unredacted credential must be rejected even when under 40 chars');
+  assert.ok(valCred.errors.some((e) => e.includes('contains unredacted credentials')));
+
+  // Legitimate redactions (<redacted> or [已移除直接引用的历史内容]) do not trip credential rule
+  const candidateSafeCred = {
+    ...sanitized1,
+    recommendation: {
+      ...sanitized1.recommendation,
+      action: 'Run command with api_key=<redacted>.',
+    },
+  };
+  const valSafeCred = validateKeySessionAnalysis(audit, candidateSafeCred, [packetSession1]);
+  assert.equal(valSafeCred.valid, true, 'Legitimate placeholder must not be rejected as unredacted credential');
+
+  // --- AC-3: Deliverability: only placeholder remaining results in null finding and removed dependent recommendation ---
+  // Session 1 copies entire 80-char evidence as observation: sanitized observation is only placeholder
+  const candidateOnlyPlaceholder = {
+    ...candidatePartial,
+    primaryFinding: {
+      ...candidatePartial.primaryFinding,
+      observation: excerpt80, // Entire observation is the raw evidence
+    },
+  };
+  const { sanitized: sanitizedS1, redactions: redS1 } = sanitizeKeySessionAnalysis(candidateOnlyPlaceholder, [packetSession1]);
+  assert.equal(sanitizedS1.primaryFinding, null, 'primaryFinding must be null when observation has only placeholder and punctuation');
+  assert.equal(sanitizedS1.recommendation, null, 'recommendation must be null when dependent primaryFinding becomes null');
+  assert.ok(sanitizedS1.limitations.some((l) => l.includes('mechanism is unavailable')), 'limitations must state explicit unknown mechanism');
+  // Sanitized Session 1 alone is valid as an explicit unknown finding
+  const valS1 = validateKeySessionAnalysis(audit, sanitizedS1, [packetSession1]);
+  assert.equal(valS1.valid, true, `Session 1 with null finding must be valid as explicit unknown: ${valS1.errors.join('; ')}`);
+
+  // Session 2 is an independent legitimate session
+  const candidateSession2 = {
+    sessionId: 'session-2',
+    auditFingerprint: fingerprint,
+    taskContext: 'Independent legitimate task context.',
+    primaryFinding: {
+      observation: 'Independent valid observation in session 2.',
+      interpretation: 'Independent valid interpretation in session 2.',
+      evidenceIds: [turn2EvidenceId],
+      support: 'strong',
+      alternativeExplanations: ['Alternative legitimate reason.'],
+    },
+    recommendation: {
+      action: 'Independent valid action.',
+      rationale: 'Independent valid rationale.',
+      applicability: 'All tasks.',
+      tradeoff: null,
+      verification: 'Independent verification check.',
+      targetEvidenceIds: [turn2EvidenceId],
+    },
+    evidenceRead: { turnIds: ['turn-2'], selectionReason: 'top-token turn', unreadScope: 'none' },
+    limitations: ['Independent limitation.'],
+  };
+  const packetSession2 = {
+    sessionId: 'session-2',
+    turnIds: ['turn-2'],
+    selectionReason: 'top-token turn',
+    unreadScope: 'none',
+    scope: audit.scope,
+    items: [{ kind: 'assistant', content: 'Short assistant text without overlap.' }],
+  };
+  const { sanitized: sanitizedS2 } = sanitizeKeySessionAnalysis(candidateSession2, [packetSession2]);
+  assert.ok(sanitizedS2.primaryFinding !== null, 'Session 2 primaryFinding must be preserved');
+  assert.ok(sanitizedS2.recommendation !== null, 'Session 2 recommendation must be preserved');
+  const valS2 = validateKeySessionAnalysis(audit, sanitizedS2, [packetSession2]);
+  assert.equal(valS2.valid, true, `Session 2 must remain valid: ${valS2.errors.join('; ')}`);
+
+  // --- AC-4: Raw/hash/diagnostics, idempotence, and single HTML rendering proof ---
+  // Diagnostics check: diagnostics only contain code, fieldPath, count; NEVER verbatim excerpt
+  const diagString = JSON.stringify(redactions1);
+  assert.equal(diagString.includes(excerpt80), false, 'Diagnostics must not contain raw sensitive excerpt');
+  for (const diag of redactions1) {
+    assert.equal(diag.code, 'RAW_EVIDENCE_REDACTED');
+    assert.equal(typeof diag.fieldPath, 'string');
+    assert.equal(typeof diag.count, 'number');
+  }
+
+  // Idempotence check: repeating sanitize on already sanitized produces identical result with 0 redactions
+  const { sanitized: idempotentSanitized, redactions: idempotentRedactions } = sanitizeKeySessionAnalysis(sanitized1, [packetSession1]);
+  assert.equal(idempotentRedactions.length, 0, 'Re-sanitizing already sanitized analysis must produce 0 redactions');
+  assert.deepEqual(idempotentSanitized, sanitized1, 'Re-sanitizing must be idempotent');
+
+  // HTML rendering proof: verify HTML does NOT reproduce sensitive excerpt and DOES contain redaction placeholder
+  const htmlOutput = renderHtml(
+    audit,
+    'en-US',
+    {
+      auditFingerprint: fingerprint,
+      audit,
+      reportSynthesis: null,
+      keySessionAnalyses: [sanitized1, sanitizedS2],
+    },
+  );
+  assert.equal(htmlOutput.includes(excerpt80), false, 'Rendered HTML must NOT contain sensitive excerpt');
+  assert.ok(htmlOutput.includes('[已移除直接引用的历史内容]'), 'Rendered HTML must contain redaction placeholder');
+  assert.ok(htmlOutput.includes('Independent legitimate task context'), 'Rendered HTML must contain preserved session 2 content');
 });

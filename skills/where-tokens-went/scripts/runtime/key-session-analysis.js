@@ -397,84 +397,160 @@ function validateReportSynthesis(audit, synthesis) {
         synthesis: null,
     };
 }
-function sanitizeKeySessionAnalysis(analysis, packets) {
-    if (!packets || packets.length === 0) {
-        return { sanitized: analysis, redactions: [] };
+function normalizeWhitespaceMapping(orig) {
+    let normalized = "";
+    const normToOrigStart = [];
+    const normToOrigEnd = [];
+    let p = 0;
+    while (p < orig.length) {
+        if (/\s/u.test(orig[p])) {
+            const start = p;
+            while (p < orig.length && /\s/u.test(orig[p])) {
+                p++;
+            }
+            const normIdx = normalized.length;
+            normalized += " ";
+            normToOrigStart[normIdx] = start;
+            normToOrigEnd[normIdx] = p;
+        }
+        else {
+            const normIdx = normalized.length;
+            normalized += orig[p];
+            normToOrigStart[normIdx] = p;
+            normToOrigEnd[normIdx] = p + 1;
+            p++;
+        }
     }
-    const rawNeedles = new Set();
+    return { normalized, normToOrigStart, normToOrigEnd };
+}
+function extractHistoryNorms(packets) {
+    if (!packets || packets.length === 0)
+        return [];
+    const norms = new Set();
     for (const packet of packets) {
         for (const item of packet.items ?? []) {
             if (typeof item.content === "string") {
-                const cleaned = item.content.replace(/…$/, "");
-                if (cleaned.length >= 40) {
-                    rawNeedles.add(cleaned);
+                const unellipsed = item.content.replace(/(?:…|\.{3})$/, "");
+                const normalized = unellipsed.replace(/\s+/gu, " ").trim();
+                if (normalized.length >= 40) {
+                    norms.add(normalized);
                 }
             }
         }
     }
-    if (rawNeedles.size === 0) {
-        return { sanitized: analysis, redactions: [] };
+    return [...norms];
+}
+function findRawEvidenceSpans(text, historyNorms, minLength = 40) {
+    if (!text || text.length < minLength || historyNorms.length === 0) {
+        return [];
     }
-    const needles = [...rawNeedles].sort((a, b) => b.length - a.length);
-    const redactions = [];
-    function redactField(text, path) {
-        let current = text;
-        for (const needle of needles) {
-            if (current.includes(needle)) {
-                const count = current.split(needle).length - 1;
-                current = current.replaceAll(needle, "[已移除直接引用的历史内容]");
-                redactions.push({ code: "RAW_EVIDENCE_REDACTED", fieldPath: path, count });
+    const { normalized, normToOrigStart, normToOrigEnd } = normalizeWhitespaceMapping(text);
+    if (normalized.length < minLength) {
+        return [];
+    }
+    const candidates = [];
+    for (const hist of historyNorms) {
+        if (hist.length < minLength)
+            continue;
+        let i = 0;
+        while (i <= normalized.length - minLength) {
+            const probe = normalized.slice(i, i + minLength);
+            if (!hist.includes(probe)) {
+                i++;
+                continue;
+            }
+            let low = minLength;
+            let high = normalized.length - i;
+            let bestLen = minLength;
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                if (hist.includes(normalized.slice(i, i + mid))) {
+                    bestLen = mid;
+                    low = mid + 1;
+                }
+                else {
+                    high = mid - 1;
+                }
+            }
+            const origStart = normToOrigStart[i];
+            const origEnd = normToOrigEnd[i + bestLen - 1];
+            candidates.push({ origStart, origEnd, normLen: bestLen });
+            i++;
+        }
+    }
+    if (candidates.length === 0) {
+        return [];
+    }
+    // 最长匹配优先替换，重叠片段一次处理
+    candidates.sort((a, b) => b.normLen - a.normLen || a.origStart - b.origStart);
+    const accepted = [];
+    for (const cand of candidates) {
+        let merged = false;
+        for (let k = 0; k < accepted.length; k++) {
+            const existing = accepted[k];
+            if (Math.max(cand.origStart, existing.origStart) <= Math.min(cand.origEnd, existing.origEnd)) {
+                existing.origStart = Math.min(existing.origStart, cand.origStart);
+                existing.origEnd = Math.max(existing.origEnd, cand.origEnd);
+                merged = true;
+                break;
             }
         }
-        return current;
+        if (!merged) {
+            accepted.push({ origStart: cand.origStart, origEnd: cand.origEnd });
+        }
     }
-    const sanitized = {
-        ...analysis,
-        taskContext: typeof analysis.taskContext === "string" ? redactField(analysis.taskContext, "taskContext") : analysis.taskContext,
-        primaryFinding: analysis.primaryFinding
-            ? {
-                ...analysis.primaryFinding,
-                observation: typeof analysis.primaryFinding.observation === "string"
-                    ? redactField(analysis.primaryFinding.observation, "primaryFinding.observation")
-                    : analysis.primaryFinding.observation,
-                interpretation: typeof analysis.primaryFinding.interpretation === "string"
-                    ? redactField(analysis.primaryFinding.interpretation, "primaryFinding.interpretation")
-                    : analysis.primaryFinding.interpretation,
-                alternativeExplanations: Array.isArray(analysis.primaryFinding.alternativeExplanations)
-                    ? analysis.primaryFinding.alternativeExplanations.map((alt, i) => typeof alt === "string" ? redactField(alt, `primaryFinding.alternativeExplanations[${i}]`) : alt)
-                    : analysis.primaryFinding.alternativeExplanations,
+    accepted.sort((a, b) => a.origStart - b.origStart);
+    const finalSpans = [];
+    for (const span of accepted) {
+        if (finalSpans.length === 0) {
+            finalSpans.push(span);
+        }
+        else {
+            const prev = finalSpans[finalSpans.length - 1];
+            if (span.origStart <= prev.origEnd) {
+                prev.origEnd = Math.max(prev.origEnd, span.origEnd);
             }
-            : null,
-        recommendation: analysis.recommendation
-            ? {
-                ...analysis.recommendation,
-                action: typeof analysis.recommendation.action === "string"
-                    ? redactField(analysis.recommendation.action, "recommendation.action")
-                    : analysis.recommendation.action,
-                rationale: typeof analysis.recommendation.rationale === "string"
-                    ? redactField(analysis.recommendation.rationale, "recommendation.rationale")
-                    : analysis.recommendation.rationale,
-                applicability: typeof analysis.recommendation.applicability === "string"
-                    ? redactField(analysis.recommendation.applicability, "recommendation.applicability")
-                    : analysis.recommendation.applicability,
-                tradeoff: typeof analysis.recommendation.tradeoff === "string"
-                    ? redactField(analysis.recommendation.tradeoff, "recommendation.tradeoff")
-                    : analysis.recommendation.tradeoff,
-                verification: typeof analysis.recommendation.verification === "string"
-                    ? redactField(analysis.recommendation.verification, "recommendation.verification")
-                    : analysis.recommendation.verification,
+            else {
+                finalSpans.push(span);
             }
-            : null,
-        limitations: Array.isArray(analysis.limitations)
-            ? analysis.limitations.map((lim, i) => typeof lim === "string" ? redactField(lim, `limitations[${i}]`) : lim)
-            : analysis.limitations,
-    };
-    return { sanitized, redactions };
+        }
+    }
+    return finalSpans;
 }
-function containsRawEvidence(analysis, packets) {
-    if (!packets)
+function redactTextField(text, path, historyNorms, redactions) {
+    const spans = findRawEvidenceSpans(text, historyNorms, 40);
+    if (spans.length === 0) {
+        return text;
+    }
+    let current = text;
+    for (let j = spans.length - 1; j >= 0; j--) {
+        current = current.slice(0, spans[j].origStart) + "[已移除直接引用的历史内容]" + current.slice(spans[j].origEnd);
+    }
+    redactions.push({
+        code: "RAW_EVIDENCE_REDACTED",
+        fieldPath: path,
+        count: spans.length,
+    });
+    return current;
+}
+function isOnlyPlaceholderAndPunctuation(text) {
+    if (typeof text !== "string")
         return false;
-    const text = [
+    const withoutPlaceholder = text.replaceAll("[已移除直接引用的历史内容]", "");
+    const meaningful = withoutPlaceholder.replace(/[\p{P}\p{S}\s]/gu, "");
+    return meaningful.length === 0;
+}
+const CREDENTIAL_PATTERNS = [
+    /(?:api[_-]?key|access[_-]?token|password|secret|credential)\s*[:=]\s*["']?(?!<redacted>|\[已移除)[^\s,"'}]+/i,
+    /Bearer\s+(?!<redacted>|\[已移除)[A-Za-z0-9._-]+/i,
+];
+function stringContainsUnredactedCredentials(text) {
+    if (typeof text !== "string")
+        return false;
+    return CREDENTIAL_PATTERNS.some((pattern) => pattern.test(text));
+}
+function containsUnredactedCredentials(analysis) {
+    const fields = [
         analysis.taskContext,
         analysis.primaryFinding?.observation,
         analysis.primaryFinding?.interpretation,
@@ -485,8 +561,114 @@ function containsRawEvidence(analysis, packets) {
         analysis.recommendation?.tradeoff,
         analysis.recommendation?.verification,
         ...(analysis.limitations ?? []),
-    ].filter(nonEmpty).join("\n");
-    return packets.some((packet) => packet.items.some((item) => item.content.length >= 40 && text.includes(item.content.replace(/…$/, ""))));
+    ];
+    return fields.some((field) => stringContainsUnredactedCredentials(field));
+}
+function sanitizeKeySessionAnalysis(analysis, packets) {
+    if (!packets || packets.length === 0) {
+        return { sanitized: analysis, redactions: [] };
+    }
+    const historyNorms = extractHistoryNorms(packets);
+    if (historyNorms.length === 0) {
+        return { sanitized: analysis, redactions: [] };
+    }
+    const redactions = [];
+    const redact = (text, path) => redactTextField(text, path, historyNorms, redactions);
+    const sanitized = {
+        ...analysis,
+        taskContext: typeof analysis.taskContext === "string" ? redact(analysis.taskContext, "taskContext") : analysis.taskContext,
+        primaryFinding: analysis.primaryFinding
+            ? {
+                ...analysis.primaryFinding,
+                observation: typeof analysis.primaryFinding.observation === "string"
+                    ? redact(analysis.primaryFinding.observation, "primaryFinding.observation")
+                    : analysis.primaryFinding.observation,
+                interpretation: typeof analysis.primaryFinding.interpretation === "string"
+                    ? redact(analysis.primaryFinding.interpretation, "primaryFinding.interpretation")
+                    : analysis.primaryFinding.interpretation,
+                alternativeExplanations: Array.isArray(analysis.primaryFinding.alternativeExplanations)
+                    ? analysis.primaryFinding.alternativeExplanations.map((alt, i) => typeof alt === "string" ? redact(alt, `primaryFinding.alternativeExplanations[${i}]`) : alt)
+                    : analysis.primaryFinding.alternativeExplanations,
+            }
+            : null,
+        recommendation: analysis.recommendation
+            ? {
+                ...analysis.recommendation,
+                action: typeof analysis.recommendation.action === "string"
+                    ? redact(analysis.recommendation.action, "recommendation.action")
+                    : analysis.recommendation.action,
+                rationale: typeof analysis.recommendation.rationale === "string"
+                    ? redact(analysis.recommendation.rationale, "recommendation.rationale")
+                    : analysis.recommendation.rationale,
+                applicability: typeof analysis.recommendation.applicability === "string"
+                    ? redact(analysis.recommendation.applicability, "recommendation.applicability")
+                    : analysis.recommendation.applicability,
+                tradeoff: typeof analysis.recommendation.tradeoff === "string"
+                    ? redact(analysis.recommendation.tradeoff, "recommendation.tradeoff")
+                    : analysis.recommendation.tradeoff,
+                verification: typeof analysis.recommendation.verification === "string"
+                    ? redact(analysis.recommendation.verification, "recommendation.verification")
+                    : analysis.recommendation.verification,
+            }
+            : null,
+        limitations: Array.isArray(analysis.limitations)
+            ? analysis.limitations.map((lim, i) => typeof lim === "string" ? redact(lim, `limitations[${i}]`) : lim)
+            : analysis.limitations,
+    };
+    // 必需解释脱敏后只剩占位符时，输出明确未知并移除依赖该解释的建议；独立合法内容继续保留。
+    let primaryFinding = sanitized.primaryFinding;
+    let recommendation = sanitized.recommendation;
+    let limitations = Array.isArray(sanitized.limitations) ? [...sanitized.limitations] : [];
+    if (primaryFinding !== null) {
+        const obsBlank = isOnlyPlaceholderAndPunctuation(primaryFinding.observation);
+        const intBlank = isOnlyPlaceholderAndPunctuation(primaryFinding.interpretation);
+        if (obsBlank || intBlank) {
+            primaryFinding = null;
+            recommendation = null;
+            const unavailableMsg = "Primary mechanism observation or interpretation contained only directly cited historical content and was redacted; mechanism is unavailable.";
+            if (!limitations.includes(unavailableMsg)) {
+                limitations.push(unavailableMsg);
+            }
+        }
+    }
+    if (recommendation !== null) {
+        const actBlank = isOnlyPlaceholderAndPunctuation(recommendation.action);
+        const ratBlank = isOnlyPlaceholderAndPunctuation(recommendation.rationale);
+        if (actBlank || ratBlank) {
+            recommendation = null;
+            const unavailableMsg = "Proposed action or rationale contained only directly cited historical content and was redacted; recommendation is unavailable.";
+            if (!limitations.includes(unavailableMsg)) {
+                limitations.push(unavailableMsg);
+            }
+        }
+    }
+    if (isOnlyPlaceholderAndPunctuation(sanitized.taskContext)) {
+        sanitized.taskContext = "Task context contained only directly cited historical content and was redacted; specific task is unavailable.";
+    }
+    sanitized.primaryFinding = primaryFinding;
+    sanitized.recommendation = recommendation;
+    sanitized.limitations = limitations;
+    return { sanitized, redactions };
+}
+function containsRawEvidence(analysis, packets) {
+    if (!packets || packets.length === 0)
+        return false;
+    const historyNorms = extractHistoryNorms(packets);
+    if (historyNorms.length === 0)
+        return false;
+    const fields = [
+        analysis.taskContext,
+        analysis.primaryFinding?.observation,
+        analysis.primaryFinding?.interpretation,
+        ...(analysis.primaryFinding?.alternativeExplanations ?? []),
+        analysis.recommendation?.action,
+        analysis.recommendation?.rationale,
+        analysis.recommendation?.applicability,
+        analysis.recommendation?.tradeoff,
+        analysis.recommendation?.verification,
+        ...(analysis.limitations ?? []),
+    ];
+    return fields.some((field) => typeof field === "string" && findRawEvidenceSpans(field, historyNorms, 40).length > 0);
 }
 function contentEvidenceInsufficient(audit, analysis, packets) {
     const turnIds = analysis.evidenceRead?.turnIds;
@@ -566,6 +748,8 @@ function validateKeySessionAnalysis(audit, analysis, packets) {
     if (analysis.primaryFinding !== null && packets !== undefined && contentEvidenceInsufficient(audit, analysis, packets)) {
         errors.push("Content Evidence is insufficient for a primaryFinding; primaryFinding and recommendation must be null.");
     }
+    if (containsUnredactedCredentials(analysis))
+        errors.push("analysis contains unredacted credentials.");
     if (containsRawEvidence(analysis, packets))
         errors.push("analysis repeats raw historical content instead of a paraphrase.");
     return { valid: errors.length === 0, errors: [...new Set(errors)], analysis: errors.length === 0 ? analysis : null };
