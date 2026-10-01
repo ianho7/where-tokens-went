@@ -7,6 +7,7 @@ import type {
   ContentEvidencePacket,
   ContentEvidenceScope,
   ContentEvidenceSelection,
+  TurnAnalysisEntry,
 } from "./types";
 
 type JsonObject = Record<string, unknown>;
@@ -81,6 +82,24 @@ async function jsonlFiles(root: string, prefix?: string): Promise<string[]> {
   return files.sort();
 }
 
+function truncateUtf16(content: string, maxChars: number): { content: string; truncated: boolean } {
+  if (content.length <= maxChars) {
+    return { content, truncated: false };
+  }
+  const ellipsis = "…";
+  let limit = Math.max(0, maxChars - ellipsis.length);
+  if (limit > 0) {
+    const code = content.charCodeAt(limit - 1);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      limit -= 1;
+    }
+  }
+  return {
+    content: content.slice(0, limit) + ellipsis,
+    truncated: true,
+  };
+}
+
 function redactedContent(value: unknown, maxChars: number): { content: string; truncated: boolean } {
   let content: string;
   if (typeof value === "string") content = value;
@@ -90,8 +109,7 @@ function redactedContent(value: unknown, maxChars: number): { content: string; t
   content = content
     .replace(/((?:api[_-]?key|access[_-]?token|password|secret|credential)\s*[:=]\s*["']?)[^\s,"'}]+/gi, "$1<redacted>")
     .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer <redacted>");
-  const truncated = Array.from(content).length > maxChars;
-  return { content: truncated ? Array.from(content).slice(0, maxChars).join("") + "…" : content, truncated };
+  return truncateUtf16(content, maxChars);
 }
 
 function contentValue(record: JsonObject, payload: JsonObject): unknown {
@@ -102,14 +120,44 @@ function contentValue(record: JsonObject, payload: JsonObject): unknown {
 
 function classify(record: JsonObject, payload: JsonObject): ContentEvidenceItem["kind"] {
   const item = objectValue(payload.item) ?? objectValue(payload.tool_item);
-  const type = [record.type, payload.type, payload.item_type, payload.itemType, item?.type]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ")
-    .toLowerCase();
-  const role = (stringValue(payload.role, objectValue(payload.message)?.role, objectValue(record.message)?.role, item?.role) ?? "").toLowerCase();
-  if (role === "user" || type.includes("user")) return "user";
-  if (role === "assistant" || type.includes("assistant") || type.includes("agent") || type.includes("response")) return "assistant";
-  if (type.includes("tool") || type.includes("function") || type.includes("shell") || type.includes("command") || type.includes("result") || type.includes("output")) return "tool";
+  const payloadType = stringValue(payload.type, payload.item_type, payload.itemType, item?.type)?.toLowerCase() ?? "";
+  const recordType = stringValue(record.type)?.toLowerCase() ?? "";
+
+  // 1. 先检查 payload 的实际形态是否为工具调用或输出
+  const isToolPayload =
+    payloadType.includes("function") ||
+    payloadType.includes("tool") ||
+    payloadType.includes("shell") ||
+    payloadType.includes("command") ||
+    payloadType.includes("action") ||
+    payloadType.includes("output") ||
+    payloadType.includes("result") ||
+    payloadType === "call" ||
+    stringValue(payload.call_id, payload.callId, payload.tool_call_id, payload.toolCallId) !== null;
+
+  if (isToolPayload && payloadType !== "message") {
+    return "tool";
+  }
+
+  // 2. message 按 role 分类
+  const role = (
+    stringValue(payload.role, objectValue(payload.message)?.role, objectValue(record.message)?.role, item?.role) ?? ""
+  ).toLowerCase();
+
+  if (role === "user" || payloadType === "user" || recordType === "user") return "user";
+  if (role === "assistant" || payloadType === "assistant" || recordType === "assistant" || payloadType.includes("agent") || payloadType.includes("reasoning")) return "assistant";
+  if (role === "tool") return "tool";
+
+  // 3. 兜底检查 recordType
+  if (
+    recordType.includes("tool") ||
+    recordType.includes("function") ||
+    recordType.includes("shell") ||
+    recordType.includes("command")
+  ) {
+    return "tool";
+  }
+
   return "metadata";
 }
 
@@ -121,10 +169,121 @@ function stableIds(record: JsonObject, payload: JsonObject): { callId: string | 
   };
 }
 
-function withinSelection(item: { turnId: string | null; callId: string | null }, selection: ContentEvidenceSelection): boolean {
-  if (selection.callIds?.length && item.callId && selection.callIds.includes(item.callId)) return true;
-  if (item.turnId && selection.turnIds.includes(item.turnId)) return true;
-  return selection.turnIds.length === 1 && !selection.callIds?.length && item.turnId === null;
+function buildCallTurnMap(audit: AuditResult): Map<string, string> {
+  const map = new Map<string, string>();
+  const auditAny = audit as unknown as Record<string, unknown>;
+  const toolCalls = Array.isArray(auditAny.toolCalls) ? auditAny.toolCalls as Array<{ sessionId?: string; callId?: string; turnId?: string }> : [];
+  for (const tc of toolCalls) {
+    if (tc.sessionId && tc.callId && tc.turnId) {
+      map.set(`${tc.sessionId}:${tc.callId}`, tc.turnId);
+    }
+  }
+  const modelCalls = Array.isArray(auditAny.modelCalls) ? auditAny.modelCalls as Array<{ sessionId?: string; callId?: string; turnId?: string }> : [];
+  for (const mc of modelCalls) {
+    if (mc.sessionId && mc.callId && mc.turnId) {
+      map.set(`${mc.sessionId}:${mc.callId}`, mc.turnId);
+    }
+  }
+  return map;
+}
+
+function allocateSessionItems(
+  selection: ContentEvidenceSelection,
+  candidates: ContentEvidenceItem[],
+  audit: AuditResult,
+  maxItems: number,
+  maxCharsPerItem: number,
+  hadUnattributed: boolean,
+): { items: ContentEvidenceItem[]; warnings: string[] } {
+  const itemsByTurn = new Map<string, ContentEvidenceItem[]>();
+  for (const turnId of selection.turnIds) {
+    itemsByTurn.set(turnId, []);
+  }
+  for (const item of candidates) {
+    if (item.turnId && itemsByTurn.has(item.turnId)) {
+      itemsByTurn.get(item.turnId)!.push(item);
+    }
+  }
+
+  const allocatedItems: ContentEvidenceItem[] = [];
+  const usedItems = new Set<ContentEvidenceItem>();
+
+  // Phase 1: 每个已选 Turn 的第一条 user 消息
+  for (const turnId of selection.turnIds) {
+    if (allocatedItems.length >= maxItems) break;
+    const turnItems = itemsByTurn.get(turnId) ?? [];
+    const firstUser = turnItems.find((it) => it.kind === "user" && !usedItems.has(it));
+    if (firstUser) {
+      allocatedItems.push(firstUser);
+      usedItems.add(firstUser);
+    }
+  }
+
+  // Phase 2: 每个已选 Turn 的第一条 tool 或 assistant 结果
+  for (const turnId of selection.turnIds) {
+    if (allocatedItems.length >= maxItems) break;
+    const turnItems = itemsByTurn.get(turnId) ?? [];
+    const firstToolOrAssistant = turnItems.find(
+      (it) => (it.kind === "tool" || it.kind === "assistant") && !usedItems.has(it),
+    );
+    if (firstToolOrAssistant) {
+      allocatedItems.push(firstToolOrAssistant);
+      usedItems.add(firstToolOrAssistant);
+    }
+  }
+
+  // Phase 3: 按已选 Turn 时间顺序轮流补项直至 maxItems
+  let addedInRound = true;
+  while (allocatedItems.length < maxItems && addedInRound) {
+    addedInRound = false;
+    for (const turnId of selection.turnIds) {
+      if (allocatedItems.length >= maxItems) break;
+      const turnItems = itemsByTurn.get(turnId) ?? [];
+      const nextItem = turnItems.find((it) => !usedItems.has(it));
+      if (nextItem) {
+        allocatedItems.push(nextItem);
+        usedItems.add(nextItem);
+        addedInRound = true;
+      }
+    }
+  }
+
+  const warnings: string[] = [];
+
+  if (hadUnattributed) {
+    warnings.push("CONTENT_TURN_UNAVAILABLE: Unattributed content item could not be reliably associated with any Turn");
+  }
+
+  for (const turnId of selection.turnIds) {
+    const turnItems = itemsByTurn.get(turnId) ?? [];
+    if (turnItems.length === 0) {
+      warnings.push(`Turn ${turnId} has no recorded content in rollout transcript`);
+    } else if (!turnItems.some((it) => it.kind === "user")) {
+      warnings.push(`Turn ${turnId} is missing initial user context message`);
+    }
+  }
+
+  const truncatedCount = allocatedItems.filter((it) => it.truncated).length;
+  if (truncatedCount > 0) {
+    warnings.push(`${truncatedCount} content item(s) truncated to ${maxCharsPerItem} UTF-16 code units`);
+  }
+
+  if (candidates.length > allocatedItems.length) {
+    const omittedCount = candidates.length - allocatedItems.length;
+    warnings.push(`${omittedCount} content items omitted due to session budget limit (${maxItems} items)`);
+  }
+
+  const totalSessionTurns = (audit.turns ?? []).filter((t) => t.sessionId === selection.sessionId).length;
+  if (totalSessionTurns > selection.turnIds.length) {
+    const unreadTurns = totalSessionTurns - selection.turnIds.length;
+    warnings.push(`${unreadTurns} Turns in session remained unread outside selection budget`);
+  }
+
+  if (allocatedItems.length === 0) {
+    warnings.push("CONTENT_MISSING: No content items could be found or allocated for selected Turns");
+  }
+
+  return { items: allocatedItems, warnings };
 }
 
 function packet(scope: ContentEvidenceScope, selection: ContentEvidenceSelection, items: ContentEvidenceItem[], warnings: string[]): ContentEvidencePacket {
@@ -216,28 +375,56 @@ async function resolveDirectFiles(root: string, request: EvidenceRequest): Promi
 async function readCodexEvidence(request: EvidenceRequest): Promise<ContentEvidencePacket[]> {
   const root = process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
   const directFiles = await resolveDirectFiles(path.join(root, "sessions"), request);
-  const files = directFiles ?? await jsonlFiles(path.join(root, "sessions"), "rollout-");
+  const files = directFiles ?? (await jsonlFiles(path.join(root, "sessions"), "rollout-"));
   const selections = new Map(request.selections.map((selection) => [selection.sessionId, selection]));
-  const items = new Map<string, ContentEvidenceItem[]>();
-  const warnings = new Map<string, string[]>();
+  const callTurnMap = buildCallTurnMap(request.audit);
+  const rawCandidatesBySession = new Map<string, ContentEvidenceItem[]>();
+  const unattributedBySession = new Map<string, boolean>();
   const cwdBySession = new Map<string, string | null>();
   const scopeRejected = new Set<string>();
+
   for (const file of files) {
     let text: string;
-    try { text = await readFile(file, "utf8"); } catch { continue; }
+    try {
+      text = await readFile(file, "utf8");
+    } catch {
+      continue;
+    }
     const lines = text.split(/\r?\n/);
     let activeSessionId: string | null = null;
+    let currentTurnId: string | null = null;
+
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       if (!lines[lineIndex].trim()) continue;
       let parsed: unknown;
-      try { parsed = JSON.parse(lines[lineIndex]); } catch { continue; }
+      try {
+        parsed = JSON.parse(lines[lineIndex]);
+      } catch {
+        continue;
+      }
       const record = objectValue(parsed);
       if (!record) continue;
       const payload = recordPayload(record);
-      const type = (stringValue(record.type, payload.type) ?? "").toLowerCase();
-      const explicitSessionId = stringValue(record.session_id, record.sessionId, payload.session_id, payload.sessionId, payload.thread_id, payload.threadId);
-      if (type === "session_meta" || type === "session_metadata") {
-        activeSessionId = activeSessionId ?? stringValue(payload.id, payload.session_id, payload.sessionId, payload.thread_id, payload.threadId) ?? explicitSessionId;
+      const recordType = (stringValue(record.type) ?? "").toLowerCase();
+      const payloadType = (stringValue(payload.type, payload.event_type, payload.eventType, payload.item_type, payload.itemType) ?? "").toLowerCase();
+      const explicitSessionId = stringValue(
+        record.session_id,
+        record.sessionId,
+        payload.session_id,
+        payload.sessionId,
+        payload.thread_id,
+        payload.threadId,
+      );
+      if (
+        recordType === "session_meta" ||
+        recordType === "session_metadata" ||
+        payloadType === "session_meta" ||
+        payloadType === "session_metadata"
+      ) {
+        activeSessionId =
+          activeSessionId ??
+          stringValue(payload.id, payload.session_id, payload.sessionId, payload.thread_id, payload.threadId) ??
+          explicitSessionId;
         if (activeSessionId) cwdBySession.set(activeSessionId, stringValue(payload.cwd, payload.project_cwd, payload.projectCwd));
       }
       const sessionId = activeSessionId ?? explicitSessionId;
@@ -250,36 +437,114 @@ async function readCodexEvidence(request: EvidenceRequest): Promise<ContentEvide
       }
       const eventTime = timestamp(record, payload);
       if (!inScope(eventTime, request.scope)) continue;
+
+      if (
+        recordType === "turn_context" ||
+        payloadType === "turn_context" ||
+        recordType.includes("turn_context") ||
+        payloadType.includes("turn_context")
+      ) {
+        currentTurnId = stringValue(payload.turn_id, payload.turnId, record.turn_id, record.turnId) ?? currentTurnId;
+      } else if (
+        recordType === "task_started" ||
+        payloadType === "task_started" ||
+        recordType.includes("task_started") ||
+        payloadType.includes("task_started")
+      ) {
+        currentTurnId =
+          stringValue(payload.turn_id, payload.turnId, payload.task_id, payload.taskId, payload.id, record.turn_id, record.turnId) ??
+          currentTurnId;
+      }
+
       const ids = stableIds(record, payload);
-      if (!withinSelection(ids, selection)) continue;
+      if (ids.callId && (ids.turnId ?? currentTurnId)) {
+        callTurnMap.set(`${sessionId}:${ids.callId}`, (ids.turnId ?? currentTurnId)!);
+      }
+
       const value = contentValue(record, payload);
       if (value === undefined) continue;
-      const result = redactedContent(value, request.maxCharsPerItem ?? 1200);
-      const list = items.get(sessionId) ?? [];
-      if (list.length >= (request.maxItemsPerSession ?? 24)) continue;
-      list.push({ sessionId, turnId: ids.turnId, callId: ids.callId, kind: classify(record, payload), sourceLocation: "rollout:" + path.basename(file, ".jsonl") + "#" + (lineIndex + 1), ...result, untrusted: true });
-      items.set(sessionId, list);
+
+      const resolvedTurnId =
+        ids.turnId ??
+        currentTurnId ??
+        (ids.callId ? callTurnMap.get(`${sessionId}:${ids.callId}`) : null) ??
+        null;
+
+      if (!resolvedTurnId) {
+        unattributedBySession.set(sessionId, true);
+        continue;
+      }
+
+      if (!selection.turnIds.includes(resolvedTurnId)) {
+        continue;
+      }
+
+      const maxChars = request.maxCharsPerItem ?? 1200;
+      const result = redactedContent(value, maxChars);
+      const item: ContentEvidenceItem = {
+        sessionId,
+        turnId: resolvedTurnId,
+        callId: ids.callId,
+        kind: classify(record, payload),
+        sourceLocation: "rollout:" + path.basename(file, ".jsonl") + "#" + (lineIndex + 1),
+        ...result,
+        untrusted: true,
+      };
+
+      const list = rawCandidatesBySession.get(sessionId) ?? [];
+      list.push(item);
+      rawCandidatesBySession.set(sessionId, list);
     }
   }
+
   if (scopeRejected.size > 0) throw new Error("Content Evidence Session is outside the originating project scope.");
-  return request.selections.map((selection) => packet(request.scope, selection, items.get(selection.sessionId) ?? [], warnings.get(selection.sessionId) ?? []));
+
+  const maxItems = request.maxItemsPerSession ?? 24;
+  const maxChars = request.maxCharsPerItem ?? 1200;
+
+  return request.selections.map((selection) => {
+    const candidates = rawCandidatesBySession.get(selection.sessionId) ?? [];
+    const hadUnattributed = unattributedBySession.get(selection.sessionId) ?? false;
+    const { items, warnings } = allocateSessionItems(
+      selection,
+      candidates,
+      request.audit,
+      maxItems,
+      maxChars,
+      hadUnattributed,
+    );
+    return packet(request.scope, selection, items, warnings);
+  });
 }
 
 async function readClaudeEvidence(request: EvidenceRequest): Promise<ContentEvidencePacket[]> {
   const root = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
   const directFiles = await resolveDirectFiles(path.join(root, "projects"), request);
-  const files = directFiles ?? await jsonlFiles(path.join(root, "projects"));
+  const files = directFiles ?? (await jsonlFiles(path.join(root, "projects")));
   const selections = new Map(request.selections.map((selection) => [selection.sessionId, selection]));
-  const packets = new Map<string, ContentEvidenceItem[]>();
+  const callTurnMap = buildCallTurnMap(request.audit);
+  const rawCandidatesBySession = new Map<string, ContentEvidenceItem[]>();
+  const unattributedBySession = new Map<string, boolean>();
   const scopeRejected = new Set<string>();
+
   for (const file of files) {
     let text: string;
-    try { text = await readFile(file, "utf8"); } catch { continue; }
+    try {
+      text = await readFile(file, "utf8");
+    } catch {
+      continue;
+    }
     const lines = text.split(/\r?\n/);
+    let currentTurnId: string | null = null;
+
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       if (!lines[lineIndex].trim()) continue;
       let parsed: unknown;
-      try { parsed = JSON.parse(lines[lineIndex]); } catch { continue; }
+      try {
+        parsed = JSON.parse(lines[lineIndex]);
+      } catch {
+        continue;
+      }
       const record = objectValue(parsed);
       if (!record) continue;
       const payload = objectValue(record.message) ?? record;
@@ -293,19 +558,228 @@ async function readClaudeEvidence(request: EvidenceRequest): Promise<ContentEvid
       }
       const eventTime = timestamp(record, payload);
       if (!inScope(eventTime, request.scope)) continue;
+
       const ids = stableIds(record, payload);
-      if (!withinSelection(ids, selection) && !(selection.turnIds.length === 1 && !selection.callIds?.length && (stringValue(record.type) === "user" || stringValue(payload.role) === "user" || stringValue(record.type) === "assistant" || stringValue(payload.role) === "assistant"))) continue;
+      if (ids.turnId) currentTurnId = ids.turnId;
+      if (ids.callId && (ids.turnId ?? currentTurnId)) {
+        callTurnMap.set(`${sessionId}:${ids.callId}`, (ids.turnId ?? currentTurnId)!);
+      }
+
       const value = contentValue(record, payload);
       if (value === undefined) continue;
-      const result = redactedContent(value, request.maxCharsPerItem ?? 1200);
-      const list = packets.get(sessionId) ?? [];
-      if (list.length >= (request.maxItemsPerSession ?? 24)) continue;
-      list.push({ sessionId, turnId: ids.turnId, callId: ids.callId, kind: classify(record, payload), sourceLocation: "transcript:" + path.basename(file, ".jsonl") + "#" + (lineIndex + 1), ...result, untrusted: true });
-      packets.set(sessionId, list);
+
+      const resolvedTurnId =
+        ids.turnId ??
+        currentTurnId ??
+        (ids.callId ? callTurnMap.get(`${sessionId}:${ids.callId}`) : null) ??
+        null;
+
+      if (!resolvedTurnId) {
+        unattributedBySession.set(sessionId, true);
+        continue;
+      }
+
+      if (!selection.turnIds.includes(resolvedTurnId)) {
+        continue;
+      }
+
+      const maxChars = request.maxCharsPerItem ?? 1200;
+      const result = redactedContent(value, maxChars);
+      const item: ContentEvidenceItem = {
+        sessionId,
+        turnId: resolvedTurnId,
+        callId: ids.callId,
+        kind: classify(record, payload),
+        sourceLocation: "transcript:" + path.basename(file, ".jsonl") + "#" + (lineIndex + 1),
+        ...result,
+        untrusted: true,
+      };
+
+      const list = rawCandidatesBySession.get(sessionId) ?? [];
+      list.push(item);
+      rawCandidatesBySession.set(sessionId, list);
     }
   }
+
   if (scopeRejected.size > 0) throw new Error("Content Evidence Session is outside the originating project scope.");
-  return request.selections.map((selection) => packet(request.scope, selection, packets.get(selection.sessionId) ?? [], []));
+
+  const maxItems = request.maxItemsPerSession ?? 24;
+  const maxChars = request.maxCharsPerItem ?? 1200;
+
+  return request.selections.map((selection) => {
+    const candidates = rawCandidatesBySession.get(selection.sessionId) ?? [];
+    const hadUnattributed = unattributedBySession.get(selection.sessionId) ?? false;
+    const { items, warnings } = allocateSessionItems(
+      selection,
+      candidates,
+      request.audit,
+      maxItems,
+      maxChars,
+      hadUnattributed,
+    );
+    return packet(request.scope, selection, items, warnings);
+  });
+}
+
+export function selectSessionTurns(turns: TurnAnalysisEntry[]): {
+  turnIds: string[];
+  selectionReason: string;
+  unreadScope: string;
+} {
+  if (turns.length === 0) {
+    return {
+      turnIds: [],
+      selectionReason: "Audit Top 3 Token-ranked Session auto selection (no turns in session)",
+      unreadScope: "none",
+    };
+  }
+
+  if (turns.length <= 8) {
+    return {
+      turnIds: turns.map((t) => t.turnId),
+      selectionReason: "Audit Top 3 Token-ranked Session auto selection (all turns within budget)",
+      unreadScope: "none",
+    };
+  }
+
+  const firstTurn = turns[0];
+  const lastTurn = turns[turns.length - 1];
+  const selectedSet = new Set<string>([firstTurn.turnId, lastTurn.turnId]);
+  const turnIndexMap = new Map<string, number>(turns.map((t, idx) => [t.turnId, idx]));
+
+  const hasAvailableTokens = turns.some(
+    (t) =>
+      t.tokens?.totalTokens?.provenance !== "unavailable" &&
+      typeof t.tokens?.totalTokens?.value === "number" &&
+      t.tokens.totalTokens.value >= 0,
+  );
+
+  let selectionReason = "";
+
+  if (hasAvailableTokens) {
+    selectionReason = "Audit Top 3 Token-ranked Session auto selection (token-weighted with context and endpoints)";
+    const candidates = [...turns].sort((a, b) => {
+      const aVal =
+        a.tokens?.totalTokens?.provenance !== "unavailable" && typeof a.tokens?.totalTokens?.value === "number"
+          ? a.tokens.totalTokens.value
+          : -1;
+      const bVal =
+        b.tokens?.totalTokens?.provenance !== "unavailable" && typeof b.tokens?.totalTokens?.value === "number"
+          ? b.tokens.totalTokens.value
+          : -1;
+      if (bVal !== aVal) return bVal - aVal;
+
+      const aOrd = typeof a.ordinal?.value === "number" ? a.ordinal.value : null;
+      const bOrd = typeof b.ordinal?.value === "number" ? b.ordinal.value : null;
+      if (aOrd !== null && bOrd !== null && aOrd !== bOrd) return aOrd - bOrd;
+
+      return (turnIndexMap.get(a.turnId) ?? 0) - (turnIndexMap.get(b.turnId) ?? 0);
+    });
+
+    for (const cand of candidates) {
+      if (selectedSet.size >= 8) break;
+      const candIdx = turnIndexMap.get(cand.turnId)!;
+
+      if (selectedSet.has(cand.turnId)) {
+        if (candIdx > 0) {
+          const prevTurn = turns[candIdx - 1];
+          if (!selectedSet.has(prevTurn.turnId)) {
+            selectedSet.add(prevTurn.turnId);
+          }
+        }
+      } else {
+        selectedSet.add(cand.turnId);
+        if (selectedSet.size < 8 && candIdx > 0) {
+          const prevTurn = turns[candIdx - 1];
+          if (!selectedSet.has(prevTurn.turnId)) {
+            selectedSet.add(prevTurn.turnId);
+          }
+        }
+      }
+    }
+  } else {
+    const hasAvailableToolBytes = turns.some(
+      (t) =>
+        t.toolResultBytes?.provenance !== "unavailable" &&
+        typeof t.toolResultBytes?.value === "number" &&
+        t.toolResultBytes.value >= 0,
+    );
+
+    if (hasAvailableToolBytes) {
+      selectionReason = "Audit Top 3 Token-ranked Session auto selection (tool-bytes fallback with context and endpoints)";
+      const candidates = [...turns].sort((a, b) => {
+        const aVal =
+          a.toolResultBytes?.provenance !== "unavailable" && typeof a.toolResultBytes?.value === "number"
+            ? a.toolResultBytes.value
+            : -1;
+        const bVal =
+          b.toolResultBytes?.provenance !== "unavailable" && typeof b.toolResultBytes?.value === "number"
+            ? b.toolResultBytes.value
+            : -1;
+        if (bVal !== aVal) return bVal - aVal;
+
+        const aOrd = typeof a.ordinal?.value === "number" ? a.ordinal.value : null;
+        const bOrd = typeof b.ordinal?.value === "number" ? b.ordinal.value : null;
+        if (aOrd !== null && bOrd !== null && aOrd !== bOrd) return aOrd - bOrd;
+
+        return (turnIndexMap.get(a.turnId) ?? 0) - (turnIndexMap.get(b.turnId) ?? 0);
+      });
+
+      for (const cand of candidates) {
+        if (selectedSet.size >= 8) break;
+        const candIdx = turnIndexMap.get(cand.turnId)!;
+
+        if (selectedSet.has(cand.turnId)) {
+          if (candIdx > 0) {
+            const prevTurn = turns[candIdx - 1];
+            if (!selectedSet.has(prevTurn.turnId)) {
+              selectedSet.add(prevTurn.turnId);
+            }
+          }
+        } else {
+          selectedSet.add(cand.turnId);
+          if (selectedSet.size < 8 && candIdx > 0) {
+            const prevTurn = turns[candIdx - 1];
+            if (!selectedSet.has(prevTurn.turnId)) {
+              selectedSet.add(prevTurn.turnId);
+            }
+          }
+        }
+      }
+    } else {
+      selectionReason = "Audit Top 3 Token-ranked Session auto selection (TURN_SELECTION_USAGE_UNAVAILABLE, sequential fallback)";
+      for (const turn of turns) {
+        if (selectedSet.size >= 8) break;
+        selectedSet.add(turn.turnId);
+      }
+    }
+  }
+
+  const finalTurnIds = turns.filter((t) => selectedSet.has(t.turnId)).map((t) => t.turnId);
+  const unreadCount = turns.length - finalTurnIds.length;
+  const unreadScope = `${unreadCount} remaining Turns in the same selected Session and Audit Scope`;
+
+  return {
+    turnIds: finalTurnIds,
+    selectionReason,
+    unreadScope,
+  };
+}
+
+export function selectAutoEvidence(
+  audit: AuditResult,
+  topSessions: { sessionId: string }[],
+): ContentEvidenceSelection[] {
+  return topSessions.slice(0, 3).map((session) => {
+    const sessionTurns = (audit.turns ?? []).filter((turn) => turn.sessionId === session.sessionId);
+    const { turnIds, selectionReason, unreadScope } = selectSessionTurns(sessionTurns);
+    return {
+      sessionId: session.sessionId,
+      turnIds,
+      selectionReason,
+      unreadScope,
+    };
+  });
 }
 
 export async function readContentEvidence(request: EvidenceRequest): Promise<ContentEvidencePacket[]> {

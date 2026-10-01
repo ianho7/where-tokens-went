@@ -8,7 +8,7 @@ import { verifyInstalledSkill, verifySkillPackage } from "./bundle-version";
 import { analyseAudit } from "./analysis";
 import { readClaude } from "./claude-reader";
 import { readCodex } from "./codex-reader";
-import { readContentEvidence, type ContentEvidenceRequest } from "./content-evidence";
+import { readContentEvidence, selectAutoEvidence, type ContentEvidenceRequest } from "./content-evidence";
 import { auditFingerprint, reportComposition, sanitizeKeySessionAnalysis, validateKeySessionAnalysis, validateReportSynthesis } from "./key-session-analysis";
 import { resolveApiPricing, type PricingMode, type PricingRequestTimingEvent } from "./rates";
 import {
@@ -685,12 +685,7 @@ async function autoEvidenceRunInternal(run: ReportRun): Promise<ContentEvidenceP
   }
   const audit = await readCanonicalAudit(run);
   const input: EvidenceInput = await withRunSpan(run, { phase: "content-selection", operation: "auto-evidence-selection", source: "runner" }, async () => ({
-    selections: run.manifest.topSessions.slice(0, 3).map((session) => ({
-      sessionId: session.sessionId,
-      turnIds: audit.turns.filter((turn) => turn.sessionId === session.sessionId).slice(0, 8).map((turn) => turn.turnId),
-      selectionReason: "Audit Top 3 Token-ranked Session auto selection",
-      unreadScope: "remaining Turns in the same selected Session and Audit Scope",
-    })),
+    selections: selectAutoEvidence(audit, run.manifest.topSessions),
   }));
   const maxItemsPerSession = input.maxItemsPerSession ?? 24;
   const maxCharsPerItem = input.maxCharsPerItem ?? 1200;

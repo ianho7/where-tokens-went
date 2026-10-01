@@ -612,12 +612,7 @@ async function autoEvidenceRunInternal(run) {
     }
     const audit = await readCanonicalAudit(run);
     const input = await (0, report_run_1.withRunSpan)(run, { phase: "content-selection", operation: "auto-evidence-selection", source: "runner" }, async () => ({
-        selections: run.manifest.topSessions.slice(0, 3).map((session) => ({
-            sessionId: session.sessionId,
-            turnIds: audit.turns.filter((turn) => turn.sessionId === session.sessionId).slice(0, 8).map((turn) => turn.turnId),
-            selectionReason: "Audit Top 3 Token-ranked Session auto selection",
-            unreadScope: "remaining Turns in the same selected Session and Audit Scope",
-        })),
+        selections: (0, content_evidence_1.selectAutoEvidence)(audit, run.manifest.topSessions),
     }));
     const maxItemsPerSession = input.maxItemsPerSession ?? 24;
     const maxCharsPerItem = input.maxCharsPerItem ?? 1200;
