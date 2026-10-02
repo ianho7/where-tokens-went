@@ -543,3 +543,119 @@ test('AC-4: Multi-turn round-robin budget allocation, truncation (1200 code unit
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('AC-5: Multi-file Codex Session - earliest file has no in-scope content, continuation file has selected turn content', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'codex-multi-file-'));
+  const project = path.join(root, 'project');
+  const codexHome = path.join(root, 'codex-home');
+  const sessions = path.join(codexHome, 'sessions', '2026', '09', '24');
+  await mkdir(project, { recursive: true });
+  await mkdir(sessions, { recursive: true });
+
+  const prevCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+
+  try {
+    const sessionId = 'multi-file-session-0041';
+    const timestampEarly = '2026-09-24T01:00:00.000Z';
+    const timestampLate = '2026-09-24T15:00:00.000Z';
+
+    // File 1 (最早文件): 仅包含未选中的 turn-early，没有后续选中轮次正文
+    const file1Records = [
+      { timestamp: timestampEarly, type: 'session_meta', payload: { id: sessionId, cwd: project } },
+      { timestamp: timestampEarly, type: 'turn_context', payload: { turn_id: 'turn-early', cwd: project } },
+      { timestamp: timestampEarly, type: 'response_item', payload: { type: 'message', role: 'user', content: 'Early user prompt not in selected turns' } },
+    ];
+    const file1Rel = path.join('2026', '09', '24', `rollout-2026-09-24T00-09-59-${sessionId}.jsonl`);
+    const file1Path = path.join(sessions, `rollout-2026-09-24T00-09-59-${sessionId}.jsonl`);
+    await writeFile(file1Path, file1Records.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+
+    // File 2 (续写文件): 包含选中的 turn-selected-1 与 turn-selected-2 的正文
+    const file2Records = [
+      { timestamp: timestampLate, type: 'session_meta', payload: { id: sessionId, cwd: project } },
+      { timestamp: timestampLate, type: 'turn_context', payload: { turn_id: 'turn-selected-1', cwd: project } },
+      { timestamp: timestampLate, type: 'response_item', payload: { type: 'message', role: 'user', content: 'Selected turn 1 user instruction' } },
+      { timestamp: timestampLate, type: 'response_item', payload: { type: 'message', role: 'assistant', content: 'Selected turn 1 assistant response' } },
+      { timestamp: timestampLate, type: 'turn_context', payload: { turn_id: 'turn-selected-2', cwd: project } },
+      { timestamp: timestampLate, type: 'response_item', payload: { type: 'message', role: 'user', content: 'Selected turn 2 user instruction' } },
+      { timestamp: timestampLate, type: 'response_item', payload: { type: 'custom_tool_call', payload: { name: 'bash', output: 'Tool output result' } } },
+    ];
+    const file2Rel = path.join('2026', '09', '24', `rollout-2026-09-24T15-07-31-${sessionId}_sub1.jsonl`);
+    const file2Path = path.join(sessions, `rollout-2026-09-24T15-07-31-${sessionId}_sub1.jsonl`);
+    await writeFile(file2Path, file2Records.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+
+    const turns = [
+      createTurnEntry(sessionId, 'turn-early', 1, 100, 10),
+      createTurnEntry(sessionId, 'turn-selected-1', 2, 5000, 100),
+      createTurnEntry(sessionId, 'turn-selected-2', 3, 8000, 200),
+    ];
+    const audit = mockAudit(sessionId, turns);
+    audit.scope.since = '2026-09-24T00:00:00.000Z';
+    audit.scope.until = '2026-09-25T00:00:00.000Z';
+    const scope = {
+      harness: 'codex',
+      cwd: project,
+      allProjects: false,
+      since: new Date('2026-09-24T00:00:00.000Z'),
+      until: new Date('2026-09-25T00:00:00.000Z'),
+    };
+
+    // Case A: 显式传递 filePaths 数组
+    const packetsWithMultipleFiles = await readContentEvidence({
+      scope,
+      audit,
+      selections: [{
+        sessionId,
+        turnIds: ['turn-selected-1', 'turn-selected-2'],
+        selectionReason: 'top contributor turns',
+        unreadScope: '1 turn unread',
+      }],
+      sessionFiles: [{
+        sessionId,
+        filePath: file1Rel,
+        filePaths: [file1Rel, file2Rel],
+      }],
+      maxItemsPerSession: 24,
+      maxCharsPerItem: 1200,
+    });
+
+    assert.equal(packetsWithMultipleFiles.length, 1);
+    const packetA = packetsWithMultipleFiles[0];
+    assert.ok(packetA.items.length > 0, 'Must extract items from continuation file');
+    assert.equal(packetA.items.some((it) => it.turnId === 'turn-selected-1'), true, 'Must include turn-selected-1');
+    assert.equal(packetA.items.some((it) => it.turnId === 'turn-selected-2'), true, 'Must include turn-selected-2');
+    assert.equal(packetA.items.some((it) => it.turnId === 'turn-early'), false, 'Must isolate non-selected turns');
+    assert.equal(packetA.warnings.some((w) => w.includes('CONTENT_MISSING')), false, 'Must not report CONTENT_MISSING');
+
+    // Case B: 仅传递最早 filePath 时，自动在同目录发现包含 sessionId 的续写文件
+    const packetsWithSingleFilePath = await readContentEvidence({
+      scope,
+      audit,
+      selections: [{
+        sessionId,
+        turnIds: ['turn-selected-1', 'turn-selected-2'],
+        selectionReason: 'top contributor turns',
+        unreadScope: '1 turn unread',
+      }],
+      sessionFiles: [{
+        sessionId,
+        filePath: file1Rel,
+      }],
+      maxItemsPerSession: 24,
+      maxCharsPerItem: 1200,
+    });
+
+    assert.equal(packetsWithSingleFilePath.length, 1);
+    const packetB = packetsWithSingleFilePath[0];
+    assert.ok(packetB.items.length > 0, 'Must automatically discover continuation file');
+    assert.equal(packetB.items.some((it) => it.turnId === 'turn-selected-1'), true);
+    assert.equal(packetB.warnings.some((w) => w.includes('CONTENT_MISSING')), false);
+
+    // Case C: 预算统一执行（单 Session 预算不超过 24 items，不给每个文件发 24 items）
+    assert.ok(packetA.items.length <= 24, 'Session items must not exceed session budget limit');
+  } finally {
+    if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prevCodexHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});

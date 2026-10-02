@@ -225,7 +225,7 @@ export interface ReportRunManifest {
   };
   bundleVersion: string | null;
   auditFingerprint: string | null;
-  topSessions: Array<{ sessionId: string; rank: number; tokens: number | null; filePath?: string | null }>;
+  topSessions: Array<{ sessionId: string; rank: number; tokens: number | null; filePath?: string | null; filePaths?: string[] }>;
   artifacts: Partial<Record<RunArtifactName, ArtifactRef>>;
   stageStatus: Record<string, RunStageStatus>;
   eligibleStages: string[];
@@ -746,20 +746,33 @@ export async function setRunTopSessions(
     const sourceRoot = run.manifest.scope.harness === "codex"
       ? path.join(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"), "sessions")
       : path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "projects");
-    const filesBySession = new Map((sessionRecords ?? []).map((record) => [record.sessionId, record.filePath ?? null]));
-    manifest.topSessions = sessions.slice(0, 3).map((session, index) => ({
-      sessionId: session.key,
-      rank: index + 1,
-      tokens: typeof session.value.value === "number" ? session.value.value : null,
-      // Keep only a Harness-root-relative identity. Content Evidence resolves
-      // it against the frozen Harness root without exposing home directories.
-      filePath: (() => {
-        const file = filesBySession.get(session.key);
-        if (!file) return null;
+    const filesBySession = new Map<string, string[]>();
+    for (const record of sessionRecords ?? []) {
+      const list = filesBySession.get(record.sessionId) ?? [];
+      if (Array.isArray(record.filePaths)) {
+        for (const fp of record.filePaths) {
+          if (fp && !list.includes(fp)) list.push(fp);
+        }
+      }
+      if (record.filePath && !list.includes(record.filePath)) {
+        list.push(record.filePath);
+      }
+      filesBySession.set(record.sessionId, list);
+    }
+    manifest.topSessions = sessions.slice(0, 3).map((session, index) => {
+      const rawFiles = filesBySession.get(session.key) ?? [];
+      const relFiles = rawFiles.map((file) => {
         const relative = path.relative(sourceRoot, file).replaceAll("\\", "/");
         return relative && !relative.startsWith("../") && relative !== ".." && !path.isAbsolute(relative) ? relative : null;
-      })(),
-    }));
+      }).filter((f): f is string => typeof f === "string");
+      return {
+        sessionId: session.key,
+        rank: index + 1,
+        tokens: typeof session.value.value === "number" ? session.value.value : null,
+        filePath: relFiles[0] ?? null,
+        filePaths: relFiles,
+      };
+    });
   });
 }
 

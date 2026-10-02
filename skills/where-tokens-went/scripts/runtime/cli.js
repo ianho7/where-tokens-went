@@ -643,8 +643,11 @@ async function autoEvidenceRunInternal(run) {
         maxItemsPerSession,
         maxCharsPerItem,
         sessionFiles: (run.manifest.topSessions ?? [])
-            .filter((s) => typeof s.filePath === 'string' && s.filePath.length > 0)
-            .map((s) => ({ sessionId: s.sessionId, filePath: s.filePath })),
+            .map((s) => ({
+            sessionId: s.sessionId,
+            filePath: s.filePath ?? null,
+            filePaths: Array.isArray(s.filePaths) && s.filePaths.length > 0 ? s.filePaths : (s.filePath ? [s.filePath] : []),
+        })),
     };
     const packets = await (0, report_run_1.withRunSpan)(run, { phase: "content-read", operation: "read-content-evidence", source: "filesystem" }, async () => {
         const value = await (0, content_evidence_1.readContentEvidence)(evidenceRequest);
@@ -710,8 +713,11 @@ async function reportRunEvidenceMain(args) {
         maxItemsPerSession,
         maxCharsPerItem,
         sessionFiles: (run.manifest.topSessions ?? [])
-            .filter((s) => typeof s.filePath === 'string' && s.filePath.length > 0)
-            .map((s) => ({ sessionId: s.sessionId, filePath: s.filePath })),
+            .map((s) => ({
+            sessionId: s.sessionId,
+            filePath: s.filePath ?? null,
+            filePaths: Array.isArray(s.filePaths) && s.filePaths.length > 0 ? s.filePaths : (s.filePath ? [s.filePath] : []),
+        })),
     };
     const packets = await (0, report_run_1.withRunSpan)(run, { phase: "content-read", operation: "read-content-evidence", source: "filesystem" }, async () => {
         const value = await (0, content_evidence_1.readContentEvidence)(evidenceRequest);

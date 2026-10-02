@@ -727,8 +727,11 @@ async function autoEvidenceRunInternal(run: ReportRun): Promise<ContentEvidenceP
     maxItemsPerSession,
     maxCharsPerItem,
     sessionFiles: (run.manifest.topSessions ?? [])
-      .filter((s) => typeof s.filePath === 'string' && s.filePath.length > 0)
-      .map((s) => ({ sessionId: s.sessionId, filePath: s.filePath! })),
+      .map((s) => ({
+        sessionId: s.sessionId,
+        filePath: s.filePath ?? null,
+        filePaths: Array.isArray(s.filePaths) && s.filePaths.length > 0 ? s.filePaths : (s.filePath ? [s.filePath] : []),
+      })),
   };
   const packets = await withRunSpan(run, { phase: "content-read", operation: "read-content-evidence", source: "filesystem" }, async () => {
     const value = await readContentEvidence(evidenceRequest);
@@ -793,8 +796,11 @@ async function reportRunEvidenceMain(args: string[]): Promise<number> {
     maxItemsPerSession,
     maxCharsPerItem,
     sessionFiles: (run.manifest.topSessions ?? [])
-      .filter((s) => typeof s.filePath === 'string' && s.filePath.length > 0)
-      .map((s) => ({ sessionId: s.sessionId, filePath: s.filePath! })),
+      .map((s) => ({
+        sessionId: s.sessionId,
+        filePath: s.filePath ?? null,
+        filePaths: Array.isArray(s.filePaths) && s.filePaths.length > 0 ? s.filePaths : (s.filePath ? [s.filePath] : []),
+      })),
   };
   const packets = await withRunSpan(run, { phase: "content-read", operation: "read-content-evidence", source: "filesystem" }, async () => {
     const value = await readContentEvidence(evidenceRequest);

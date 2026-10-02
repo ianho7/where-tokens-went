@@ -638,12 +638,41 @@ async function readCodex(scope) {
             coverage.recordsRead += cached.recordsRead;
             coverage.recordsSkipped += cached.recordsSkipped;
             for (const p of cached.pendingSessions) {
-                const restored = {
-                    ...p,
-                    turnTokenSnapshots: new Map(p.turnTokenSnapshots),
-                    firstUserMessages: new Map(p.firstUserMessages),
-                };
-                pendingById.set(p.session.sessionId, restored);
+                const restoredFiles = Array.isArray(p.session.filePaths) && p.session.filePaths.length > 0
+                    ? p.session.filePaths
+                    : (p.session.filePath ? [p.session.filePath] : [file]);
+                if (pendingById.has(p.session.sessionId)) {
+                    const existing = pendingById.get(p.session.sessionId);
+                    const existingFiles = existing.session.filePaths ?? (existing.session.filePath ? [existing.session.filePath] : []);
+                    for (const f of restoredFiles) {
+                        if (!existingFiles.includes(f))
+                            existingFiles.push(f);
+                    }
+                    existing.session.filePaths = existingFiles;
+                    existing.eventTimes.push(...p.eventTimes);
+                    existing.rawCalls.push(...p.rawCalls);
+                    existing.incrementalCalls.push(...p.incrementalCalls);
+                    existing.turns.push(...p.turns);
+                    for (const [k, v] of p.turnTokenSnapshots)
+                        existing.turnTokenSnapshots.set(k, v);
+                    for (const [k, v] of p.firstUserMessages)
+                        existing.firstUserMessages.set(k, v);
+                    existing.toolCalls.push(...p.toolCalls);
+                    existing.lifecycle.push(...p.lifecycle);
+                    existing.skillEvidence.push(...p.skillEvidence);
+                }
+                else {
+                    const restored = {
+                        ...p,
+                        session: {
+                            ...p.session,
+                            filePaths: restoredFiles,
+                        },
+                        turnTokenSnapshots: new Map(p.turnTokenSnapshots),
+                        firstUserMessages: new Map(p.firstUserMessages),
+                    };
+                    pendingById.set(p.session.sessionId, restored);
+                }
             }
             continue;
         }
@@ -721,6 +750,7 @@ async function readCodex(scope) {
                             parentSessionId: null,
                             sourceVersion: null,
                             filePath: file,
+                            filePaths: [file],
                         },
                         eventTimes: [],
                         rawCalls: [],
@@ -742,6 +772,15 @@ async function readCodex(scope) {
                         partialCoverageCounted: false,
                     });
                 }
+                else {
+                    const existingPending = pendingById.get(selectedSessionId);
+                    if (!existingPending.session.filePaths) {
+                        existingPending.session.filePaths = existingPending.session.filePath ? [existingPending.session.filePath] : [];
+                    }
+                    if (!existingPending.session.filePaths.includes(file)) {
+                        existingPending.session.filePaths.push(file);
+                    }
+                }
                 if (firstSessionMeta || declaredSessionId === activeSessionId) {
                     mergeSession(pendingById.get(selectedSessionId), payload, timestamp);
                 }
@@ -759,6 +798,8 @@ async function readCodex(scope) {
                     endedAt: null,
                     parentSessionId: null,
                     sourceVersion: null,
+                    filePath: file,
+                    filePaths: [file],
                 },
                 eventTimes: [],
                 rawCalls: [],
@@ -781,6 +822,12 @@ async function readCodex(scope) {
             };
             if (!pending.session.filePath)
                 pending.session.filePath = file;
+            if (!pending.session.filePaths) {
+                pending.session.filePaths = pending.session.filePath ? [pending.session.filePath] : [file];
+            }
+            if (!pending.session.filePaths.includes(file)) {
+                pending.session.filePaths.push(file);
+            }
             pendingById.set(sessionId, pending);
             updateSessionTimes(pending, timestamp);
             const recordType = stringValue(record.type)?.toLowerCase();
@@ -1012,6 +1059,12 @@ async function readCodex(scope) {
         }
         if (pending.session.filePath)
             selectedSourceFiles.add(pending.session.filePath);
+        if (pending.session.filePaths) {
+            for (const fp of pending.session.filePaths) {
+                if (fp)
+                    selectedSourceFiles.add(fp);
+            }
+        }
         if (pending.unsupported) {
             unsupportedSessions += 1;
         }

@@ -37,6 +37,8 @@ export interface SessionRecord {
   sourceVersion: string | null;
   /** Direct file path for targeted evidence reads without directory re-scans. */
   filePath?: string | null;
+  /** Direct file paths when a session spans multiple rollout transcript files. */
+  filePaths?: string[] | null;
 }
 
 export interface TurnRecord {

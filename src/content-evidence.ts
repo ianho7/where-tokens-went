@@ -14,7 +14,8 @@ type JsonObject = Record<string, unknown>;
 
 export interface SessionFileLocation {
   sessionId: string;
-  filePath: string;
+  filePath?: string | null;
+  filePaths?: string[] | null;
 }
 
 interface EvidenceRequest {
@@ -23,7 +24,7 @@ interface EvidenceRequest {
   selections: ContentEvidenceSelection[];
   maxItemsPerSession?: number;
   maxCharsPerItem?: number;
-  sessionFiles?: SessionFileLocation[] | Map<string, string> | Record<string, string>;
+  sessionFiles?: SessionFileLocation[] | Map<string, string | string[]> | Record<string, string | string[]>;
 }
 
 function objectValue(value: unknown): JsonObject | null {
@@ -330,46 +331,87 @@ function validateRequest(request: EvidenceRequest): void {
   }
 }
 
-function getSessionFilePath(request: EvidenceRequest, sessionId: string): string | null {
-  if (!request.sessionFiles) return null;
+function getSessionFilePaths(request: EvidenceRequest, sessionId: string): string[] {
+  if (!request.sessionFiles) return [];
   if (request.sessionFiles instanceof Map) {
-    return request.sessionFiles.get(sessionId) ?? null;
+    const val = request.sessionFiles.get(sessionId);
+    if (!val) return [];
+    return Array.isArray(val)
+      ? val.filter((p): p is string => typeof p === "string" && p.length > 0)
+      : (typeof val === "string" && val.length > 0 ? [val] : []);
   }
   if (Array.isArray(request.sessionFiles)) {
-    const entry = request.sessionFiles.find((s) => s.sessionId === sessionId);
-    return entry?.filePath ?? null;
+    const results: string[] = [];
+    for (const entry of request.sessionFiles) {
+      if (entry.sessionId === sessionId) {
+        if (Array.isArray(entry.filePaths)) {
+          for (const fp of entry.filePaths) {
+            if (typeof fp === "string" && fp.length > 0 && !results.includes(fp)) {
+              results.push(fp);
+            }
+          }
+        }
+        if (typeof entry.filePath === "string" && entry.filePath.length > 0 && !results.includes(entry.filePath)) {
+          results.push(entry.filePath);
+        }
+      }
+    }
+    return results;
   }
-  return (request.sessionFiles as Record<string, string>)[sessionId] ?? null;
+  const recVal = (request.sessionFiles as Record<string, string | string[]>)[sessionId];
+  if (Array.isArray(recVal)) return recVal.filter((p): p is string => typeof p === "string" && p.length > 0);
+  if (typeof recVal === "string" && recVal.length > 0) return [recVal];
+  return [];
+}
+
+function getSessionFilePath(request: EvidenceRequest, sessionId: string): string | null {
+  const paths = getSessionFilePaths(request, sessionId);
+  return paths[0] ?? null;
 }
 
 async function resolveDirectFiles(root: string, request: EvidenceRequest): Promise<string[] | null> {
   if (!request.sessionFiles || request.selections.length === 0) return null;
   const candidateFiles: string[] = [];
   for (const selection of request.selections) {
-    const rawPath = getSessionFilePath(request, selection.sessionId);
-    if (!rawPath) return null;
-    const candidates = [
-      rawPath,
-      path.isAbsolute(rawPath) ? rawPath : path.resolve(root, rawPath),
-      path.isAbsolute(rawPath) ? rawPath : path.resolve(root, "..", rawPath),
-    ];
-    let resolved: string | null = null;
-    for (const c of candidates) {
+    const rawPaths = getSessionFilePaths(request, selection.sessionId);
+    if (rawPaths.length === 0) return null;
+    let resolvedAny = false;
+    for (const rawPath of rawPaths) {
+      const candidates = [
+        rawPath,
+        path.isAbsolute(rawPath) ? rawPath : path.resolve(root, rawPath),
+        path.isAbsolute(rawPath) ? rawPath : path.resolve(root, "..", rawPath),
+      ];
+      for (const c of candidates) {
+        try {
+          const info = await stat(c);
+          if (info.isFile()) {
+            if (!candidateFiles.includes(c)) candidateFiles.push(c);
+            resolvedAny = true;
+            break;
+          }
+        } catch {}
+      }
+    }
+    if (!resolvedAny) return null;
+
+    if (candidateFiles.length > 0) {
+      const lastResolved = candidateFiles[candidateFiles.length - 1];
+      const dir = path.dirname(lastResolved);
       try {
-        const info = await stat(c);
-        if (info.isFile()) {
-          resolved = c;
-          break;
+        const entries = await readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isFile() && entry.name.endsWith(".jsonl") && entry.name.includes(selection.sessionId)) {
+            const sibling = path.join(dir, entry.name);
+            if (!candidateFiles.includes(sibling)) {
+              candidateFiles.push(sibling);
+            }
+          }
         }
       } catch {}
     }
-    if (resolved) {
-      candidateFiles.push(resolved);
-    } else {
-      return null;
-    }
   }
-  return [...new Set(candidateFiles)];
+  return candidateFiles.length > 0 ? candidateFiles.sort() : null;
 }
 
 async function readCodexEvidence(request: EvidenceRequest): Promise<ContentEvidencePacket[]> {
