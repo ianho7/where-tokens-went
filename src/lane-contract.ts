@@ -25,6 +25,7 @@ import {
   resolveReportEvidence,
   sanitizeKeySessionAnalysis,
   validateKeySessionAnalysis,
+  turnEvidenceMetrics,
 } from "./key-session-analysis";
 import { skillInsightEvidenceReference } from "./skill-insights";
 
@@ -438,14 +439,6 @@ function addRankingEntries(
   }
 }
 
-interface TurnMetric {
-  suffix: string;
-  metric: string;
-  unit: string;
-  label: string;
-  value: EvidenceValue;
-}
-
 function addTurnEntries(
   builder: DirectoryBuilder,
   turns: readonly TurnAnalysisEntry[],
@@ -453,16 +446,9 @@ function addTurnEntries(
 ): void {
   for (const turn of turns) {
     const ownerHandle = builder.sessionHandleFor(turn.sessionId);
-    const available: Record<string, TurnMetric> = {
-      totalTokens: { suffix: "", metric: "totalTokens", unit: "tokens", label: "Turn Tokens", value: turn.tokens.totalTokens },
-      sessionSharePercent: { suffix: ":sessionSharePercent", metric: "sessionSharePercent", unit: "percent", label: "Turn share of Session", value: turn.sessionSharePercent },
-      modelCallCount: { suffix: ":modelCallCount", metric: "modelCallCount", unit: "calls", label: "Turn Model Calls", value: turn.modelCallCount },
-      toolResultBytes: { suffix: ":toolResultBytes", metric: "toolResultBytes", unit: "bytes", label: "Turn tool-result bytes", value: turn.toolResultBytes },
-      durationMs: { suffix: ":durationMs", metric: "durationMs", unit: "ms", label: "Turn duration", value: turn.durationMs },
-      errorCount: { suffix: ":errorCount", metric: "errorCount", unit: "count", label: "Turn errors", value: turn.errorCount },
-    };
+    const available = turnEvidenceMetrics(turn);
     for (const key of metricKeys) {
-      const meta = available[key];
+      const meta = available.find((entry) => entry.metric === key);
       if (!meta) continue;
       builder.addEvidence({
         objectKind: "turn",
@@ -1731,22 +1717,27 @@ export function acceptKeySessionAnalyses(input: KeySessionAcceptanceInput): KeyS
         msg.includes("outside the Token-ranked Top 3") ||
         (msg.includes("credentials") && typeof sanitized.taskContext === "string" && /api_key|sk-[a-zA-Z0-9_-]+/i.test(sanitized.taskContext))
       );
+      candidateErrors.push(...valResult.errors.map((msg) => ({ code: "KEY_SESSION_INVALID", fieldPath: path, message: msg })));
       if (fatalErrors.length === 0 && sanitized.primaryFinding !== null) {
+        // Validate the mechanism independently before removing its dependent action.
+        const withoutRecommendation: KeySessionAnalysis = {
+          ...sanitized,
+          recommendation: null,
+          limitations: [...sanitized.limitations, "Recommendation was unavailable or failed validation; primary finding is retained."],
+        };
+        const mechanismVal = validateKeySessionAnalysis(audit, withoutRecommendation, sessionPackets);
         const fallbackObj: KeySessionAnalysis = {
           ...sanitized,
           primaryFinding: null,
           recommendation: null,
           limitations: [...sanitized.limitations, "Primary mechanism failed validation; specific task is retained with limitations."],
         };
-        const retryVal = validateKeySessionAnalysis(audit, fallbackObj, sessionPackets);
+        const retryVal = mechanismVal.valid ? mechanismVal : validateKeySessionAnalysis(audit, fallbackObj, sessionPackets);
         if (retryVal.valid && retryVal.analysis) {
           finalCandidate = retryVal.analysis;
-          candidateErrors.push(...valResult.errors.map((msg) => ({ code: "KEY_SESSION_INVALID", fieldPath: path, message: msg })));
         } else {
           candidateErrors.push(...retryVal.errors.map((msg) => ({ code: "KEY_SESSION_INVALID", fieldPath: path, message: msg })));
         }
-      } else {
-        candidateErrors.push(...valResult.errors.map((msg) => ({ code: "KEY_SESSION_INVALID", fieldPath: path, message: msg })));
       }
     }
 

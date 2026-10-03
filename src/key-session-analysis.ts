@@ -7,6 +7,7 @@ import type {
   ReportComposition,
   ReportSynthesis,
   ValidatedSkillInsight,
+  TurnAnalysisEntry,
 } from "./types";
 
 export interface KeySessionValidation {
@@ -69,36 +70,43 @@ function normalizeEvidenceId(id: string): string {
   return id.trim().toLowerCase().replace(/[\s\-_]/g, "");
 }
 
+/** The finite Turn metric contract shared by directory generation and validation. */
+export function turnEvidenceMetrics(turn: TurnAnalysisEntry) {
+  return [
+    { suffix: "", metric: "totalTokens", unit: "tokens", label: "Turn Tokens", value: turn.tokens.totalTokens },
+    { suffix: ":sessionSharePercent", metric: "sessionSharePercent", unit: "percent", label: "Turn share of Session", value: turn.sessionSharePercent },
+    { suffix: ":modelCallCount", metric: "modelCallCount", unit: "calls", label: "Turn Model Calls", value: turn.modelCallCount },
+    { suffix: ":toolResultBytes", metric: "toolResultBytes", unit: "bytes", label: "Turn tool-result bytes", value: turn.toolResultBytes },
+    { suffix: ":durationMs", metric: "durationMs", unit: "ms", label: "Turn duration", value: turn.durationMs },
+    { suffix: ":errorCount", metric: "errorCount", unit: "count", label: "Turn errors", value: turn.errorCount },
+  ];
+}
+
+function resolveTurnEvidence(audit: AuditResult, reference: string) {
+  const trimmed = reference.trim();
+  const entries = (audit.turns ?? []).flatMap((turn) => turnEvidenceMetrics(turn).map((metric) => ({
+    turn, metric, canonicalRef: turn.evidenceId + metric.suffix,
+  })));
+  const exact = entries.filter((entry) => entry.canonicalRef === trimmed);
+  if (exact.length > 0) return exact.length === 1 ? exact[0] : null;
+  // Keep the explicit legacy normalized reference compatibility, but only for known metrics.
+  const norm = normalizeEvidenceId(trimmed);
+  const normalized = entries.filter((entry) => normalizeEvidenceId(entry.canonicalRef) === norm);
+  return normalized.length === 1 ? normalized[0] : null;
+}
+
 function sameSessionEvidence(audit: AuditResult, sessionId: string, evidenceIds: string[]): string[] {
   if (!Array.isArray(evidenceIds)) return [];
-  type TurnItem = NonNullable<AuditResult["turns"]>[number];
-  const turns = audit.turns ?? [];
-  return evidenceIds.filter((evidenceId) => {
-    if (typeof evidenceId !== "string") return true;
-    const trimmed = evidenceId.trim();
-    const exactMatches = turns.filter((turn) => turn.evidenceId === trimmed);
-    if (exactMatches.length === 1) return exactMatches[0].sessionId !== sessionId;
-    if (exactMatches.length > 1) return true; // ambiguous
-    const norm = normalizeEvidenceId(trimmed);
-    const normalizedMatches = turns.filter((turn) => normalizeEvidenceId(turn.evidenceId) === norm);
-    if (normalizedMatches.length === 1) return normalizedMatches[0].sessionId !== sessionId;
-    return true; // ambiguous or unknown
-  });
+  return evidenceIds.filter((id) => typeof id !== "string" || resolveTurnEvidence(audit, id)?.turn.sessionId !== sessionId);
 }
 
 function evidenceNotRead(audit: AuditResult, sessionId: string, turnIds: string[], evidenceIds: string[]): string[] {
   if (!Array.isArray(evidenceIds) || !Array.isArray(turnIds)) return [];
-  const readTurns = (audit.turns ?? []).filter((turn) => turn.sessionId === sessionId && turnIds.includes(turn.turnId));
   return evidenceIds.filter((evidenceId) => {
-    if (typeof evidenceId !== "string") return true;
-    const trimmed = evidenceId.trim();
-    const exactMatches = readTurns.filter((turn) => turn.evidenceId === trimmed);
-    if (exactMatches.length === 1) return false;
-    if (exactMatches.length > 1) return true; // ambiguous
-    const norm = normalizeEvidenceId(trimmed);
-    const normalizedMatches = readTurns.filter((turn) => normalizeEvidenceId(turn.evidenceId) === norm);
-    if (normalizedMatches.length === 1) return false;
-    return true; // not read or ambiguous
+    if (typeof evidenceId !== "string") return false;
+    const match = resolveTurnEvidence(audit, evidenceId);
+    // Unknown/cross-Session refs have their own diagnostic, not a false unread claim.
+    return match?.turn.sessionId === sessionId && !turnIds.includes(match.turn.turnId);
   });
 }
 
@@ -190,24 +198,11 @@ export function resolveReportEvidence(audit: AuditResult, reference: string): Re
     return entry ? { kind: "ranking", dimension: dimensionKey, key: entry.key, evidence: [entry.value, entry.sharePercent, entry.count] } : null;
   }
 
-  const turns = audit.turns ?? [];
-  let turn: typeof turns[number] | undefined;
-  const exact = turns.filter((candidate) => candidate.evidenceId === trimmed);
-  if (exact.length === 1) {
-    turn = exact[0];
-  } else if (exact.length > 1) {
-    return null;
-  } else {
-    const normTrimmed = normalizeEvidenceId(trimmed);
-    const normalizedMatches = turns.filter((candidate) => normalizeEvidenceId(candidate.evidenceId) === normTrimmed);
-    if (normalizedMatches.length === 1) {
-      turn = normalizedMatches[0];
-    } else {
-      return null;
-    }
-  }
-  return turn
-    ? { kind: "turn", key: turn.turnId, evidence: [turn.tokens.totalTokens, turn.sessionSharePercent, turn.modelCallCount] }
+  const match = resolveTurnEvidence(audit, trimmed);
+  return match
+    ? { kind: "turn", key: match.turn.turnId, evidence: match.metric.suffix
+      ? [match.metric.value]
+      : [match.turn.tokens.totalTokens, match.turn.sessionSharePercent, match.turn.modelCallCount] }
     : null;
 }
 

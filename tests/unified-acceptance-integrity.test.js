@@ -29,8 +29,136 @@ const { spawn } = require('node:child_process');
 
 const cliPath = path.resolve(__dirname, '..', 'dist', 'src', 'cli.js');
 const { readProjection, readCanonicalAudit } = require('./fixtures/lane-contract-v2-fixtures');
-const { parseKeySessionAnalysesV2, acceptKeySessionAnalyses } = require('../dist/src/lane-contract.js');
-const { validateKeySessionAnalysis, validateReportSynthesis, auditFingerprint } = require('../dist/src/key-session-analysis.js');
+const { parseKeySessionAnalysesV2, acceptKeySessionAnalyses, buildKeySessionDirectory } = require('../dist/src/lane-contract.js');
+const { validateKeySessionAnalysis, validateReportSynthesis, auditFingerprint, reportComposition } = require('../dist/src/key-session-analysis.js');
+const { analyseAudit } = require('../dist/src/analysis.js');
+const { renderHtml } = require('../dist/src/report.js');
+
+// In-memory owner fixture: no Report Run, history scan, pricing or model call.
+function metricEvidenceFixture() {
+  const timestamp = '2026-10-03T00:00:00.000Z';
+  const sessions = ['documents', 'retry-worker'].map((sessionId) => ({
+    harness: 'codex', sessionId, title: sessionId, projectCwd: 'D:/fixture',
+    startedAt: timestamp, endedAt: timestamp, parentSessionId: null, sourceVersion: 'fixture',
+  }));
+  const turns = sessions.flatMap(({ sessionId }) => [1, 2].map((ordinal) => ({
+    sessionId, turnId: `${sessionId}-${ordinal}`, ordinal, startedAt: timestamp,
+    endedAt: timestamp, durationMs: 1000, timeToFirstTokenMs: 200, status: 'ok', timingProvenance: 'reported',
+  })));
+  const audit = analyseAudit({ cwd: 'D:/fixture', allProjects: false, since: new Date('2026-10-02T00:00:00Z') }, {
+    sessions, turns,
+    modelCalls: turns.map(({ sessionId, turnId }) => ({
+      sessionId, turnId, callId: `${turnId}-call`, timestamp, provider: 'openai', model: 'fixture',
+      inputTokens: 90, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 10,
+      reasoningTokens: 0, totalTokens: 100, reportedCost: null, status: 'ok', activeBranch: true,
+    })),
+    toolCalls: turns.map(({ sessionId, turnId }) => ({
+      sessionId, turnId, callId: `${turnId}-tool`, timestamp, toolName: 'read_file',
+      inputBytes: 20, resultBytes: 4096, isError: false,
+    })),
+    lifecycle: [], skillEvidence: [],
+    tokenAccounting: { responseTotal: 400, turnTotal: 400, threadTotal: 400,
+      reconciledSessionIds: sessions.map((s) => s.sessionId), mismatchedSessionIds: [], status: 'reconciled', method: 'fixture' },
+    coverage: { filesRead: 0, recordsRead: 0, recordsSkipped: 0, partialSessions: 0, warnings: [] },
+  }, 'codex');
+  const { directory } = buildKeySessionDirectory({ audit, sessions: audit.rankings.sessions, turns: audit.turns, locale: 'en-US' });
+  const packets = sessions.map(({ sessionId }) => ({
+    sessionId, scope: audit.scope, turnIds: [`${sessionId}-1`], selectionReason: 'first turn', unreadScope: 'second turn unread',
+    items: [{ turnId: `${sessionId}-1`, content: 'Bounded synthetic task context.' }], warnings: [],
+  }));
+  const handle = (sessionId, ordinal, metric) => {
+    const turn = audit.turns.find((t) => t.turnId === `${sessionId}-${ordinal}`);
+    return directory.evidence.find((e) => e.canonicalRef === `${turn.evidenceId}${metric === 'totalTokens' ? '' : ':' + metric}`).handle;
+  };
+  const item = (sessionId = 'documents') => ({
+    sessionHandle: directory.sessions.find((s) => s.canonicalId === sessionId).handle,
+    taskContext: sessionId === 'documents' ? 'Reconciling interface documents.' : 'Debugging a failing background worker.',
+    primaryFinding: {
+      observation: sessionId === 'documents' ? 'Document results remain in subsequent context.' : 'Worker retries repeat the failing operation.',
+      interpretation: sessionId === 'documents' ? 'Repeated document exposure may explain continued input growth.' : 'Retrying without changing the worker repeats the same work.',
+      evidenceIds: [handle(sessionId, 1, 'totalTokens')], support: 'moderate', alternativeExplanations: ['Necessary task complexity remains plausible.'],
+    },
+    recommendation: {
+      action: sessionId === 'documents' ? 'Bound the document excerpts.' : 'Isolate the worker failure.',
+      rationale: 'Test the observed behavior before switching models.', applicability: 'Equivalent tasks.', tradeoff: null,
+      verification: 'Compare repeated exposure; the user checks completion quality.', targetEvidenceIds: [handle(sessionId, 1, 'toolResultBytes')],
+    }, limitations: ['A candidate explanation, not established causality.'],
+  });
+  const accept = (raw, contractVersion = 2) => acceptKeySessionAnalyses({ audit, directory, packets, locale: 'en-US', raw, contractVersion });
+  return { audit, directory, packets, handle, item, accept };
+}
+
+test('0042 AC-1: official Turn metrics survive acceptance; unknown, cross-Session and unread evidence remain rejected', () => {
+  const f = metricEvidenceFixture();
+  for (const metric of ['totalTokens', 'sessionSharePercent', 'modelCallCount', 'toolResultBytes', 'durationMs', 'errorCount']) {
+    const input = f.item();
+    input.primaryFinding.evidenceIds = [f.handle('documents', 1, metric)];
+    input.recommendation.targetEvidenceIds = [f.handle('documents', 1, metric)];
+    const rawBefore = JSON.stringify(input);
+    const result = f.accept([input]);
+    assert.equal(result.validationAccepted, true);
+    assert.deepEqual(result.errors, [], metric);
+    assert.equal(result.accepted[0].primaryFinding.support, 'moderate');
+    assert.notEqual(result.accepted[0].recommendation, null, metric);
+    const base = f.audit.turns.find((t) => t.turnId === 'documents-1').evidenceId;
+    assert.deepEqual(result.accepted[0].primaryFinding.evidenceIds, [base + (metric === 'totalTokens' ? '' : ':' + metric)]);
+    assert.equal(JSON.stringify(input), rawBefore, 'raw input is immutable');
+    assert.deepEqual(f.accept([input]), result, 'acceptance is idempotent');
+    assert.equal(validateKeySessionAnalysis(f.audit, result.accepted[0], f.packets).valid, true);
+    assert.deepEqual(f.accept(result.accepted, 1).accepted, result.accepted, 'explicit v1 preserves canonical metrics');
+  }
+  for (const [target, error] of [
+    ['e999999', 'EVIDENCE_REF_UNKNOWN'],
+    [f.handle('retry-worker', 1, 'toolResultBytes'), 'EVIDENCE_REF_CROSS_OBJECT'],
+    [f.handle('documents', 2, 'toolResultBytes'), 'was not read'],
+  ]) {
+    const input = f.item();
+    input.recommendation.targetEvidenceIds = [target];
+    const result = f.accept([input]);
+    assert.notEqual(result.accepted[0].primaryFinding, null, error);
+    assert.equal(result.accepted[0].recommendation, null, error);
+    assert.ok(result.errors.some((e) => e.code === error || e.message.includes(error)), JSON.stringify(result.errors));
+    if (error === 'was not read') assert.ok(!result.errors.some((e) => e.message.includes('unknown or cross-Session')), 'unread is not unknown');
+  }
+  const canonical = f.accept([f.item()]).accepted[0];
+  canonical.recommendation.targetEvidenceIds = [f.audit.turns[0].evidenceId + ':unknownMetric'];
+  const unknown = f.accept([canonical], 1);
+  assert.equal(unknown.accepted[0].recommendation, null);
+  assert.ok(unknown.errors.some((e) => e.message.includes('unknown or cross-Session')));
+});
+
+test('0042 AC-2 & AC-3: domain recommendation failure preserves mechanism and sibling; composition/HTML preserve accepted visibility', () => {
+  const f = metricEvidenceFixture();
+  const legal = f.item();
+  const invalidRec = f.item('retry-worker');
+  invalidRec.recommendation.targetEvidenceIds = [f.handle('retry-worker', 2, 'totalTokens')];
+  const result = f.accept([legal, invalidRec]);
+  assert.equal(result.accepted.length, 2);
+  assert.deepEqual(result.accepted[0].primaryFinding.observation, legal.primaryFinding.observation);
+  assert.notEqual(result.accepted[0].recommendation, null);
+  assert.deepEqual(result.accepted[1].primaryFinding.observation, invalidRec.primaryFinding.observation);
+  assert.equal(result.accepted[1].recommendation, null);
+  assert.ok(result.accepted[1].limitations.some((l) => l.includes('Recommendation')));
+  assert.ok(result.errors.some((e) => e.message.startsWith('recommendation Evidence was not read')));
+  const composition = reportComposition(f.audit, result.accepted, null, f.packets);
+  assert.deepEqual(composition.keySessionAnalyses, result.accepted);
+  const html = renderHtml(f.audit, 'en-US', composition);
+  assert.ok(html.includes(legal.primaryFinding.observation));
+  assert.ok(html.includes(legal.recommendation.action));
+  assert.ok(html.includes(invalidRec.primaryFinding.observation));
+  assert.ok(!html.includes(invalidRec.recommendation.action));
+  assert.ok(!html.includes('Specific mechanism unknown'));
+
+  const invalidFinding = f.item();
+  invalidFinding.primaryFinding.evidenceIds = [f.handle('documents', 2, 'toolResultBytes')];
+  const findingResult = f.accept([invalidFinding, f.item('retry-worker')]);
+  assert.equal(findingResult.accepted[0].primaryFinding, null);
+  assert.equal(findingResult.accepted[0].recommendation, null);
+  assert.ok(findingResult.errors.some((e) => e.message.startsWith('primaryFinding Evidence was not read')));
+  assert.ok(findingResult.accepted[0].limitations.some((l) => l.includes('Primary mechanism')));
+  assert.notEqual(findingResult.accepted[1].primaryFinding, null);
+  assert.notEqual(findingResult.accepted[1].recommendation, null);
+});
 
 function runCli(args, env, input = '') {
   return new Promise((resolve, reject) => {
