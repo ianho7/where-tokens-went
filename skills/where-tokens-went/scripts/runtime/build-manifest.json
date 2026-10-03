@@ -13,9 +13,12 @@
     "lane-contract.ts": "088e884666d1fca35af525ea0a1451ad4c5746a2d0eefbe7ae5a63912f691df5",
     "prompt-projection.ts": "40783587ccd596a333d5ef2164286ff22dbb9edd06e77f9f7ff8508d43218a4b",
     "rates.ts": "8d2fa3093c53e4ab788c8b9f7f779a116ba2a7ebb96709fe739f18e546bd1a9c",
+    "report-layout.ts": "494da31b5767c92ea5928f7ed49191fef882c077b360ce2674cbce1cef07e141",
     "report-messages.ts": "e825f81e1e1c51b5e9c73d377a44ec791ff875516875eef95f6d6aba06cd53ae",
     "report-run.ts": "944579ab602032fec0bf96fae7383767f5d15fa031d1cdcda463729fbb101332",
-    "report.ts": "c108df2549d13ace8aec84eee90b014d8b02eb1f938e2a5e5971b5d9476d55fd",
+    "report-template.html": "8965d4fc209cf4cdc4a915aad5b7caaa2fe5bc5f3a96088d5e0596c502b26a90",
+    "report.css": "f99893afcbddc282a8a84a77476cd3ada36cc75392d35d4b5efff63ef332eb01",
+    "report.ts": "fc017874ff0ffdb3810e35ec706dc6c699fbe0f133374abe25d960c01dfacce2",
     "skill-insights.ts": "7c8c7202157d19696c3a75237dbf5a7a9bb0c3b79f182bc177f4f0df20b755ea",
     "types.ts": "07a7b54336722995ef62743fdac8b0b9efbfbf36b4b93aa38366c5861f37f044"
   }

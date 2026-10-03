@@ -17,6 +17,7 @@ const node_os_1 = require("node:os");
 const key_session_analysis_1 = require("./key-session-analysis");
 const skill_insights_1 = require("./skill-insights");
 const report_messages_1 = require("./report-messages");
+const report_layout_1 = require("./report-layout");
 function normalizeLocale(value) {
     return value && value.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
 }
@@ -1920,7 +1921,8 @@ function renderHtml(result, locale = "en-US", composition, localFirstUserMessage
         "<footer><strong>" + escapeHtml(labels.privacy) + "</strong><p>" + escapeHtml(labels.privacyNote) + "</p></footer>",
         "</main></body></html>",
     ];
-    return parts.join("");
+    const canonicalHtml = parts.join("");
+    return locale === "zh-CN" ? (0, report_layout_1.renderReportLayout)(canonicalHtml, (0, report_layout_1.recordedUsageTime)(result), chartRuntime() ?? "") : canonicalHtml;
 }
 function renderReportJson(report) {
     const skillInsights = report.ai.skillInsights.result;

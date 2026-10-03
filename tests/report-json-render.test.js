@@ -63,7 +63,6 @@ test('render-report uses only report.json input and renders it repeatably', asyn
     const blockedCodexHome = path.join(root, 'codex-home-is-a-file');
     const firstHtmlPath = path.join(root, 'first.html');
     const secondHtmlPath = path.join(root, 'second.html');
-    await writeFile(jsonPath, JSON.stringify(report), 'utf8');
     await writeFile(blockedCodexHome, 'Rendering must not inspect Codex history.', 'utf8');
 
     const run = (htmlPath) => spawnSync(process.execPath, [
@@ -74,22 +73,41 @@ test('render-report uses only report.json input and renders it repeatably', asyn
       encoding: 'utf8',
       env: { ...process.env, CODEX_HOME: blockedCodexHome, FONT_CACHE_DIR: path.join(root, 'font-cache') },
     });
-    const first = run(firstHtmlPath);
-    assert.equal(first.status, 0, first.stderr);
-    const second = run(secondHtmlPath);
-    assert.equal(second.status, 0, second.stderr);
+    for (const [locale, turns] of [['en-US', audit.turns], ['zh-CN', audit.turns], ['zh-CN', []]]) {
+      report.render.locale = locale;
+      audit.turns = turns;
+      await writeFile(jsonPath, JSON.stringify(report), 'utf8');
+      const first = run(firstHtmlPath);
+      assert.equal(first.status, 0, first.stderr);
+      const second = run(secondHtmlPath);
+      assert.equal(second.status, 0, second.stderr);
 
-    const firstHtml = await readFile(firstHtmlPath, 'utf8');
-    const secondHtml = await readFile(secondHtmlPath, 'utf8');
-    assert.equal(firstHtml, secondHtml);
-    assert.match(firstHtml, /class="primary-answer"/);
-    assert.match(firstHtml, /No specific mechanism is supported by the available task and round evidence\./);
-    assert.match(firstHtml, /accepted overview marker/);
-    assert.match(firstHtml, /accepted Finding marker/);
-    assert.match(firstHtml, /local prompt marker \\u003cticket03\\u003e/);
-    assert.match(firstHtml, /1,000/);
-    assert.match(firstHtml, /ticket-03-project/);
-    assert.equal(JSON.stringify(JSON.parse(await readFile(jsonPath, 'utf8'))), JSON.stringify(report));
+      const firstHtml = await readFile(firstHtmlPath, 'utf8');
+      const secondHtml = await readFile(secondHtmlPath, 'utf8');
+      assert.equal(firstHtml, secondHtml);
+      assert.ok(firstHtml.includes('accepted overview marker'), 'accepted overview survives rendering');
+      assert.ok(firstHtml.includes('accepted Finding marker'), 'accepted Finding survives rendering');
+      assert.ok(firstHtml.includes('ticket-03-project'), 'local project identity survives rendering');
+      if (locale === 'zh-CN') {
+        const payload = JSON.parse(firstHtml.match(/<script type="application\/json" id="report-data">([\s\S]*?)<\/script>/)[1]);
+        assert.equal(payload.charts.locale, 'zh-CN');
+        assert.equal(payload.charts.rows[0].total, 1000);
+        assert.equal(payload.usageTime?.totalMs ?? null, turns.length ? 1000 : null);
+        assert.equal(payload.usageTime?.knownTurnCount ?? null, turns.length ? 1 : null);
+        assert.equal(payload.usageTime?.totalSessionCount ?? null, turns.length ? 2 : null);
+        assert.ok(payload.sourceMarkup.includes('accepted Finding marker'));
+        if (turns.length) assert.equal(payload.charts.keySessions[0].turns[0].prompt, 'local prompt marker <ticket03>');
+        assert.match(firstHtml, /class="hero-grid"/);
+        assert.doesNotMatch(firstHtml.match(/<header class="masthead">[\s\S]*?<\/header>/)[0], /V2\.6/);
+        assert.doesNotMatch(firstHtml.match(/<footer class="footer">[\s\S]*?<\/footer>/)[0], /V2\.6/);
+      } else {
+        if (turns.length) assert.ok(firstHtml.includes('local prompt marker \\u003cticket03\\u003e'), 'local prompt survives rendering');
+        assert.match(firstHtml, /class="primary-answer"/);
+        assert.match(firstHtml, /No specific mechanism is supported by the available task and round evidence\./);
+        assert.match(firstHtml, /1,000/);
+      }
+      assert.equal(JSON.stringify(JSON.parse(await readFile(jsonPath, 'utf8'))), JSON.stringify(report));
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

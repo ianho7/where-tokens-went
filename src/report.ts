@@ -29,6 +29,7 @@ import { skillInsightEvidenceMatchesReference } from "./skill-insights";
 
 import { reportMessagesFor } from "./report-messages";
 import type { ReportLocale, ReportMessages } from "./report-messages";
+import { recordedUsageTime, renderReportLayout } from "./report-layout";
 
 export interface ReportProjection {
   result: AuditResult;
@@ -2076,7 +2077,8 @@ export function renderHtml(result: AuditResult, locale: ReportLocale = "en-US", 
     "<footer><strong>" + escapeHtml(labels.privacy) + "</strong><p>" + escapeHtml(labels.privacyNote) + "</p></footer>",
     "</main></body></html>",
   ];
-  return parts.join("");
+  const canonicalHtml = parts.join("");
+  return locale === "zh-CN" ? renderReportLayout(canonicalHtml, recordedUsageTime(result), chartRuntime() ?? "") : canonicalHtml;
 }
 
 export function renderReportJson(report: ReportJson): string {

@@ -17,7 +17,7 @@ function collect(root, relative = '') {
   for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
     const next = path.join(relative, entry.name);
     if (entry.isDirectory()) result.push(...collect(root, next));
-    else if (entry.isFile() && entry.name.endsWith('.ts')) result.push(next.replaceAll('\\', '/'));
+    else if (entry.isFile() && (entry.name.endsWith('.ts') || ['report.css', 'report-template.html'].includes(entry.name))) result.push(next.replaceAll('\\', '/'));
   }
   return result.sort();
 }
